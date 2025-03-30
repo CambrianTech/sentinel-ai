@@ -1,0 +1,47 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Jupyter Notebook checkpoints
+.ipynb_checkpoints/
+
+# Environment
+.env
+.venv/
+env/
+venv/
+ENV/
+
+# PyTorch checkpoints and logs
+*.pt
+*.pth
+checkpoints/
+logs/
+
+# Colab-specific
+*.ipynb_uploads
+colab_checkpoints/
+
+# Tokenized datasets and Hugging Face cache
+*.arrow
+*.cache
+cache/
+datasets/__pycache__/
+datasets/**/*.arrow
+datasets/**/cache/
+~$*
+
+# Hugging Face transformers/datasets
+~/.cache/huggingface/
+~/.huggingface/
+
+# General editor settings
+.vscode/
+.idea/
+.DS_Store
+*.swp
+
+# Model outputs
+outputs/
+generated/
