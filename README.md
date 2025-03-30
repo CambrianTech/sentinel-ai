@@ -1,25 +1,45 @@
-# 👾 Sentinel-AI — Adaptive Transformer with ANN Controller
+# 👾 Sentinel-AI — Dynamic Transformer with Learnable Attention Pruning and Regrowth
 
-<p align="center">
+Welcome to **Sentinel-AI**, a modular research framework for transformers that can **prune**, **regrow**, and **restructure** themselves during training and inference. This architecture introduces:
+
+- **Sentinel Gating** – Learnable gating per attention head enabling pruning and selective reactivation  
+- **ANN Controller** – Neural network controller trained to monitor usage and adapt architecture  
+- **U-Net Inspired Regrowth** – Skip pathways and memory for reactivating previously pruned units without starting from scratch  
+- **Plug-and-Play Loading** – Easily imports pretrained models like `GPT2`, `DistilGPT2`, and others
+
+> 🔬 This system evolves from compact models into large, expressive ones by **dynamically growing** its structure in response to data complexity — ideal for edge devices, progressive scaling, and long-term continual learning.
+
+📄 **[Read the Research Paper](./paper/adaptive_transformer_with_controller.md)**  
+🧪 **[Explore the Interactive Notebooks](./notebooks/)**
+
+-<p align="center">
   <img src="./docs/assets/architecture_full_diagram.png" width="1000"/>
 </p>
 
-👾 **How U-Net Works in Our Transformer**  
-In Sentinel-AI, we borrow from U-Net’s idea of hierarchical skip pathways to stabilize regrowth of pruned attention heads and preserve earlier semantic features.
+### 🧭 Why Sentinel-AI?
 
-**🔄 U-Net Adaptivity in Transformer:**
-- **Skip Paths**: Low-level gate activations or embeddings from earlier layers are forwarded to later layers.
-- **Controller Memory**: The ANN controller can receive both local and skip-connected signals (e.g., early entropy values).
-- **Reinforcement Signal**: When heads regrow, they can be initialized or influenced by past behavior — like how U-Net reuses encoder features for decoder guidance.
+Unlike traditional fixed-size transformers, Sentinel-AI is:
 
-This ensures that pruned heads resume useful behavior instead of starting from scratch.
+- Designed to **start small and grow** intelligently  
+- Capable of **pruning and regrowing attention heads**, guided by data signals  
+- Modular enough to wrap existing models with adaptive functionality  
+- Efficient for training and inference across **low-resource** and **scalable** environments
+
+👾 **How Our Transformer Grows and Prunes Its Own Architecture**  
+Sentinel-AI adopts a U-Net-inspired mechanism to **regrow pruned attention heads** without losing prior knowledge. This hierarchical structure preserves key semantics even as the model dynamically restructures itself.
+
+**🔄 U-Net Adaptivity in Transformers:**
+- **Skip Paths** — Early-layer gate activations or embeddings are forwarded to later layers during regrowth.
+- **Controller Memory** — The ANN controller leverages both local signals and skip-connected context (e.g., entropy, gradients).
+- **Reinforcement Signal** — Reactivated heads resume useful behavior by inheriting past characteristics, similar to how U-Net reuses encoder features in its decoder.
+
+This enables seamless architectural evolution — pruning for efficiency, regrowing for capability — all without starting from zero.
 
 ---
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
 [![Colab Notebooks](https://img.shields.io/badge/Notebook-Colab-yellow.svg)](./notebooks/)
 
----
 
 ## 🧠 Why Adaptive Transformers?
 
