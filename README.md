@@ -1,45 +1,59 @@
 # 👾 Sentinel-AI — Adaptive Transformer with ANN Controller
 
-Welcome to **Sentinel-AI**, a research framework for adaptive transformer models that restructure themselves in real-time. This architecture introduces:
-
-- **Sentinel Gating**: Dynamic head pruning and regrowth  
-- **ANN Controller**: Guides adaptivity using gradient and entropy signals  
-- **Plug-and-Play Flexibility**: Load and upgrade pretrained models like `GPT2`, `DistilGPT2`, and others
-
 <p align="center">
   <img src="./docs/assets/architecture_full_diagram.png" width="1000"/>
 </p>
 
-👾 How U-Net Works in Our Transformer
-In Sentinel-AI, we borrow from U-Net’s idea of hierarchical skip pathways to stabilize regrowth of pruned attention heads and preserve earlier semantic features. Here's how:
+👾 **How U-Net Works in Our Transformer**  
+In Sentinel-AI, we borrow from U-Net’s idea of hierarchical skip pathways to stabilize regrowth of pruned attention heads and preserve earlier semantic features.
 
-🔄 U-Net Adaptivity in Transformer:
-Skip Paths: Low-level gate activations or embeddings from earlier layers are forwarded to later layers.
+**🔄 U-Net Adaptivity in Transformer:**
+- **Skip Paths**: Low-level gate activations or embeddings from earlier layers are forwarded to later layers.
+- **Controller Memory**: The ANN controller can receive both local and skip-connected signals (e.g., early entropy values).
+- **Reinforcement Signal**: When heads regrow, they can be initialized or influenced by past behavior — like how U-Net reuses encoder features for decoder guidance.
 
-Controller Memory: The ANN controller can receive both local and skip-connected signals (e.g., early entropy values).
-
-Reinforcement Signal: When heads regrow, they can be initialized or influenced by past behavior — like how U-Net reuses encoder features for decoder guidance.
-
-This is especially valuable when a head is pruned and later re-activated — we want the new head to resume useful behavior, not start from scratch.
-
-
-🔬 Our work builds on the premise that models should be able to **grow**, **shrink**, and **adapt** to task complexity on demand — ideal for edge deployment, low-resource training, and continual learning.
-
-📄 **[Read our Paper](./paper/adaptive_transformer_with_controller.md)**  
-🧪 **[Explore the Interactive Notebooks](./notebooks/)**
+This ensures that pruned heads resume useful behavior instead of starting from scratch.
 
 ---
 
-## 🚀 Key Features
-
-- 🔁 **Dynamic Adaptivity** — Models automatically prune or re-enable attention heads during training  
-- 🎛️ **Controller-Driven Learning** — An ANN learns to adjust gates using runtime statistics  
-- 🪜 **U-Net Style Growth** — Temporal skip connections stabilize regrowth of attention units  
-- ⚡ **Colab & Low-resource Ready** — Optimized for T4-class GPUs and RAM-constrained settings  
-- 🧩 **Compatible with Hugging Face** — Import pretrained `GPT2`, `DistilGPT2`, and others for rapid experimentation  
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
+[![Colab Notebooks](https://img.shields.io/badge/Notebook-Colab-yellow.svg)](./notebooks/)
 
 ---
 
+## 🧠 Why Adaptive Transformers?
+
+Large language models are powerful but inefficient — many attention heads contribute little to output. **Sentinel-AI** dynamically prunes underutilized heads and later regrows them based on task complexity, entropy, and gradient feedback. This architecture:
+
+- Saves memory and compute during training and inference
+- Enables real-time architectural evolution
+- Is ideal for edge devices, continual learning, and low-resource environments
+
+---
+
+## 📄 What Is Sentinel-AI?
+
+Sentinel-AI is a research framework for adaptive transformer models that restructure themselves in real time. This architecture introduces:
+
+- **Sentinel Gating** — Per-head gating values learned and optionally adjusted using runtime metrics
+- **ANN Controller** — Learns to activate or deactivate heads based on entropy and gradient norms
+- **U-Net Adaptivity** — Skip connections help reactivate heads gracefully without losing prior signal
+- **Model Loading** — Easily wrap Hugging Face models (`GPT2`, `DistilGPT2`, etc.) and apply adaptivity on top
+
+📄 **[Read the Paper](./paper/adaptive_transformer_with_controller.md)**  
+🧪 **[Explore the Notebooks](./notebooks/)**
+
+---
+
+## 🧩 Key Features
+
+- 🔁 **Dynamic Adaptivity** — Grows and prunes transformer heads in real-time
+- 🎛️ **Controller-Driven Optimization** — Entropy/gradient-based ANN controller adjusts gate values
+- 🪜 **U-Net Style Growth** — Skip connections stabilize regrowth and knowledge reuse
+- ⚡ **Colab-Ready** — Trains on T4 and other low-end GPUs with minimal memory
+- 🧠 **Compatible with Pretrained Transformers** — Easily load and adapt `GPT2`, `DistilGPT2`, etc.
+
+---
 
 ## 🗂️ Repository Structure
 
@@ -59,7 +73,7 @@ sentinel-ai/
 
 ---
 
-## 🧪 Getting Started
+## 🚀 Getting Started
 
 ### Installation
 
@@ -67,83 +81,76 @@ sentinel-ai/
 pip install -r requirements.txt
 ```
 
-### Train
+### Training
 
 ```bash
 python train.py
 ```
 
-This launches adaptive training using GPT-style weights and your selected dataset. Head activations are tracked and updated dynamically using controller signals.
+Train on `distilgpt2`, `gpt2`, or other Hugging Face models. The ANN controller and Sentinel gates activate dynamically during training.
 
 ### Inference
 
 ```bash
 python main.py
-# or with a different model
+# Or specify a different model
 MODEL_NAME=gpt2 python main.py
 ```
 
-### Use on Google Colab
+### Google Colab Setup
 
 ```python
-# In Colab
 !git clone https://github.com/your-username/sentinel-ai.git
 %cd sentinel-ai
 !pip install -r requirements.txt
 ```
 
-You can then open any notebook in `/notebooks/` or run `train_colab.py`.
+Then open any notebook in `/notebooks/` or run `scripts/train_colab.py`.
 
 ---
 
-## 📊 Visual Analysis & Evaluation Notebooks
-
-We’ve included a rich suite of notebooks that explore different aspects of the architecture:
+## 📊 Interactive Notebooks
 
 | Notebook | Description |
 |----------|-------------|
-| **AdaptiveTransformerNotebook** | Full Colab-ready training + benchmarking notebook |
-| **Proof of Adaptivity** | Demonstrates head growth and pruning over time |
-| **UNet Adaptivity** | Shows skip-residual inspired head adaptation |
-| **Controller Dynamics** | Tracks controller gate logits and updates |
-| **Attention Heatmaps** | Compare attention layers side-by-side |
-| **Checkpoint Resumption** | Verifies full recovery from saved state |
-| **Low Resource Adaptivity** | Validates self-slimming behavior under compute constraints |
-| **Model Scaling Test** | Evaluate across GPT2 variants (`distilgpt2`, `gpt2`, etc.) |
+| **AdaptiveTransformerNotebook** | Full training + benchmarking notebook |
+| **Proof of Adaptivity** | Shows dynamic pruning and regrowth in action |
+| **UNet Adaptivity** | Demonstrates skip-based reinitialization for heads |
+| **Controller Dynamics** | Tracks ANN logits and gating patterns |
+| **Attention Heatmaps** | Side-by-side attention comparisons |
+| **Checkpoint Resumption** | Tests that training resumes with gates intact |
+| **Low Resource Adaptivity** | Confirms pruning under low-compute conditions |
+| **Model Scaling Test** | Compare performance across model sizes |
 
-📁 [See full list in `notebooks/`](./notebooks/README.md)
+📁 [Browse all notebooks](./notebooks/README.md)
 
 ---
 
-## 🧠 How It Works (Architecture)
+## 🧠 How It Works (Overview)
 
 ```
-              ┌─────────────────────────────────────┐
-              │  Pretrained GPT-like Transformer    │
-              └─────────────────────────────────────┘
+              ┌────────────────────────────┐
+              │  Pretrained Transformer    │
+              └────────────────────────────┘
                              │
                              ▼
                 ┌──────────────────────┐
-                │ Sentinel Gates (Per-Head) ──┐
+                │ Sentinel Gates       │◄────┐
                 └──────────────────────┘     │
-                          ▲                  ▼
-               ┌──────────────────────┐  ┌────────────┐
-               │    ANN Controller    │  │ Attention  │
-               └──────────────────────┘  └────────────┘
-                          │
-                          ▼
-              (Dynamic activation / pruning)
+                          │                  │
+                          ▼                  │
+               ┌──────────────────────┐      │
+               │ Attention & FFN      │      │
+               └──────────────────────┘      │
+                          ▲                  │
+                ┌──────────────────────┐     │
+                │  ANN Controller       ─────┘
+                └──────────────────────┘
 ```
 
----
-
-## 🧠 Datasets Supported
-
-- 📝 **Tiny Shakespeare**
-- 📚 **WikiText-2**
-- 🌐 **OpenWebText**
-
-(Selected in `dataset_loader.py` or via notebook configuration.)
+📎 Also see:
+- [`AdaptiveTransformer_Proof_of_Adaptivity.ipynb`](./notebooks/AdaptiveTransformer_Proof_of_Adaptivity.ipynb)
+- [`ControllerDynamics.ipynb`](./notebooks/ControllerDynamics.ipynb)
 
 ---
 
@@ -152,31 +159,47 @@ We’ve included a rich suite of notebooks that explore different aspects of the
 ```python
 from utils.checkpoint import save_checkpoint, load_checkpoint
 
-# Save
+# Save training state
 save_checkpoint("checkpoint.pth", model, optimizer, head_lr_multipliers, epoch, step)
 
-# Load
+# Resume training
 load_checkpoint("checkpoint.pth", model, optimizer)
 ```
 
 ---
 
-## 📌 Future Directions
+## 🧬 Supported Datasets
 
-- 🤖 Expand controller to use gradient-based attention attribution
-- 🧬 Enable continual learning across tasks and domains
-- 🔀 Experiment with LoRA and Adapter integration for rapid task adaptation
-- 📡 Federated scaling of adaptive models across edge devices
+- 📝 **Tiny Shakespeare**
+- 📚 **WikiText-2**
+- 🌐 **OpenWebText**
+
+Choose from notebook UI or set manually in `dataset_loader.py`.
+
+---
+
+## 📌 Future Work
+
+- 🤖 Expand controller to use gradient attribution
+- 🧬 Enable lifelong task adaptation
+- 🪄 Plug in LoRA, Adapters, or QLoRA support
+- 🌍 Enable federated adaptive learning across edge devices
 
 ---
 
 ## 👥 Contributing
 
-We welcome contributions!  
-- Found a bug? File an issue.  
-- Want to extend the controller or improve training? Submit a PR.  
-- Interested in building new visual notebooks? We'd love that too.
+Pull requests welcome! Whether it’s:
+- A new controller strategy
+- A cleaner training loop
+- Visualization notebooks
+- Docs or diagrams
+
+… we’re excited to build this together.
 
 ---
 
-🧪 Built with care by researchers exploring model self-adaptation, efficient inference, and plasticity in deep networks.
+🧪 Built with care by researchers exploring dynamic architectures, efficient inference, and model plasticity.
+```
+
+---
