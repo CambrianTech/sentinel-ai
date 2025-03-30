@@ -212,11 +212,4 @@ Pull requests welcome! Whether it’s:
 - Visualization notebooks
 - Docs or diagrams
 
-… we’re excited to build this together.
 
----
-
-🧪 Built with care by researchers exploring dynamic architectures, efficient inference, and model plasticity.
-```
-
----
