@@ -19,10 +19,10 @@ class GatedMultiHeadSelfAttention(nn.Module):
 
         self.gate = nn.Parameter(torch.ones(num_heads))
 
-        print(f"Attention: q_weight={self.W_q[0].weight.shape}, o_weight={self.W_o[0].weight.shape}")
+        print(f"[Attention] W_q[0]={self.W_q[0].weight.shape}, W_o[0]={self.W_o[0].weight.shape}")
 
     def forward(self, hidden_states, attn_mask=None):
-        B, T = hidden_states.size(0), hidden_states.size(1)
+        B, T = hidden_states.shape[:2]
         outputs = []
 
         for i in range(self.num_heads):
@@ -40,6 +40,7 @@ class GatedMultiHeadSelfAttention(nn.Module):
 
             weights = torch.softmax(scores, dim=-1)
             output = torch.matmul(weights, V)
+
             projected = self.W_o[i](output) * self.gate[i]
             outputs.append(projected)
 
@@ -56,7 +57,7 @@ class FeedForward(nn.Module):
         self.act = nn.GELU()
         self.dense_out = nn.Linear(ffn_dim, embed_dim, bias=True)
 
-        print(f"FeedForward: in_weight={self.dense_in.weight.shape}, out_weight={self.dense_out.weight.shape}")
+        print(f"[FFN] dense_in={self.dense_in.weight.shape}, dense_out={self.dense_out.weight.shape}")
 
     def forward(self, x):
         return self.dense_out(self.act(self.dense_in(x)))
@@ -66,20 +67,22 @@ class AdaptiveTransformerModel(nn.Module):
     def __init__(self, config, token_embeddings, position_embeddings):
         super().__init__()
         self.config = config
-        self.embed_dim = getattr(config, 'hidden_size', getattr(config, 'n_embd'))
-        self.num_heads = getattr(config, 'num_attention_heads', getattr(config, 'n_head'))
-        self.num_layers = getattr(config, 'num_hidden_layers', getattr(config, 'n_layer'))
-        ffn_dim = getattr(config, 'n_inner', getattr(config, 'intermediate_size', 4 * self.embed_dim))
+        self.embed_dim = config.hidden_size if hasattr(config, 'hidden_size') else config.n_embd
+        self.num_heads = config.num_attention_heads if hasattr(config, 'num_attention_heads') else config.n_head
+        self.num_layers = config.num_hidden_layers if hasattr(config, 'num_hidden_layers') else config.n_layer
 
-        print(f"Model initialization: embed_dim={self.embed_dim}, num_heads={self.num_heads}, ffn_dim={ffn_dim}")
+        ffn_dim = getattr(config, 'n_inner', None) or getattr(config, 'intermediate_size', None) or 4 * self.embed_dim
 
-        self.wte = token_embeddings
-        self.wpe = position_embeddings
+        print(f"[Model Init] embed_dim={self.embed_dim}, num_heads={self.num_heads}, ffn_dim={ffn_dim}")
+
+        self.wte = nn.Embedding(config.vocab_size, self.embed_dim)
+        self.wpe = nn.Embedding(config.max_position_embeddings, self.embed_dim)
 
         self.blocks = nn.ModuleList()
         midpoint = self.num_layers // 2
 
-        for _ in range(self.num_layers):
+        for i in range(self.num_layers):
+            print(f"[Block {i}] Initializing...")
             attn = GatedMultiHeadSelfAttention(self.embed_dim, self.num_heads)
             ffn = FeedForward(self.embed_dim, ffn_dim)
             block = nn.ModuleDict({
@@ -95,24 +98,21 @@ class AdaptiveTransformerModel(nn.Module):
         self.lm_head = nn.Linear(self.embed_dim, config.vocab_size, bias=False)
         self.lm_head.weight = self.wte.weight
 
-        max_pos = getattr(config, 'max_position_embeddings', 1024)
-        self.register_buffer("bias", torch.tril(torch.ones(max_pos, max_pos)).view(1, 1, max_pos, max_pos))
+        self.register_buffer("bias", torch.tril(torch.ones(1024, 1024)).view(1, 1, 1024, 1024))
 
     def forward(self, input_ids, attention_mask=None, **kwargs):
         bsz, seq_len = input_ids.shape
         device = input_ids.device
-
         position_ids = torch.arange(seq_len, device=device).unsqueeze(0).expand(bsz, -1)
-        inputs_embeds = self.wte(input_ids) + self.wpe(position_ids)
-        hidden_states = inputs_embeds
+        hidden_states = self.wte(input_ids) + self.wpe(position_ids)
+
         encoder_outputs = {}
         midpoint = self.num_layers // 2
 
         for i, block in enumerate(self.blocks):
             h = block["ln1"](hidden_states)
 
-            attn_mask = None
-            if seq_len <= self.bias.shape[-1]:
+            if seq_len <= 1024:
                 causal_mask = self.bias[:, :, :seq_len, :seq_len]
                 attn_mask = (1.0 - causal_mask) * -10000.0
                 attn_mask = attn_mask.squeeze(0).squeeze(0)
