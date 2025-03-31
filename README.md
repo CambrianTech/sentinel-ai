@@ -7,7 +7,7 @@ Welcome to **Sentinel-AI**, a modular research framework for transformers that c
 - **U-Net Inspired Regrowth** – Skip pathways and memory for reactivating previously pruned units without starting from scratch  
 - **Plug-and-Play Loading** – Easily imports pretrained models like `GPT2`, `DistilGPT2`, and others
 
-> 🔬 This system evolves from compact models into large, expressive ones by **dynamically growing** its structure in response to data complexity — ideal for edge devices, progressive scaling, and long-term continual learning.
+> This system evolves from compact models into large, expressive ones by **dynamically growing** its structure in response to data complexity — ideal for edge devices, progressive scaling, and long-term continual learning.
 
 -<p align="center">
   <img src="./docs/assets/architecture_full_diagram.png" width="1000"/>
@@ -38,7 +38,7 @@ This enables seamless architectural evolution — pruning for efficiency, regrow
 [![Colab Notebooks](https://img.shields.io/badge/Notebook-Colab-yellow.svg)](./notebooks/)
 
 
-## 🧠 Why Adaptive Transformers?
+## Why Adaptive Transformers?
 
 Large language models are powerful but inefficient — many attention heads contribute little to output. **Sentinel-AI** dynamically prunes underutilized heads and later regrows them based on task complexity, entropy, and gradient feedback. This architecture:
 
@@ -48,7 +48,7 @@ Large language models are powerful but inefficient — many attention heads cont
 
 ---
 
-## 📄 What Is Sentinel-AI?
+## What Is Sentinel-AI?
 
 Sentinel-AI is a research framework for adaptive transformer models that restructure themselves in real time. This architecture introduces:
 
@@ -57,22 +57,22 @@ Sentinel-AI is a research framework for adaptive transformer models that restruc
 - **U-Net Adaptivity** — Skip connections help reactivate heads gracefully without losing prior signal
 - **Model Loading** — Easily wrap Hugging Face models (`GPT2`, `DistilGPT2`, etc.) and apply adaptivity on top
 
-📄 **[Read the Paper](./paper/adaptive_transformer_with_controller.md)**  
-🧪 **[Explore the Notebooks](./notebooks/)**
+ **[Read the Paper](./paper/adaptive_transformer_with_controller.md)**  
+ **[Explore the Notebooks](./notebooks/)**
 
 ---
 
-## 🧩 Key Features
+## Key Features
 
-- 🔁 **Dynamic Adaptivity** — Grows and prunes transformer heads in real-time
-- 🎛️ **Controller-Driven Optimization** — Entropy/gradient-based ANN controller adjusts gate values
-- 🪜 **U-Net Style Growth** — Skip connections stabilize regrowth and knowledge reuse
-- ⚡ **Colab-Ready** — Trains on T4 and other low-end GPUs with minimal memory
-- 🧠 **Compatible with Pretrained Transformers** — Easily load and adapt `GPT2`, `DistilGPT2`, etc.
+- **Dynamic Adaptivity** — Grows and prunes transformer heads in real-time
+- **Controller-Driven Optimization** — Entropy/gradient-based ANN controller adjusts gate values
+- **U-Net Style Growth** — Skip connections stabilize regrowth and knowledge reuse
+- **Colab-Ready** — Trains on T4 and other low-end GPUs with minimal memory
+- **Compatible with Pretrained Transformers** — Easily load and adapt `GPT2`, `DistilGPT2`, etc.
 
 ---
 
-## 🗂️ Repository Structure
+## Repository Structure
 
 ```bash
 sentinel-ai/
@@ -90,7 +90,7 @@ sentinel-ai/
 
 ---
 
-## 🚀 Getting Started
+## Getting Started
 
 ### Installation
 
@@ -126,7 +126,7 @@ Then open any notebook in `/notebooks/` or run `scripts/train_colab.py`.
 
 ---
 
-## 📊 Interactive Notebooks
+## Interactive Notebooks
 
 | Notebook | Description |
 |----------|-------------|
@@ -139,11 +139,11 @@ Then open any notebook in `/notebooks/` or run `scripts/train_colab.py`.
 | **Low Resource Adaptivity** | Confirms pruning under low-compute conditions |
 | **Model Scaling Test** | Compare performance across model sizes |
 
-📁 [Browse all notebooks](./notebooks/README.md)
+[Browse all notebooks](./notebooks/README.md)
 
 ---
 
-## 🧠 How It Works (Overview)
+## How It Works (Overview)
 
 ```
               ┌────────────────────────────┐
@@ -171,7 +171,7 @@ Then open any notebook in `/notebooks/` or run `scripts/train_colab.py`.
 
 ---
 
-## ✅ Checkpointing
+## Checkpointing
 
 ```python
 from utils.checkpoint import save_checkpoint, load_checkpoint
@@ -185,26 +185,26 @@ load_checkpoint("checkpoint.pth", model, optimizer)
 
 ---
 
-## 🧬 Supported Datasets
+## Supported Datasets
 
-- 📝 **Tiny Shakespeare**
-- 📚 **WikiText-2**
-- 🌐 **OpenWebText**
+- **Tiny Shakespeare**
+- **WikiText-2**
+- **OpenWebText**
 
 Choose from notebook UI or set manually in `dataset_loader.py`.
 
 ---
 
-## 📌 Future Work
+## Future Work
 
-- 🤖 Expand controller to use gradient attribution
-- 🧬 Enable lifelong task adaptation
-- 🪄 Plug in LoRA, Adapters, or QLoRA support
-- 🌍 Enable federated adaptive learning across edge devices
+- Expand controller to use gradient attribution
+- Enable lifelong task adaptation
+- Plug in LoRA, Adapters, or QLoRA support
+- Enable federated adaptive learning across edge devices
 
 ---
 
-## 👥 Contributing
+## Contributing
 
 Pull requests welcome! Whether it’s:
 - A new controller strategy
