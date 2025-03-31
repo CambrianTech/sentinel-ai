@@ -1,6 +1,8 @@
 import torch
 from torch import nn
 import math
+from transformers.generation.utils import GenerationMixin
+from transformers.modeling_outputs import CausalLMOutput
 
 class GatedMultiHeadSelfAttention(nn.Module):
     def __init__(self, embed_dim, num_heads):
@@ -119,3 +121,31 @@ class AdaptiveTransformerModel(nn.Module):
         hidden_states = self.ln_f(hidden_states)
         logits = self.lm_head(hidden_states)
         return logits
+
+class AdaptiveCausalLmWrapper(AdaptiveTransformerModel, GenerationMixin):
+    main_input_name = "input_ids"
+    supports_gradient_checkpointing = False
+
+    def __init__(self, config, token_embeddings, position_embeddings):
+        super().__init__(config, token_embeddings, position_embeddings)
+        self.config = config
+        from transformers import GenerationConfig
+        self.generation_config = GenerationConfig.from_model_config(config)
+
+    def prepare_inputs_for_generation(self, input_ids, **kwargs):
+        return {"input_ids": input_ids}
+
+    def forward(self, input_ids, attention_mask=None, return_dict=True, **kwargs):
+        logits = super().forward(input_ids, attention_mask=attention_mask)
+        return CausalLMOutput(logits=logits)
+
+    def can_generate(self):
+        return True
+
+    @property
+    def _supports_cache_class(self):
+        return False
+
+    @property
+    def device(self):
+        return next(self.parameters()).device
