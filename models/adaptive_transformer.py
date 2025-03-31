@@ -134,7 +134,7 @@ class AdaptiveTransformerModel(nn.Module):
                 if encoder_layer in encoder_outputs:
                     enc_out = encoder_outputs[encoder_layer]
                     fused = torch.cat([hidden_states, enc_out], dim=-1)
-                    hidden_states = block["skip_fuse"](fused)
+                    hidden_states = hidden_states + block["skip_fuse"](fused)
 
         hidden_states = self.ln_f(hidden_states)
         logits = self.lm_head(hidden_states)
