@@ -13,7 +13,7 @@ Welcome to **Sentinel-AI**, a modular research framework for transformers that c
   <img src="./docs/assets/architecture_full_diagram.png" width="1000"/>
 </p>
 
-### 🧭 Why Sentinel-AI?
+### Why Sentinel-AI?
 
 Unlike traditional fixed-size transformers, Sentinel-AI is:
 
