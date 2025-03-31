@@ -32,7 +32,8 @@ class GatedMultiHeadSelfAttention(nn.Module):
 
             scores = torch.matmul(Q, K.transpose(-2, -1)) / math.sqrt(self.head_dim)
             if attn_mask is not None:
-                scores += attn_mask
+                scores += attn_mask[:, i]  # Use per-head mask
+
             weights = torch.softmax(scores, dim=-1)
             output = torch.matmul(weights, V)
 
@@ -84,7 +85,7 @@ class AdaptiveTransformerModel(nn.Module):
 
         self.register_buffer("bias", torch.tril(torch.ones(1024, 1024)).view(1,1,1024,1024))
 
-    def forward(self, input_ids):
+    def forward(self, input_ids, attention_mask=None, **kwargs):
         bsz, seq_len = input_ids.shape
         inputs_embeds = self.wte(input_ids) + self.wpe(torch.arange(seq_len, device=input_ids.device))
         hidden_states = inputs_embeds
@@ -94,9 +95,11 @@ class AdaptiveTransformerModel(nn.Module):
 
         for i, block in enumerate(self.blocks):
             h = block["ln1"](hidden_states)
-            attn_mask = self.bias[:, :, :seq_len, :seq_len]
-            attn_mask = (attn_mask == 0) * -1e9
+            attn_mask = self.bias[:, :, :seq_len, :seq_len]  # [1, 1, T, T]
+            attn_mask = (attn_mask == 0).to(hidden_states.dtype) * -1e9  # [1, 1, T, T]
+            attn_mask = attn_mask.expand(hidden_states.size(0), self.num_heads, seq_len, seq_len)  # [B, H, T, T]
             attn_out = block["attn"](h, attn_mask=attn_mask)
+
             hidden_states = hidden_states + attn_out
 
             if i < midpoint:

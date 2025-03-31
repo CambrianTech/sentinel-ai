@@ -19,8 +19,14 @@ def generate_sample_output(model, tokenizer, prompt, device, max_length=50):
     model.eval()
     inputs = tokenizer(prompt, return_tensors="pt").to(device)
     with torch.no_grad():
-        output = model.generate(**inputs, max_length=max_length, do_sample=True, temperature=0.8)
-    print("\n[Generated]:", tokenizer.decode(output[0], skip_special_tokens=True))
+        output = model.generate(
+            **inputs,
+            max_length=max_length,
+            do_sample=True,
+            temperature=0.8
+        )
+    print("\n🧠 Prompt:", prompt)
+    print("[Generated]:", tokenizer.decode(output[0], skip_special_tokens=True))
 
 def parse_args():
     parser = argparse.ArgumentParser(
@@ -46,7 +52,7 @@ Supported Models:
   - EleutherAI/gpt-neo-1.3B
   - EleutherAI/gpt-j-6B
 
-Any model from Hugging Face is generally supported.
+Any Hugging Face causal LM should generally be compatible.
 """
     )
 
@@ -65,6 +71,7 @@ def main():
     args = parse_args()
     device = torch.device(args.device if args.device else ("cuda" if torch.cuda.is_available() else "cpu"))
 
+    print(f"🚀 Using device: {device}")
     tokenizer = AutoTokenizer.from_pretrained(args.model_name)
     baseline_model = load_baseline_model(args.model_name, device)
     adaptive_model = load_adaptive_model(args.model_name, baseline_model, device)
