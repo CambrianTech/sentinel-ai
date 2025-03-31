@@ -12,23 +12,17 @@ class GatedMultiHeadSelfAttention(nn.Module):
         self.num_heads = num_heads
         self.head_dim = embed_dim // num_heads
 
-        # Important: Match GPT2's dimension ordering for weight matrices
-        # GPT2 has weights as (input_dim, output_dim)
         self.W_q = nn.ModuleList([nn.Linear(embed_dim, self.head_dim, bias=True) for _ in range(num_heads)])
         self.W_k = nn.ModuleList([nn.Linear(embed_dim, self.head_dim, bias=True) for _ in range(num_heads)])
         self.W_v = nn.ModuleList([nn.Linear(embed_dim, self.head_dim, bias=True) for _ in range(num_heads)])
         self.W_o = nn.ModuleList([nn.Linear(self.head_dim, embed_dim, bias=True) for _ in range(num_heads)])
 
-        # Sentinel gate for each attention head
         self.gate = nn.Parameter(torch.ones(num_heads))
 
-        # Print dimensions for debugging
         print(f"Attention: q_weight={self.W_q[0].weight.shape}, o_weight={self.W_o[0].weight.shape}")
 
     def forward(self, hidden_states, attn_mask=None):
-        # Get batch size and sequence length
-        shape = hidden_states.size()
-        B, T = shape[0], shape[1]  # Safe way to extract first two dimensions
+        B, T = hidden_states.size(0), hidden_states.size(1)
         outputs = []
 
         for i in range(self.num_heads):
@@ -42,32 +36,26 @@ class GatedMultiHeadSelfAttention(nn.Module):
 
             scores = torch.matmul(Q, K.transpose(-2, -1)) / math.sqrt(self.head_dim)
             if attn_mask is not None:
-                scores = scores + attn_mask  # Use per-head mask
+                scores = scores + attn_mask
 
             weights = torch.softmax(scores, dim=-1)
             output = torch.matmul(weights, V)
-
             projected = self.W_o[i](output) * self.gate[i]
             outputs.append(projected)
 
-        return sum(outputs)  # More efficient than torch.stack(outputs).sum(0)
+        return sum(outputs)
 
 
 class FeedForward(nn.Module):
     def __init__(self, embed_dim, ffn_dim=None):
         super().__init__()
-        # Determine feed-forward dimension
         if ffn_dim is None:
-            # Default to 4x embed_dim, which is common in transformers
             ffn_dim = 4 * embed_dim
-            
-        # Important: Match GPT2's dimension ordering
-        # GPT2 uses (input_dim, output_dim) for weight matrices
+
         self.dense_in = nn.Linear(embed_dim, ffn_dim, bias=True)
         self.act = nn.GELU()
         self.dense_out = nn.Linear(ffn_dim, embed_dim, bias=True)
 
-        # Print dimensions for debugging
         print(f"FeedForward: in_weight={self.dense_in.weight.shape}, out_weight={self.dense_out.weight.shape}")
 
     def forward(self, x):
@@ -78,32 +66,20 @@ class AdaptiveTransformerModel(nn.Module):
     def __init__(self, config, token_embeddings, position_embeddings):
         super().__init__()
         self.config = config
-        self.embed_dim = config.hidden_size if hasattr(config, 'hidden_size') else config.n_embd
-        self.num_heads = config.num_attention_heads if hasattr(config, 'num_attention_heads') else config.n_head
-        self.num_layers = config.num_hidden_layers if hasattr(config, 'num_hidden_layers') else config.n_layer
+        self.embed_dim = getattr(config, 'hidden_size', getattr(config, 'n_embd'))
+        self.num_heads = getattr(config, 'num_attention_heads', getattr(config, 'n_head'))
+        self.num_layers = getattr(config, 'num_hidden_layers', getattr(config, 'n_layer'))
+        ffn_dim = getattr(config, 'n_inner', getattr(config, 'intermediate_size', 4 * self.embed_dim))
 
-        # Determine FFN dimension from config
-        ffn_dim = None
-        if hasattr(config, 'n_inner') and config.n_inner is not None:
-            ffn_dim = config.n_inner
-        elif hasattr(config, 'intermediate_size'):
-            ffn_dim = config.intermediate_size
-        else:
-            # Default to 4x hidden size if not specified
-            ffn_dim = 4 * self.embed_dim
-            
-        # Print for debugging
         print(f"Model initialization: embed_dim={self.embed_dim}, num_heads={self.num_heads}, ffn_dim={ffn_dim}")
-        
-        # Use token and position embeddings passed in
+
         self.wte = token_embeddings
         self.wpe = position_embeddings
 
-        # Build transformer blocks
         self.blocks = nn.ModuleList()
         midpoint = self.num_layers // 2
 
-        for layer_idx in range(self.num_layers):
+        for _ in range(self.num_layers):
             attn = GatedMultiHeadSelfAttention(self.embed_dim, self.num_heads)
             ffn = FeedForward(self.embed_dim, ffn_dim)
             block = nn.ModuleDict({
@@ -117,75 +93,51 @@ class AdaptiveTransformerModel(nn.Module):
 
         self.ln_f = nn.LayerNorm(self.embed_dim)
         self.lm_head = nn.Linear(self.embed_dim, config.vocab_size, bias=False)
-        self.lm_head.weight = self.wte.weight  # Weight tying
+        self.lm_head.weight = self.wte.weight
 
-        # Register causal attention mask
-        self.register_buffer("bias", torch.tril(torch.ones(1024, 1024)).view(1, 1, 1024, 1024))
+        max_pos = getattr(config, 'max_position_embeddings', 1024)
+        self.register_buffer("bias", torch.tril(torch.ones(max_pos, max_pos)).view(1, 1, max_pos, max_pos))
 
     def forward(self, input_ids, attention_mask=None, **kwargs):
         bsz, seq_len = input_ids.shape
         device = input_ids.device
-        
-        # Get position ids
-        position_ids = torch.arange(seq_len, device=device)
-        position_ids = position_ids.unsqueeze(0).expand(bsz, -1)
-        
-        # Apply token and position embeddings
+
+        position_ids = torch.arange(seq_len, device=device).unsqueeze(0).expand(bsz, -1)
         inputs_embeds = self.wte(input_ids) + self.wpe(position_ids)
         hidden_states = inputs_embeds
-
-        # Store encoder outputs for U-Net style skip connections
         encoder_outputs = {}
         midpoint = self.num_layers // 2
 
-        # Process through transformer blocks
         for i, block in enumerate(self.blocks):
-            # First layernorm before attention (pre-norm architecture)
             h = block["ln1"](hidden_states)
-            
-            # Create causal attention mask
-            attn_mask = None
-            if seq_len <= 1024:  # Use pre-computed mask if possible
-                causal_mask = self.bias[:, :, :seq_len, :seq_len]
-                # Convert to -inf for masked positions
-                attn_mask = (1.0 - causal_mask) * -10000.0
-                # Reshape to match expected format for attention
-                attn_mask = attn_mask.squeeze(0).squeeze(0)  # shape: (seq_len, seq_len)
-            else:  # Create mask on the fly for longer sequences
-                causal_mask = torch.triu(
-                    torch.ones(seq_len, seq_len, device=device) * -10000.0, 
-                    diagonal=1
-                )
-                attn_mask = causal_mask
 
-            # Self-attention with gating
+            attn_mask = None
+            if seq_len <= self.bias.shape[-1]:
+                causal_mask = self.bias[:, :, :seq_len, :seq_len]
+                attn_mask = (1.0 - causal_mask) * -10000.0
+                attn_mask = attn_mask.squeeze(0).squeeze(0)
+            else:
+                attn_mask = torch.triu(torch.ones(seq_len, seq_len, device=device) * -10000.0, diagonal=1)
+
             attn_out = block["attn"](h, attn_mask=attn_mask)
             hidden_states = hidden_states + attn_out
 
-            # Store first half outputs for skip connections
             if i < midpoint:
                 encoder_outputs[i] = hidden_states.clone()
 
-            # Second layernorm before FFN
             h2 = block["ln2"](hidden_states)
             ffn_out = block["ffn"](h2)
             hidden_states = hidden_states + ffn_out
 
-            # U-Net style skip connections for second half of layers
             if i >= midpoint:
                 encoder_layer = self.num_layers - i - 1
                 if encoder_layer in encoder_outputs:
                     enc_out = encoder_outputs[encoder_layer]
-                    # Concatenate current and skip features then project back to hidden size
                     fused = torch.cat([hidden_states, enc_out], dim=-1)
                     hidden_states = block["skip_fuse"](fused)
 
-        # Final layer norm
         hidden_states = self.ln_f(hidden_states)
-        
-        # Project to vocabulary
         logits = self.lm_head(hidden_states)
-        
         return logits
 
 
