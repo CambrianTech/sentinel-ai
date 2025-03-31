@@ -60,7 +60,7 @@ Examples:
 """
     )
 
-    parser.add_argument("--model_name", type=str, default=os.getenv("MODEL_NAME", "gpt2-medium"),
+    parser.add_argument("--model_name", type=str, default=os.getenv("MODEL_NAME", "gpt2"),
                         help="HuggingFace model name (see supported list below).")
     parser.add_argument("--prompt", type=str, default="The meaning of life is",
                         help="Prompt text for generating output.")
@@ -74,7 +74,7 @@ Examples:
                         help="Top-k sampling (default: 50). Set to 0 to disable.")
     parser.add_argument("--top_p", type=float, default=0.95,
                         help="Top-p nucleus sampling (default: 0.95).")
-    parser.add_argument("--baseline_only", action="store_true",
+    parser.add_argument("--baseline", action="store_true",
                         help="Use only the baseline HuggingFace model, skipping adaptive wrapper.")
 
     return parser.parse_args()
@@ -89,7 +89,7 @@ def main():
 
     baseline_model = load_baseline_model(args.model_name, device)
 
-    if args.baseline_only:
+    if args.baseline:
         print("⚙️  Running with baseline HuggingFace model only")
         model = baseline_model
     else:
