@@ -1,6 +1,13 @@
 import torch
 from transformers import AutoConfig, AutoModelForCausalLM
-from .gpt2_loader import load_adaptive_model_gpt
+try:
+    # First try to load the fixed version
+    from .fix_gpt2_loader import load_adaptive_model_gpt
+    print("✅ Using fixed GPT2 loader")
+except ImportError:
+    # Fallback to original loader
+    from .gpt2_loader import load_adaptive_model_gpt
+    print("⚠️ Using original GPT2 loader (consider using the fixed version)")
 
 
 def load_baseline_model(model_name, device):

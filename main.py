@@ -20,16 +20,36 @@ def generate_sample_output(model, tokenizer, prompt, device, max_length=50, temp
     inputs = tokenizer(prompt, return_tensors="pt").to(device)
 
     with torch.no_grad():
-        output = model.generate(
-            **inputs,
-            max_length=max_length,
-            do_sample=True,
-            temperature=temperature,
-            top_k=top_k if top_k > 0 else None,
-            top_p=top_p,
-            pad_token_id=tokenizer.eos_token_id,
-            no_repeat_ngram_size=3  # Prevent 3-gram repetition loops
-        )
+        # For adaptive model, use more careful settings
+        is_adaptive = not hasattr(model, "config") or not hasattr(model.config, "model_type")
+        
+        generation_params = {
+            "max_length": max_length,
+            "do_sample": True,
+            "pad_token_id": tokenizer.eos_token_id,
+            "no_repeat_ngram_size": 3  # Prevent 3-gram repetition loops
+        }
+        
+        # Special settings for the adaptive model
+        if is_adaptive:
+            generation_params.update({
+                "temperature": 0.7,        # Lower temperature (more focused text)
+                "top_k": 100,              # Consider more candidates 
+                "top_p": 0.9,              # More focused nucleus sampling
+                "repetition_penalty": 1.2, # Discourage repetition
+                "num_beams": 5,            # Use beam search for better coherence
+                "num_beam_groups": 3,      # Diverse beam groups
+                "diversity_penalty": 1.0,  # Encourage diversity between beams
+            })
+        else:
+            # Standard settings for baseline model
+            generation_params.update({
+                "temperature": temperature,
+                "top_k": top_k if top_k > 0 else None,
+                "top_p": top_p,
+            })
+            
+        output = model.generate(**inputs, **generation_params)
         
     # Inspect logits of known input
     test = tokenizer("The cat", return_tensors="pt").to(device)

@@ -124,20 +124,61 @@ def load_adaptive_model_gpt(model_name, baseline_model, config, device):
 
         # Attention QKV + O
         try:
-            qkv_w = baseline_state[f"transformer.h.{layer_idx}.attn.c_attn.weight"]
-            qkv_b = baseline_state[f"transformer.h.{layer_idx}.attn.c_attn.bias"]
-            c_proj_w = baseline_state[f"transformer.h.{layer_idx}.attn.c_proj.weight"]
-            c_proj_b = baseline_state[f"transformer.h.{layer_idx}.attn.c_proj.bias"]
+            print(f"[Loading Attention Weights for Layer {layer_idx}]")
+            # Get the attention weights from baseline model
+            qkv_w = baseline_state[f"transformer.h.{layer_idx}.attn.c_attn.weight"]  # [3*hidden_size, hidden_size]
+            qkv_b = baseline_state[f"transformer.h.{layer_idx}.attn.c_attn.bias"]    # [3*hidden_size]
+            c_proj_w = baseline_state[f"transformer.h.{layer_idx}.attn.c_proj.weight"]  # [hidden_size, hidden_size]
+            c_proj_b = baseline_state[f"transformer.h.{layer_idx}.attn.c_proj.bias"]    # [hidden_size]
 
+            # Debug
+            print(f"  Shapes - qkv_w: {qkv_w.shape}, c_proj_w: {c_proj_w.shape}")
+            
+            # Determine if we need to transpose the weights based on shape
+            should_transpose_qkv = qkv_w.shape[0] != 3 * hidden_size
+            should_transpose_proj = c_proj_w.shape[0] != hidden_size
+            
+            if should_transpose_qkv:
+                print("  Transposing QKV weights")
+                qkv_w = qkv_w.t()
+            
+            if should_transpose_proj:
+                print("  Transposing projection weights")
+                c_proj_w = c_proj_w.t()
+            
+            # For each attention head
             for head_idx in range(num_heads):
+                # Calculate slice indices for this head
                 hs, he = head_idx * head_dim, (head_idx + 1) * head_dim
-                qw, qb = qkv_w[:, hs:he].t(), qkv_b[hs:he]
-                kw, kb = qkv_w[:, hidden_size + hs:hidden_size + he].t(), qkv_b[hidden_size + hs:hidden_size + he]
-                vw, vb = qkv_w[:, 2 * hidden_size + hs:2 * hidden_size + he].t(), qkv_b[2 * hidden_size + hs:2 * hidden_size + he]
-                ow = c_proj_w[:, hs:he].t() if c_proj_w[:, hs:he].t().shape == adaptive_state[f"blocks.{layer_idx}.attn.W_o.{head_idx}.weight"].shape else c_proj_w[:, hs:he]
+                
+                # Extract query, key, value weights and biases for this head
+                # GPT-2 stores them as [q1,q2,...,qh,k1,k2,...,kh,v1,v2,...,vh]
+                qw = qkv_w[:, hs:he].t()  # Transpose to match our model's shape
+                qb = qkv_b[hs:he]
+                
+                kw = qkv_w[:, hidden_size + hs:hidden_size + he].t()
+                kb = qkv_b[hidden_size + hs:hidden_size + he]
+                
+                vw = qkv_w[:, 2 * hidden_size + hs:2 * hidden_size + he].t()
+                vb = qkv_b[2 * hidden_size + hs:2 * hidden_size + he]
+                
+                # Extract output projection weights and biases
+                if c_proj_w.shape[1] == hidden_size:
+                    # Need to slice by head size first
+                    ow = c_proj_w[:, hs:he].t()
+                else:
+                    # Direct assignment
+                    ow = c_proj_w[hs:he, :].t()
+                
+                # Output bias is shared, so divide by number of heads
                 ob = c_proj_b / num_heads
 
-                for name, val in [
+                # Debug output
+                if head_idx == 0:
+                    print(f"  Head {head_idx} - q shape: {qw.shape}, k shape: {kw.shape}, v shape: {vw.shape}, o shape: {ow.shape}")
+                
+                # Copy to our model
+                weight_mapping = [
                     (f"blocks.{layer_idx}.attn.W_q.{head_idx}.weight", qw),
                     (f"blocks.{layer_idx}.attn.W_q.{head_idx}.bias", qb),
                     (f"blocks.{layer_idx}.attn.W_k.{head_idx}.weight", kw),
@@ -146,10 +187,29 @@ def load_adaptive_model_gpt(model_name, baseline_model, config, device):
                     (f"blocks.{layer_idx}.attn.W_v.{head_idx}.bias", vb),
                     (f"blocks.{layer_idx}.attn.W_o.{head_idx}.weight", ow),
                     (f"blocks.{layer_idx}.attn.W_o.{head_idx}.bias", ob)
-                ]:
-                    adaptive_state[name].copy_(val)
-                    loaded.append(name)
-        except Exception:
+                ]
+                
+                for name, val in weight_mapping:
+                    try:
+                        # Check for shape match
+                        target_shape = adaptive_state[name].shape
+                        if val.shape != target_shape:
+                            print(f"  Shape mismatch for {name}: {val.shape} vs {target_shape}")
+                            if len(val.shape) == len(target_shape) and val.numel() == adaptive_state[name].numel():
+                                # Try transposing
+                                val = val.transpose(-1, -2)
+                                print(f"  Transposed to {val.shape}")
+                        
+                        adaptive_state[name].copy_(val)
+                        loaded.append(name)
+                    except Exception as e:
+                        print(f"  Error loading {name}: {e}")
+                        skipped.append(name)
+                
+            print(f"  Loaded weights for {num_heads} attention heads in layer {layer_idx}")
+            
+        except Exception as e:
+            print(f"[ERROR] Failed to load attention for layer {layer_idx}: {e}")
             for head_idx in range(num_heads):
                 skipped.extend([
                     f"blocks.{layer_idx}.attn.W_q.{head_idx}.weight",
