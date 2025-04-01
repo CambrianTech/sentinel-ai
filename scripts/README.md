@@ -12,6 +12,8 @@ This directory contains utility scripts for working with Sentinel-AI.
 - **`analyze_heads.py`**: Analyze attention head activity and gate values
 - **`benchmark.py`**: Performance benchmarking across model configurations
 - **`benchmark_pruning.py`**: Comprehensive analysis of different pruning strategies and levels
+- **`profile_full_model.py`**: Detailed model profiling to identify bottlenecks
+- **`profile_attention_optimization.py`**: Profile attention mechanism optimizations
 - **`pruning_impact_analyzer.py`**: Focused analysis of pruning impact on model performance
 - **`prune_heads.py`**: Manually prune specific attention heads for testing
 - **`expand_heads.py`**: Test head expansion for specific model structures
@@ -66,6 +68,33 @@ python scripts/pruning_impact_analyzer.py \
   --model gpt2 \
   --pruning_levels 0.0 0.1 0.3 0.5 0.7 0.9 \
   --metric perplexity
+```
+
+### Profiling
+
+```bash
+# Profile full model execution
+python scripts/profile_full_model.py \
+  --model_name gpt2 \
+  --device cuda \
+  --profile_mode all \
+  --pruning_levels 0,30,50,70 \
+  --optimization_level 2 \
+  --visualize
+
+# Compare model architectures
+./scripts/run_multi_model_profile.sh \
+  --models "gpt2,gpt2-medium,facebook/opt-125m,bigscience/bloom-560m" \
+  --device cuda \
+  --iterations 3
+
+# Test integration optimizations
+python scripts/profile_full_model.py \
+  --model_name gpt2 \
+  --test_integration_points \
+  --pruning_levels 0,50 \
+  --optimization_level 3 \
+  --visualize
 ```
 
 ### Running Inference
