@@ -2,7 +2,7 @@
 
 import os
 import torch
-from datasets import load_dataset
+import datasets as ds  # Use alias to avoid confusion with our module
 from transformers import AutoTokenizer
 from torch.utils.data import Dataset
 
@@ -17,13 +17,13 @@ def load_and_tokenize_dataset(model_name: str, dataset_name="tiny_shakespeare", 
 
     # Load dataset
     if dataset_name == "tiny_shakespeare":
-        dataset = load_dataset("tiny_shakespeare")
+        dataset = ds.load_dataset("tiny_shakespeare")
     elif dataset_name == "wikitext":
-        dataset = load_dataset("wikitext", "wikitext-2-raw-v1")
+        dataset = ds.load_dataset("wikitext", "wikitext-2-raw-v1")
     elif dataset_name == "openwebtext":
-        dataset = load_dataset("openwebtext")
+        dataset = ds.load_dataset("openwebtext")
     elif dataset_name == "tiny_stories":
-        dataset = load_dataset("roneneldan/TinyStories")
+        dataset = ds.load_dataset("roneneldan/TinyStories")
     else:
         raise ValueError(f"Unsupported dataset: {dataset_name}")
 
