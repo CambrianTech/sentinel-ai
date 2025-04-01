@@ -53,9 +53,10 @@ dist/
 !/pruning_results/examples/
 /pruning_speed_results.png
 
-# Profiling and optimization results
+# Profiling, optimization, and demo results
 /profiling_results/
 /optimization_results/
+/demo_results/
 
 # Visualization files
 *.png

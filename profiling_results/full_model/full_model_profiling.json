@@ -1,0 +1,110 @@
+{
+  "model_loading": {
+    "operation": "model_loading",
+    "baseline_model": {
+      "load_time": 0.7484867572784424,
+      "memory_usage": 497759232,
+      "parameter_count": 124439808
+    },
+    "original_model": {
+      "load_time": 1.2785160541534424,
+      "memory_usage": 554825280,
+      "parameter_count": 138706320
+    },
+    "optimized_model": {
+      "load_time": 1.4611172676086426,
+      "memory_usage": 554825280,
+      "parameter_count": 138706320
+    }
+  },
+  "pruning_comparison": {
+    "original": {
+      "0": {
+        "model_type": "original",
+        "pruning_level": 0,
+        "generation_times": [
+          3.2115530967712402,
+          1.6601362228393555,
+          4.282867908477783
+        ],
+        "avg_generation_time": 3.0515190760294595,
+        "tokens_per_second": 6.5541127227765426,
+        "first_token_time": 3.211548328399658,
+        "profile_data": null,
+        "generated_text": "The transformer model architecture revolutionized natural language processing by the world's going to be able of the 'The same day, a lot of my job is"
+      },
+      "50": {
+        "model_type": "original",
+        "pruning_level": 50,
+        "generation_times": [
+          1.1236250400543213,
+          1.6656129360198975,
+          3.141028881072998
+        ],
+        "avg_generation_time": 1.9767556190490723,
+        "tokens_per_second": 10.117588541177941,
+        "first_token_time": 1.123621940612793,
+        "profile_data": null,
+        "generated_text": "The transformer model architecture revolutionized natural language processing by this is a high, I can be able to get rid of a little on YouTube. It's"
+      },
+      "70": {
+        "model_type": "original",
+        "pruning_level": 70,
+        "generation_times": [
+          0.9114251136779785,
+          0.971904993057251,
+          0.9443390369415283
+        ],
+        "avg_generation_time": 0.9425563812255859,
+        "tokens_per_second": 21.218889817492325,
+        "first_token_time": 0.9114229679107666,
+        "profile_data": null,
+        "generated_text": "The transformer model architecture revolutionized natural language processing by the same day to be a lot of their own, and you're in the right. The same"
+      }
+    },
+    "optimized": {
+      "0": {
+        "model_type": "optimized",
+        "pruning_level": 0,
+        "generation_times": [
+          1.3450210094451904,
+          1.3557841777801514,
+          1.3550007343292236
+        ],
+        "avg_generation_time": 1.3519353071848552,
+        "tokens_per_second": 14.793607278181192,
+        "first_token_time": 1.3450188636779785,
+        "profile_data": null,
+        "generated_text": "The transformer model architecture revolutionized natural language processing by the same thing you're to be a. The is not even I've been in a big."
+      },
+      "50": {
+        "model_type": "optimized",
+        "pruning_level": 50,
+        "generation_times": [
+          0.9741170406341553,
+          1.0184199810028076,
+          1.0290288925170898
+        ],
+        "avg_generation_time": 1.0071886380513508,
+        "tokens_per_second": 19.857253392666163,
+        "first_token_time": 0.9741148948669434,
+        "profile_data": null,
+        "generated_text": "The transformer model architecture revolutionized natural language processing by a day, the next. I'm a small, and was not to be asked you can't"
+      },
+      "70": {
+        "model_type": "optimized",
+        "pruning_level": 70,
+        "generation_times": [
+          1.1080422401428223,
+          1.027143955230713,
+          0.9753949642181396
+        ],
+        "avg_generation_time": 1.0368603865305583,
+        "tokens_per_second": 19.28900000406232,
+        "first_token_time": 1.1080400943756104,
+        "profile_data": null,
+        "generated_text": "The transformer model architecture revolutionized natural language processing by this is a person's going to be considered was not necessarily, and then they all sorts of a"
+      }
+    }
+  }
+}

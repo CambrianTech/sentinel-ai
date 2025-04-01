@@ -1,0 +1,176 @@
+{
+  "metadata": {
+    "model_name": "gpt2",
+    "device": "cpu",
+    "precision": "float16",
+    "num_tokens": 50,
+    "temperature": 0.7,
+    "iterations": 1,
+    "optimization_levels": [
+      0,
+      1,
+      2
+    ],
+    "pruning_levels": [
+      0,
+      50,
+      70
+    ],
+    "timestamp": "2025-04-01 13:57:37"
+  },
+  "tests": [
+    {
+      "optimization_level": 0,
+      "pruning": 0,
+      "load_time": 0.839555025100708,
+      "generation_times": [
+        3.359581232070923
+      ],
+      "avg_generation_time": 3.359581232070923,
+      "tokens_per_second_values": [
+        14.885923671339505
+      ],
+      "avg_tokens_per_second": 14.885923671339505,
+      "perplexities": [
+        30.452924038050345
+      ],
+      "avg_perplexity": 30.452924038050345
+    },
+    {
+      "optimization_level": 0,
+      "pruning": 50,
+      "load_time": 0.767427921295166,
+      "generation_times": [
+        2.3760640621185303
+      ],
+      "avg_generation_time": 2.3760640621185303,
+      "tokens_per_second_values": [
+        21.046101068355934
+      ],
+      "avg_tokens_per_second": 21.046101068355934,
+      "perplexities": [
+        33.21264439092901
+      ],
+      "avg_perplexity": 33.21264439092901
+    },
+    {
+      "optimization_level": 0,
+      "pruning": 70,
+      "load_time": 0.749567985534668,
+      "generation_times": [
+        2.4095664024353027
+      ],
+      "avg_generation_time": 2.4095664024353027,
+      "tokens_per_second_values": [
+        20.753284684245877
+      ],
+      "avg_tokens_per_second": 20.753284684245877,
+      "perplexities": [
+        31.304614410118962
+      ],
+      "avg_perplexity": 31.304614410118962
+    },
+    {
+      "optimization_level": 1,
+      "pruning": 0,
+      "load_time": 0.41306304931640625,
+      "generation_times": [
+        4.356523036956787
+      ],
+      "avg_generation_time": 4.356523036956787,
+      "tokens_per_second_values": [
+        11.477891117462201
+      ],
+      "avg_tokens_per_second": 11.477891117462201,
+      "perplexities": [
+        4.134663987915313
+      ],
+      "avg_perplexity": 4.134663987915313
+    },
+    {
+      "optimization_level": 1,
+      "pruning": 50,
+      "load_time": 0.4040720462799072,
+      "generation_times": [
+        5.023298025131226
+      ],
+      "avg_generation_time": 5.023298025131226,
+      "tokens_per_second_values": [
+        9.954228581602454
+      ],
+      "avg_tokens_per_second": 9.954228581602454,
+      "perplexities": [
+        7.999999999999998
+      ],
+      "avg_perplexity": 7.999999999999998
+    },
+    {
+      "optimization_level": 1,
+      "pruning": 70,
+      "load_time": 0.42955994606018066,
+      "generation_times": [
+        5.404464244842529
+      ],
+      "avg_generation_time": 5.404464244842529,
+      "tokens_per_second_values": [
+        9.252190022591442
+      ],
+      "avg_tokens_per_second": 9.252190022591442,
+      "perplexities": [
+        9.547804400915995
+      ],
+      "avg_perplexity": 9.547804400915995
+    },
+    {
+      "optimization_level": 2,
+      "pruning": 0,
+      "load_time": 0.4012110233306885,
+      "generation_times": [
+        4.725157976150513
+      ],
+      "avg_generation_time": 4.725157976150513,
+      "tokens_per_second_values": [
+        10.5822772469726
+      ],
+      "avg_tokens_per_second": 10.5822772469726,
+      "perplexities": [
+        15.999999999999998
+      ],
+      "avg_perplexity": 15.999999999999998
+    },
+    {
+      "optimization_level": 2,
+      "pruning": 50,
+      "load_time": 0.40340209007263184,
+      "generation_times": [
+        4.708891868591309
+      ],
+      "avg_generation_time": 4.708891868591309,
+      "tokens_per_second_values": [
+        10.619092798219809
+      ],
+      "avg_tokens_per_second": 10.619092798219809,
+      "perplexities": [
+        6.452842029300561
+      ],
+      "avg_perplexity": 6.452842029300561
+    },
+    {
+      "optimization_level": 2,
+      "pruning": 70,
+      "load_time": 0.4031710624694824,
+      "generation_times": [
+        4.521410942077637
+      ],
+      "avg_generation_time": 4.521410942077637,
+      "tokens_per_second_values": [
+        11.059358611074767
+      ],
+      "avg_tokens_per_second": 11.059358611074767,
+      "perplexities": [
+        3.7892914162759954
+      ],
+      "avg_perplexity": 3.7892914162759954
+    }
+  ]
+}

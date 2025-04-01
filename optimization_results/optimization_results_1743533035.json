@@ -1,0 +1,54 @@
+{
+  "metadata": {
+    "model_name": "gpt2",
+    "device": "cpu",
+    "precision": "float16",
+    "num_tokens": 50,
+    "temperature": 0.7,
+    "iterations": 1,
+    "optimization_levels": [
+      0,
+      1
+    ],
+    "pruning_levels": [
+      0
+    ],
+    "timestamp": "2025-04-01 13:43:41"
+  },
+  "tests": [
+    {
+      "optimization_level": 0,
+      "pruning": 0,
+      "load_time": 0.8243899345397949,
+      "generation_times": [
+        6.408010005950928
+      ],
+      "avg_generation_time": 6.408010005950928,
+      "tokens_per_second_values": [
+        7.803666393142619
+      ],
+      "avg_tokens_per_second": 7.803666393142619,
+      "perplexities": [
+        34.51136362054099
+      ],
+      "avg_perplexity": 34.51136362054099
+    },
+    {
+      "optimization_level": 1,
+      "pruning": 0,
+      "load_time": 0.44762206077575684,
+      "generation_times": [
+        5.378153085708618
+      ],
+      "avg_generation_time": 5.378153085708618,
+      "tokens_per_second_values": [
+        9.297466187406751
+      ],
+      "avg_tokens_per_second": 9.297466187406751,
+      "perplexities": [
+        5.7388369212671595
+      ],
+      "avg_perplexity": 5.7388369212671595
+    }
+  ]
+}
