@@ -7,6 +7,26 @@ This script implements the training procedure described in the paper, including:
 - Dynamic controller for adaptive head pruning
 - U-Net style skip connections
 - Metrics tracking and visualization
+- Controller learning rate scheduling
+- Early stopping based on gate activity plateaus
+
+Key features:
+1. Dynamic learning rate for controller: The controller's learning rate is automatically
+   scheduled to decrease over time, stabilizing gate values in later stages of training.
+
+2. Early stopping mechanism: Detects when gate activity plateaus across multiple updates,
+   preventing oscillations and stabilizing the pruning process.
+
+3. Head regrowth capability: The controller can reactivate previously pruned heads
+   based on importance metrics, allowing for dynamic architecture adaptation.
+
+4. U-Net skip connections: Hierarchical connections between encoder and decoder layers,
+   enabling richer representations and improved adaptation.
+
+5. Per-head learning rate adjustment: When heads are pruned or regrown, their learning
+   rates are temporarily boosted to allow faster adaptation to their new role, then
+   gradually decayed back to the base learning rate. This improves stability during
+   architectural changes.
 """
 
 import os
@@ -22,6 +42,7 @@ from utils.metrics_logger import MetricsLogger
 from utils.checkpoint import save_checkpoint, load_checkpoint
 from utils.progress_tracker import ProgressTracker
 from utils.training import compute_loss
+from utils.head_lr_manager import HeadLRManager
 from controller.controller_manager import ControllerManager
 
 def set_seed(seed):
@@ -114,7 +135,12 @@ def train(args):
     optimizer = torch.optim.AdamW(optimizer_param_groups, lr=args.learning_rate)
     
     # Create scheduler
-    num_training_steps = args.epochs * len(train_loader)
+    # Account for gradient accumulation in num_training_steps calculation
+    num_training_steps = args.epochs * len(train_loader) // args.gradient_accumulation_steps
+    if args.gradient_accumulation_steps > 1:
+        print(f"🔄 Using gradient accumulation. Steps per update: {args.gradient_accumulation_steps}")
+        print(f"🔄 Effective batch size: {args.batch_size * args.gradient_accumulation_steps}")
+    
     lr_scheduler = get_scheduler(
         name=args.lr_scheduler,
         optimizer=optimizer,
@@ -122,7 +148,7 @@ def train(args):
         num_training_steps=num_training_steps
     )
     
-    # Initialize controller manager
+    # Initialize controller manager with enhanced configuration
     controller_config = {
         "controller_type": args.controller_type,
         "update_frequency": args.controller_update_freq,
@@ -131,7 +157,16 @@ def train(args):
         "controller_config": {
             "init_value": args.gate_init_value,
             "reg_weight": args.gate_reg_weight
-        }
+        },
+        # Learning rate scheduling for controller
+        "controller_lr": args.controller_lr,
+        "controller_lr_decay": args.controller_lr_decay,
+        "controller_lr_decay_steps": args.controller_lr_decay_steps,
+        "min_controller_lr": args.min_controller_lr,
+        # Early stopping configuration
+        "enable_early_stopping": args.enable_early_stopping,
+        "early_stopping_patience": args.early_stopping_patience,
+        "min_gate_change": args.min_gate_change
     }
     controller = ControllerManager(model, controller_config)
     
@@ -152,6 +187,24 @@ def train(args):
         eval_interval=args.eval_interval
     )
     
+    # Initialize the head learning rate manager if enabled
+    head_lr_manager = None
+    if args.enable_head_lr:
+        print(f"🔄 Initializing per-head learning rate manager")
+        print(f"   - Boost factor: {args.head_lr_boost}")
+        print(f"   - Warmup steps: {args.head_lr_warmup}")
+        print(f"   - Cooldown steps: {args.head_lr_cooldown}")
+        
+        head_lr_manager = HeadLRManager(
+            model=model,
+            optimizer=optimizer,
+            base_lr=args.learning_rate,
+            boost_factor=args.head_lr_boost,
+            decay_factor=args.head_lr_decay,
+            warmup_steps=args.head_lr_warmup,
+            cooldown_steps=args.head_lr_cooldown
+        )
+    
     # Load checkpoint if resuming training
     start_epoch = 0
     global_step = 0
@@ -166,6 +219,12 @@ def train(args):
             controller_path = os.path.join(os.path.dirname(args.resume), "controller.pt")
             controller.load_state_dict(torch.load(controller_path, map_location=device))
             print(f"📂 Loaded controller state from {controller_path}")
+            
+        # Load head learning rate manager state if available
+        if args.enable_head_lr and os.path.exists(os.path.join(os.path.dirname(args.resume), "head_lr.pt")):
+            head_lr_path = os.path.join(os.path.dirname(args.resume), "head_lr.pt")
+            head_lr_manager.load_state_dict(torch.load(head_lr_path, map_location=device))
+            print(f"📂 Loaded head learning rate state from {head_lr_path}")
     
     # Training loop
     print(f"🏋️ Starting training for {args.epochs} epochs")
@@ -194,29 +253,39 @@ def train(args):
             reg_loss = controller.get_regularization_loss()
             total_loss = loss + reg_loss
             
+            # Scale loss by gradient accumulation steps for consistent gradients
+            scaled_loss = total_loss / args.gradient_accumulation_steps
+            
             # Backward pass
-            total_loss.backward()
+            scaled_loss.backward()
             
-            # Apply gradient clipping
-            torch.nn.utils.clip_grad_norm_(model.parameters(), args.max_grad_norm)
+            # Only update parameters after accumulating gradients for specified steps
+            if (step + 1) % args.gradient_accumulation_steps == 0 or (step + 1 == len(train_loader)):
+                # Apply gradient clipping
+                torch.nn.utils.clip_grad_norm_(model.parameters(), args.max_grad_norm)
+                
+                # Update parameters
+                optimizer.step()
+                lr_scheduler.step()
+                optimizer.zero_grad()
+                
+                # Log accumulated step
+                if args.gradient_accumulation_steps > 1 and args.debug:
+                    print(f"  Accumulated gradients for {args.gradient_accumulation_steps} steps, optimizer update performed")
             
-            # Update parameters
-            optimizer.step()
-            lr_scheduler.step()
-            optimizer.zero_grad()
+            # Update global step counter - only count actual optimizer updates
+            if (step + 1) % args.gradient_accumulation_steps == 0 or (step + 1 == len(train_loader)):
+                global_step += 1
             
-            # Update global step counter
-            global_step += 1
+                # Update controller periodically - only on actual update steps
+                controller_update = controller.step(head_lr_manager=head_lr_manager)
             
-            # Update controller periodically
-            controller_update = controller.step()
-            
-            # Log metrics
-            if global_step % args.log_interval == 0:
+            # Log metrics - only on actual update steps
+            if (step + 1) % args.gradient_accumulation_steps == 0 and global_step % args.log_interval == 0:
                 # Get current learning rate
                 current_lr = lr_scheduler.get_last_lr()[0]
                 
-                # Log metrics
+                # Log metrics including controller-specific information
                 metrics = {
                     "loss": loss.item(),
                     "reg_loss": reg_loss.item(),
@@ -226,18 +295,48 @@ def train(args):
                     "pruned_percent": controller._get_pruned_percent()
                 }
                 
+                # Add controller metrics if available from update
+                if isinstance(controller_update, dict):
+                    if "controller_lr" in controller_update:
+                        metrics["controller_lr"] = controller_update["controller_lr"]
+                    if "plateau_counter" in controller_update:
+                        metrics["plateau_counter"] = controller_update["plateau_counter"]
+                    if "early_stopping_triggered" in controller_update and controller_update["early_stopping_triggered"]:
+                        metrics["early_stopping"] = 1.0
+                    if "gate_changes" in controller_update:
+                        metrics["gate_changes"] = controller_update["gate_changes"]
+                    
+                    # Add head learning rate info if available
+                    if "head_lr_info" in controller_update and controller_update["head_lr_info"]:
+                        head_lr_info = controller_update["head_lr_info"]
+                        
+                        if "head_status" in head_lr_info:
+                            status_info = head_lr_info["head_status"]
+                            metrics["newly_activated_heads"] = len(status_info.get("newly_activated", []))
+                            metrics["newly_pruned_heads"] = len(status_info.get("newly_deactivated", []))
+                            metrics["cooling_down_heads"] = status_info.get("cooling_down", 0)
+                        
+                        if "lr_updates" in head_lr_info:
+                            lr_info = head_lr_info["lr_updates"]
+                            metrics["max_head_lr_multiplier"] = lr_info.get("max_multiplier", 1.0)
+                            metrics["avg_head_lr_multiplier"] = lr_info.get("avg_multiplier", 1.0)
+                            
+                            # Print verbose info if changes were made and debug mode is on
+                            if args.debug and lr_info.get("changes_made", False):
+                                print(f"  📊 Head LR adjustments: avg={metrics['avg_head_lr_multiplier']:.2f}x, max={metrics['max_head_lr_multiplier']:.2f}x")
+                
                 metrics_logger.log_metrics(metrics, global_step)
                 
                 # Print progress
                 progress.log_train_step(epoch, step, metrics)
             
-            # Evaluate periodically
-            if global_step % args.eval_interval == 0:
+            # Evaluate periodically - only on actual update steps
+            if (step + 1) % args.gradient_accumulation_steps == 0 and global_step % args.eval_interval == 0:
                 eval_metrics = evaluate(model, eval_loader, device, controller)
                 metrics_logger.log_metrics(eval_metrics, global_step, prefix="eval_")
                 progress.log_eval_step(epoch, step, eval_metrics)
                 
-                # Save checkpoint
+                # Save checkpoint - only on actual update steps
                 if args.save_interval > 0 and global_step % args.save_interval == 0:
                     checkpoint_path = os.path.join(
                         args.output_dir, 
@@ -255,7 +354,20 @@ def train(args):
                         "controller.pt"
                     )
                     torch.save(controller.save_state_dict(), controller_path)
-                    print(f"💾 Saved checkpoint to {checkpoint_path}")
+                    
+                    # Save head learning rate manager state if enabled
+                    if args.enable_head_lr and head_lr_manager is not None:
+                        head_lr_path = os.path.join(
+                            args.output_dir,
+                            "head_lr.pt"
+                        )
+                        torch.save(head_lr_manager.save_state_dict(), head_lr_path)
+                    
+                    # Include info about gradient accumulation in checkpoint message
+                    if args.gradient_accumulation_steps > 1:
+                        print(f"💾 Saved checkpoint to {checkpoint_path} (effective batch size: {args.batch_size * args.gradient_accumulation_steps})")
+                    else:
+                        print(f"💾 Saved checkpoint to {checkpoint_path}")
         
         # End of epoch - save checkpoint
         if args.save_every_epoch:
@@ -275,6 +387,15 @@ def train(args):
                 f"controller_epoch{epoch}.pt"
             )
             torch.save(controller.save_state_dict(), controller_path)
+            
+            # Save head learning rate manager state if enabled
+            if args.enable_head_lr and head_lr_manager is not None:
+                head_lr_path = os.path.join(
+                    args.output_dir,
+                    f"head_lr_epoch{epoch}.pt"
+                )
+                torch.save(head_lr_manager.save_state_dict(), head_lr_path)
+                
             print(f"💾 Saved epoch checkpoint to {checkpoint_path}")
     
     # Save final model
@@ -288,6 +409,11 @@ def train(args):
     # Save final controller state
     final_controller_path = os.path.join(args.output_dir, "final_controller.pt")
     torch.save(controller.save_state_dict(), final_controller_path)
+    
+    # Save final head learning rate manager state if enabled
+    if args.enable_head_lr and head_lr_manager is not None:
+        final_head_lr_path = os.path.join(args.output_dir, "final_head_lr.pt")
+        torch.save(head_lr_manager.save_state_dict(), final_head_lr_path)
     
     print(f"🎉 Training completed! Final model saved to {final_path}")
     return model, tokenizer
@@ -346,6 +472,8 @@ def parse_args():
     # Training parameters
     parser.add_argument("--batch_size", type=int, default=8,
                         help="Batch size for training")
+    parser.add_argument("--gradient_accumulation_steps", type=int, default=1,
+                        help="Number of steps to accumulate gradients before performing update")
     parser.add_argument("--learning_rate", type=float, default=5e-5,
                         help="Learning rate")
     parser.add_argument("--gate_lr_multiplier", type=float, default=10.0,
@@ -377,6 +505,36 @@ def parse_args():
                         help="Weight for L1 regularization of gates")
     parser.add_argument("--max_pruned_heads", type=float, default=0.3,
                         help="Maximum fraction of heads to prune")
+    
+    # Controller learning rate scheduling
+    parser.add_argument("--controller_lr", type=float, default=0.01,
+                        help="Initial learning rate for controller updates")
+    parser.add_argument("--controller_lr_decay", type=float, default=0.95,
+                        help="Decay factor for controller learning rate")
+    parser.add_argument("--controller_lr_decay_steps", type=int, default=1000,
+                        help="Number of steps between learning rate decays")
+    parser.add_argument("--min_controller_lr", type=float, default=0.001,
+                        help="Minimum controller learning rate")
+    
+    # Early stopping for controller
+    parser.add_argument("--enable_early_stopping", action="store_true",
+                        help="Enable early stopping based on gate activity plateau")
+    parser.add_argument("--early_stopping_patience", type=int, default=5,
+                        help="Number of updates with minimal change before stopping")
+    parser.add_argument("--min_gate_change", type=float, default=0.01,
+                        help="Minimum gate change to continue updates")
+    
+    # Per-head learning rate configuration
+    parser.add_argument("--enable_head_lr", action="store_true",
+                        help="Enable per-head learning rate adjustments during pruning/regrowth")
+    parser.add_argument("--head_lr_boost", type=float, default=5.0,
+                        help="Factor to boost learning rates for newly activated heads")
+    parser.add_argument("--head_lr_decay", type=float, default=0.9,
+                        help="Decay factor for head learning rate boosts")
+    parser.add_argument("--head_lr_warmup", type=int, default=200,
+                        help="Warmup steps for gradually increasing head learning rates")
+    parser.add_argument("--head_lr_cooldown", type=int, default=1000,
+                        help="Cooldown steps before returning to base learning rate")
     
     # U-Net configuration
     parser.add_argument("--unet_start_epoch", type=int, default=1,

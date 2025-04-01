@@ -5,9 +5,10 @@ This document outlines prioritized tasks and future directions for the Sentinel-
 ## Immediate Tasks
 
 ### 1. Training Improvements
-- [ ] Implement learning rate scheduling for controller parameters
-- [ ] Add early stopping based on gate activity plateaus
-- [ ] Integrate gradient accumulation for larger effective batch sizes
+- [x] Implement learning rate scheduling for controller parameters
+- [x] Add early stopping based on gate activity plateaus
+- [x] Integrate gradient accumulation for larger effective batch sizes
+- [x] Implement per-head learning rate adjustments for pruning and regrowth
 - [ ] Implement model distillation from fully-expanded to pruned model
 
 ### 2. Visualization Enhancements

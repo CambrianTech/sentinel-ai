@@ -96,6 +96,9 @@ class ANNController(nn.Module):
                          with shapes matching [num_layers, num_heads]
         """
         with torch.no_grad():
+            # Get learning rate for controller updates
+            controller_lr = metrics_dict.get("controller_lr", torch.tensor(0.01)).item()
+            
             # Update based on attention entropy
             # High entropy indicates less specialized/useful heads
             if 'entropy' in metrics_dict:
@@ -107,9 +110,11 @@ class ANNController(nn.Module):
                 gate_active = torch.sigmoid(self.gate_logits.data) > 0.2
                 
                 # Reduce gate values for high-entropy, still-active heads
+                # Apply scaling based on controller learning rate
+                logit_adjustment = 0.1 * controller_lr
                 self.gate_logits.data = torch.where(
                     high_entropy & gate_active,
-                    self.gate_logits.data - 0.1,  # Reduce logit (reduces gate value)
+                    self.gate_logits.data - logit_adjustment,  # Scaled reduction
                     self.gate_logits.data
                 )
             
@@ -124,9 +129,28 @@ class ANNController(nn.Module):
                 gate_active = torch.sigmoid(self.gate_logits.data) > 0.2
                 
                 # Reduce gate values for low-gradient, still-active heads
+                # Apply scaling based on controller learning rate
+                logit_adjustment = 0.05 * controller_lr
                 self.gate_logits.data = torch.where(
                     low_grad & gate_active,
-                    self.gate_logits.data - 0.05,  # Smaller reduction for gradient-based updates
+                    self.gate_logits.data - logit_adjustment,  # Scaled reduction
+                    self.gate_logits.data
+                )
+            
+            # Consider head importance for potential regrowth
+            if 'head_importance' in metrics_dict:
+                importance = metrics_dict['head_importance']
+                importance_threshold = metrics_dict.get('importance_threshold', 0.7)
+                
+                # Increase gate values for inactive but potentially important heads
+                gate_inactive = torch.sigmoid(self.gate_logits.data) < 0.1
+                high_importance = importance > importance_threshold
+                
+                # Boost gate values for high-importance, inactive heads
+                logit_adjustment = 0.2 * controller_lr
+                self.gate_logits.data = torch.where(
+                    high_importance & gate_inactive,
+                    self.gate_logits.data + logit_adjustment,  # Scaled boost
                     self.gate_logits.data
                 )
             
