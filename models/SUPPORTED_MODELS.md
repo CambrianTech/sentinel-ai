@@ -162,7 +162,6 @@ For BLOOM models, we use a specialized hybrid approach:
 - A thin adapter layer provides compatibility with our adaptive architecture
 - Gate values are supported for compatibility with our controller framework
 - This approach maintains output quality while enabling integration with our system
-
 ## Ongoing Improvements
 
 We're actively working to improve multi-model support:
