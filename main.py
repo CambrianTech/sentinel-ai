@@ -34,21 +34,34 @@ def generate_text(model, tokenizer, prompt, device, max_length=50, temperature=0
     # Prepare inputs
     inputs = tokenizer(prompt, return_tensors="pt").to(device)
     
-    # Configure generation parameters
-    generation_config = {
-        "max_length": max_length,
-        "do_sample": True, 
-        "temperature": temperature,
-        "top_k": top_k,
-        "top_p": top_p,
-        "repetition_penalty": repetition_penalty,
-        "pad_token_id": tokenizer.eos_token_id
-    }
+    # Configure generation parameters - slightly different for adaptive model
+    if hasattr(model, "blocks"):  # Our adaptive model
+        generation_config = {
+            "max_length": max_length,
+            "do_sample": True, 
+            "temperature": 0.8,  # Slightly higher temperature for more natural output
+            "top_k": 40,
+            "top_p": 0.94,
+            "repetition_penalty": 2.2,  # Higher repetition penalty for adaptive model
+            "pad_token_id": tokenizer.eos_token_id,
+            "attention_mask": inputs.attention_mask  # Explicitly provide attention mask
+        }
+    else:
+        # Standard HuggingFace model generation
+        generation_config = {
+            "max_length": max_length,
+            "do_sample": True, 
+            "temperature": temperature,
+            "top_k": top_k,
+            "top_p": top_p,
+            "repetition_penalty": repetition_penalty,
+            "pad_token_id": tokenizer.eos_token_id
+        }
     
     # Generate text
     with torch.no_grad():
         output_sequences = model.generate(
-            **inputs,
+            input_ids=inputs.input_ids,
             **generation_config
         )
         

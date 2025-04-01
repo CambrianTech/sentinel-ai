@@ -64,7 +64,8 @@ class GatedMultiHeadSelfAttention(nn.Module):
         for i in range(self.num_heads):
             # DYNAMIC PRUNING: Skip computation if gate is near zero
             # This implements the pruning mechanism from paper section 4.2
-            if float(self.gate[i]) < 1e-6:
+            # Use a very small threshold for pruning to avoid skipping important heads during inference
+            if float(self.gate[i]) < 1e-9:  # Smaller threshold for safer operation
                 outputs.append(torch.zeros(B, T, self.embed_dim, device=device))
                 continue
             
@@ -94,13 +95,23 @@ class GatedMultiHeadSelfAttention(nn.Module):
             
             # Project back to model dimension and APPLY GATE
             # This is the key part that implements g_i ⋅ (attention operation)
-            projected = self.W_o[i](output) * self.gate[i]  # [B, T, embed_dim]
+            # Apply a smooth transition at gate values near 0 to prevent abrupt changes
+            gate_value = torch.clamp(self.gate[i], min=0.0, max=1.0)  # Ensure gates are in [0,1]
+            
+            # Normalize the output before applying the gate - this prevents the 
+            # attention from dominating later in the network
+            output_norm = output / max(output.norm(dim=-1, keepdim=True).mean().item(), 1e-5)
+            
+            # Apply linear projection then gate
+            projected = self.W_o[i](output_norm) * gate_value  # [B, T, embed_dim]
             projected = self.resid_dropout(projected)  # Apply residual dropout
             
             outputs.append(projected)
 
-        # Sum contributions from all heads
-        return sum(outputs)
+        # Sum contributions from all heads but crucially scale by 1/num_heads to match the original model
+        # This is the critical fix - the original model divides attention by num_heads implicitly
+        summed = sum(outputs)
+        return summed / self.num_heads
 
 
 class FeedForward(nn.Module):
@@ -322,9 +333,8 @@ class AdaptiveTransformerModel(nn.Module):
         # 2. Apply layer norm to ensure consistent distribution
         # These steps help stabilize generation
         
-        # Scale logits more aggressively
-        logits = logits * 2.0
-        
+        # The output logits are already close to what we need - avoid scaling
+        # to prevent extreme distortion of the distribution
         return logits
 
 
@@ -369,21 +379,19 @@ class AdaptiveCausalLmWrapper(AdaptiveTransformerModel, GenerationMixin):
         # Detect if we're in generation mode (multiple tokens in input)
         is_generation = input_ids.shape[1] > 1
         
-        # During token generation we need to carefully control the distribution
-        # to prevent the model from going off track
-        
-        # Scale logits and normalize distribution
-        # This is a critical step for matching distributions between models
-        # Increased scaling factor to improve coherence
-        logits = logits * 2.0  # More aggressive scaling for more confident predictions
+        # CRITICAL FIX: Re-scale the logits to match baseline model distribution
+        # Based on our probing, we found baseline mean -40.9 vs adaptive mean -11.8
+        # Scale factor is approximately 3.47x with adjustment for numerical stability
+        # The latest probe shows adaptive mean -51.6 vs baseline mean -40.9, so we need to scale less aggressively
+        logits = logits * 1.25
         
         # Handling special cases for generation vs. regular inference
         if is_generation:
             # For generation, we only need to modify the logits for the last position
             last_pos_logits = logits[:, -1:, :]
             
-            # Apply temperature scaling for smoother sampling
-            temperature = 0.85  # Lower temperature for more focused output
+            # Apply a mild temperature scaling to match GPT-2's distribution
+            temperature = 1.0  # Neutral temperature to maintain original distribution
             last_pos_logits = last_pos_logits / temperature
             
             # Apply a boost to common words to improve fluency
@@ -410,31 +418,30 @@ class AdaptiveCausalLmWrapper(AdaptiveTransformerModel, GenerationMixin):
             # Create and apply the boost
             boost_tensor = torch.zeros_like(last_pos_logits)
             
-            # Add a base boost to all common words
+            # Add a very mild boost to common words (much more subtle than before)
             for word_id in boost_ids.values():
-                boost_tensor[:, :, word_id] = 10.0  # Strong boost for common words
+                boost_tensor[:, :, word_id] = 1.5  # Gentle boost for common words
                 
-            # Additional boost for start-of-sentence words to improve coherence
+            # Subtle boost for start-of-sentence words to improve coherence
             sentence_starters = [' The', ' A', ' In', ' When', ' If', ' This', ' One', ' Two', ' We', ' I', ' My', ' You', ' He', ' She', ' It']
             starter_ids = [464, 385, 633, 1110, 644, 511, 606, 573, 703, 40, 632, 58, 345, 381, 631]
             for word_id in starter_ids:
                 if word_id < boost_tensor.shape[2]:
-                    boost_tensor[:, :, word_id] = 15.0  # Very strong boost for sentence starters
+                    boost_tensor[:, :, word_id] = 2.0  # Gentle boost for sentence starters
             
-            # Boost common verbs
+            # Mild boost for common verbs
             verb_ids = [318, 373, 526, 616, 1135, 563, 2062, 1628]  # is, was, are, were, have, do, can, would
             for word_id in verb_ids:
                 if word_id < boost_tensor.shape[2]:
-                    boost_tensor[:, :, word_id] = 12.0  # Strong boost for verbs
+                    boost_tensor[:, :, word_id] = 1.75  # Gentle boost for verbs
                 
-            # Apply a stronger penalty to very rare tokens (helps avoid gibberish)
-            boost_tensor[:, :, 10000:] = -3.0  # Higher penalty for uncommon tokens
+            # Minor penalty for rare tokens (much more subtle than before)
+            boost_tensor[:, :, 10000:] = -0.5  # Small penalty for uncommon tokens
             
-            # Add extreme penalty for repetition of characters and common patterns
-            # This tackles GPT-2's most common repetition problems
+            # Moderate penalty for repetition of characters and common patterns
             repetition_ids = list(range(220, 250)) + [262, 127, 198, 202]  # 'the', space, newline, tab
             for word_id in repetition_ids:
-                boost_tensor[:, :, word_id] = -10.0  # Extreme penalty against repetition
+                boost_tensor[:, :, word_id] = -1.0  # Moderate penalty against repetition
                 
             # Apply additional penalty to most recently generated tokens
             # This helps prevent short-term repetition loops
@@ -442,16 +449,16 @@ class AdaptiveCausalLmWrapper(AdaptiveTransformerModel, GenerationMixin):
                 if self.current_input_ids.shape[1] > 5:
                     # Get the last few tokens
                     recent_tokens = self.current_input_ids[:, -5:].tolist()[0]
-                    # Apply stronger penalty to recently used tokens
+                    # Apply mild penalty to very recently used tokens
                     for token in recent_tokens:
                         if token < boost_tensor.shape[2]:  # Check if token index is valid
-                            boost_tensor[:, :, token] -= 15.0  # Extreme penalty for recently used tokens
+                            boost_tensor[:, :, token] -= 3.0  # Moderate penalty for recently used tokens
                 
-                # Extra penalty for all tokens in the sequence to avoid repetition
+                # Small penalty for previously used tokens to gently discourage repetition
                 all_tokens = set(self.current_input_ids[0].tolist())
                 for token in all_tokens:
                     if token < boost_tensor.shape[2]:  # Check if token index is valid
-                        boost_tensor[:, :, token] -= 5.0  # Strong penalty for all used tokens
+                        boost_tensor[:, :, token] -= 1.0  # Mild penalty for all used tokens
             
             # Apply this bias only to the last position's logits
             last_pos_logits = last_pos_logits + boost_tensor

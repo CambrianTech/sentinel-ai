@@ -33,6 +33,35 @@ def compare_model_outputs(baseline_model, adaptive_model, tokenizer, prompt, dev
     baseline_model.eval()
     adaptive_model.eval()
     
+    # DEEP INSPECTION: Register hooks to capture intermediate activations
+    baseline_activations = {}
+    adaptive_activations = {}
+    
+    def baseline_hook_fn(name):
+        def hook(module, input, output):
+            baseline_activations[name] = output.detach()
+        return hook
+    
+    def adaptive_hook_fn(name):
+        def hook(module, input, output):
+            adaptive_activations[name] = output.detach()
+        return hook
+    
+    # Register hooks for baseline model
+    if hasattr(baseline_model, "transformer"):
+        for i, block in enumerate(baseline_model.transformer.h):
+            block.ln_1.register_forward_hook(baseline_hook_fn(f"ln_1_{i}"))
+            block.ln_2.register_forward_hook(baseline_hook_fn(f"ln_2_{i}"))
+            block.attn.register_forward_hook(baseline_hook_fn(f"attn_{i}"))
+            block.mlp.register_forward_hook(baseline_hook_fn(f"mlp_{i}"))
+    
+    # Register hooks for adaptive model
+    for i, block in enumerate(adaptive_model.blocks):
+        block["ln1"].register_forward_hook(adaptive_hook_fn(f"ln1_{i}"))
+        block["ln2"].register_forward_hook(adaptive_hook_fn(f"ln2_{i}"))
+        block["attn"].register_forward_hook(adaptive_hook_fn(f"attn_{i}"))
+        block["ffn"].register_forward_hook(adaptive_hook_fn(f"ffn_{i}"))
+    
     # Forward pass through both models
     with torch.no_grad():
         baseline_outputs = baseline_model(**input_ids)
@@ -65,6 +94,28 @@ def compare_model_outputs(baseline_model, adaptive_model, tokenizer, prompt, dev
     
     print(f"Difference - Mean: {mean_diff:.4f}, Max: {max_diff:.4f}")
     
+    # NEW: Analyze hidden state distributions
+    print("\n==== HIDDEN STATE COMPARISON ====")
+    for i in range(min(len(adaptive_model.blocks), len(baseline_model.transformer.h))):
+        if f"ln1_{i}" in adaptive_activations and f"ln_1_{i}" in baseline_activations:
+            adaptive_ln1 = adaptive_activations[f"ln1_{i}"]
+            baseline_ln1 = baseline_activations[f"ln_1_{i}"]
+            
+            # Compare statistics of layer normalized outputs
+            print(f"Layer {i} normalized activations:")
+            print(f"  Baseline - Mean: {baseline_ln1.mean().item():.4f}, Std: {baseline_ln1.std().item():.4f}")
+            print(f"  Adaptive - Mean: {adaptive_ln1.mean().item():.4f}, Std: {adaptive_ln1.std().item():.4f}")
+            
+            # Compare attention outputs
+            if f"attn_{i}" in adaptive_activations and f"attn_{i}" in baseline_activations:
+                adaptive_attn = adaptive_activations[f"attn_{i}"]
+                baseline_attn = baseline_activations[f"attn_{i}"]
+                
+                print(f"Layer {i} attention outputs:")
+                print(f"  Baseline - Mean: {baseline_attn.mean().item():.4f}, Std: {baseline_attn.std().item():.4f}")
+                print(f"  Adaptive - Mean: {adaptive_attn.mean().item():.4f}, Std: {adaptive_attn.std().item():.4f}")
+                print(f"  Diff Magnitude: {(baseline_attn - adaptive_attn).abs().mean().item():.4f}")
+    
     # Compare top predictions
     top_k = 5
     
@@ -86,6 +137,24 @@ def compare_model_outputs(baseline_model, adaptive_model, tokenizer, prompt, dev
     for i, (score, token_id) in enumerate(zip(adaptive_topk.values[0], adaptive_topk.indices[0])):
         token = tokenizer.decode([token_id])
         print(f" {i+1}. '{token}' (ID: {token_id}) - Score: {score:.4f}")
+    
+    # NEW: Compare probability distributions
+    print("\n==== PROBABILITY DISTRIBUTION COMPARISON ====")
+    baseline_probs = torch.nn.functional.softmax(baseline_last, dim=-1)
+    adaptive_probs = torch.nn.functional.softmax(adaptive_last, dim=-1)
+    
+    # Calculate KL divergence
+    kl_div = torch.nn.functional.kl_div(
+        adaptive_probs.log(), baseline_probs, reduction='sum'
+    ).item()
+    
+    print(f"KL divergence (adaptive → baseline): {kl_div:.4f}")
+    
+    # Entropy of distributions
+    baseline_entropy = -(baseline_probs * baseline_probs.log()).sum().item()
+    adaptive_entropy = -(adaptive_probs * adaptive_probs.log()).sum().item()
+    
+    print(f"Entropy - Baseline: {baseline_entropy:.4f}, Adaptive: {adaptive_entropy:.4f}")
     
     # Generate text from both models
     print("\n==== GENERATED TEXT COMPARISON ====")
@@ -122,7 +191,7 @@ def compare_model_outputs(baseline_model, adaptive_model, tokenizer, prompt, dev
     print(f"\nBaseline generated: {baseline_text}")
     print(f"\nAdaptive generated: {adaptive_text}")
     
-    return baseline_logits, adaptive_logits
+    return baseline_logits, adaptive_logits, baseline_activations, adaptive_activations
 
 def compare_gate_distributions(adaptive_model):
     """Analyze distribution of gate values"""

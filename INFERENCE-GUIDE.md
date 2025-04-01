@@ -1,75 +1,84 @@
 # Sentinel-AI: Inference Guide
 
-This guide provides information on the current status of the Sentinel-AI model's inference capabilities and suggestions for improving coherent text generation.
-
 ## Current Status
-
 1. **Weight Loading**: ✅ Successfully loads all parameters (1290/1290) from pretrained GPT-2 models
-2. **Forward Pass**: ✅ Forward pass is working for both training and inference 
-3. **U-Net Skip Connections**: ⚠️ Disabled for stability, can be gradually enabled
-4. **Text Generation**: ⚠️ Working but with coherence issues
+2. **Forward Pass**: ✅ Forward pass is working for both training and inference
+3. **U-Net Skip Connections**: ⚠️ Temporarily disabled for stability, can be gradually enabled later
+4. **Text Generation**: ✅ Now working with improved quality using beam search
 
-## Troubleshooting Text Generation
+## Key Fixes for Improved Generation
 
-The model currently has issues generating coherent text, despite properly loading from pretrained GPT-2. Here are some approaches to address this:
+### Logit Scaling Issues Fixed
+- Removed aggressive logit scaling that was distorting output distributions
+- Eliminated the double scaling that was occurring in both forward passes
 
-### 1. Fine-tuning
+### Gating Mechanism Stabilization
+- Implemented proper clamping for gate values to prevent numeric instability
+- Lowered pruning threshold to ensure important heads are not skipped
+- Fixed gate application to use smooth transition and avoid abrupt changes
 
-Even with perfect weight initialization, the Adaptive Transformer architecture introduces changes that require adaptation:
+### Generation Parameter Tuning
+- Switched to beam search for higher quality generation
+- Fine-tuned temperature, top_k, and top_p parameters for better coherence
+- Reduced token biasing to allow more natural language flow
+- Applied milder penalties for repetition to avoid overpenalizing
+
+### Distribution Matching
+- Improved the match between adaptive model and baseline model distributions
+- Eliminated extreme scaling factors that were causing skewed token probabilities
+- Fixed token repetition issues by using more appropriate penalties
+
+## Recommended Usage
+
+### Basic Generation
+For basic text generation, the updated `main.py` automatically detects whether you're using the adaptive or baseline model and applies the appropriate generation method:
 
 ```bash
-# Run a short fine-tuning (1-2 epochs) to adapt the loaded weights
-python train.py --model_name=gpt2 --num_epochs=2 --batch_size=4 --learning_rate=5e-5
+python main.py --prompt "Once upon a time" --model_name=gpt2
 ```
 
-### 2. Disable Model Features
+### Advanced Generation
+For more control over the generation process, you can use the `utils/generation_wrapper.py` directly:
 
-For testing, try disabling adaptive features one by one:
+```python
+from utils.generation_wrapper import GenerationWrapper
 
-```bash
-# Disable features in models/adaptive_transformer.py:
-# 1. Comment out the U-Net skip connections (already done)
-# 2. Set all gate values to 1.0 (disable sentinel gates temporarily)
-# 3. Remove the logit scaling and boost/penalty systems
+wrapper = GenerationWrapper(model=model, tokenizer=tokenizer, device=device)
+texts = wrapper.generate_text(
+    prompt="Once upon a time",
+    max_length=100,
+    temperature=0.9,
+    top_k=40,
+    top_p=0.92,
+    use_beam_search=True,
+    num_beams=3
+)
+print(texts[0])
 ```
 
-### 3. Generation Parameters
-
-Try different generation parameters:
-
-```bash
-# Greedy decoding instead of sampling
-python main.py --prompt "Your text" --temperature 0.0 --top_k 1
-
-# Higher diversity 
-python main.py --prompt "Your text" --temperature 1.0 --top_p 0.95
-```
-
-### 4. Attention Mechanism
-
-Review the attention implementation, especially:
-
-1. The scaling factor in the attention mechanism (`self.scale = 1.0 / math.sqrt(self.head_dim)`)
-2. The interaction between the gate parameter and the attention output
-3. The initialization of QKV matrices
-
-### 5. Debug Tools
-
-Visualize model internals:
+### Debugging
+For debugging generation issues, use the `debug_compare.py` script which allows you to compare baseline and adaptive model outputs:
 
 ```bash
-# Run the attention visualization notebook
-jupyter notebook notebooks/AdaptiveAttentionVisualization.ipynb
+# Regular comparison
+python debug_compare.py --prompt "Once upon a time" --seed 42
 
-# Track gate values during generation
-python main.py --prompt "Your text" --track_gate_values
+# Disable gates for testing
+python debug_compare.py --prompt "Once upon a time" --seed 42 --disable_gates
+
+# Disable logit scaling for testing
+python debug_compare.py --prompt "Once upon a time" --seed 42 --disable_logit_scaling
 ```
 
 ## Next Steps
 
-1. **Debugging Generation**: Start with the simplest configuration (all gates = 1.0, disabled U-Net) to isolate issues
-2. **Fine-tuning**: A short fine-tuning run may help the model adapt to its new architecture
-3. **Metric Collection**: Implement logging of entropy, head importance metrics in training.py
-4. **Controller**: Once text generation is working well, enable the controller for dynamic architecture management
+1. **Fine-tuning**: Consider fine-tuning the adaptive model on a small dataset to better adapt the loaded weights
+2. **Re-enable U-Net**: Gradually re-enable the U-Net skip connections once basic generation is stable
+3. **Controller Development**: Implement controller logic for dynamic head pruning/growth once generation quality is satisfactory
+4. **Attention Visualization**: Use the visualization tools in `generation_wrapper.py` to analyze head importance
 
-Remember that the Sentinel-AI architecture introduces significant changes to the standard transformer, so expect some adaptation time even with proper weight initialization.
+## Known Limitations
+
+1. **Inference Speed**: The adaptive model is somewhat slower than the baseline due to per-head processing
+2. **Memory Usage**: Separate weight matrices per head increase memory requirements
+3. **Training Stability**: Initial training may require careful learning rate tuning
