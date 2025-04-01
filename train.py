@@ -129,7 +129,12 @@ def train(args):
     optimizer = torch.optim.AdamW(optimizer_param_groups, lr=args.learning_rate)
     
     # Create scheduler
-    num_training_steps = args.epochs * len(train_loader)
+    # Account for gradient accumulation in num_training_steps calculation
+    num_training_steps = args.epochs * len(train_loader) // args.gradient_accumulation_steps
+    if args.gradient_accumulation_steps > 1:
+        print(f"🔄 Using gradient accumulation. Steps per update: {args.gradient_accumulation_steps}")
+        print(f"🔄 Effective batch size: {args.batch_size * args.gradient_accumulation_steps}")
+    
     lr_scheduler = get_scheduler(
         name=args.lr_scheduler,
         optimizer=optimizer,
@@ -218,25 +223,35 @@ def train(args):
             reg_loss = controller.get_regularization_loss()
             total_loss = loss + reg_loss
             
+            # Scale loss by gradient accumulation steps for consistent gradients
+            scaled_loss = total_loss / args.gradient_accumulation_steps
+            
             # Backward pass
-            total_loss.backward()
+            scaled_loss.backward()
             
-            # Apply gradient clipping
-            torch.nn.utils.clip_grad_norm_(model.parameters(), args.max_grad_norm)
+            # Only update parameters after accumulating gradients for specified steps
+            if (step + 1) % args.gradient_accumulation_steps == 0 or (step + 1 == len(train_loader)):
+                # Apply gradient clipping
+                torch.nn.utils.clip_grad_norm_(model.parameters(), args.max_grad_norm)
+                
+                # Update parameters
+                optimizer.step()
+                lr_scheduler.step()
+                optimizer.zero_grad()
+                
+                # Log accumulated step
+                if args.gradient_accumulation_steps > 1 and args.debug:
+                    print(f"  Accumulated gradients for {args.gradient_accumulation_steps} steps, optimizer update performed")
             
-            # Update parameters
-            optimizer.step()
-            lr_scheduler.step()
-            optimizer.zero_grad()
+            # Update global step counter - only count actual optimizer updates
+            if (step + 1) % args.gradient_accumulation_steps == 0 or (step + 1 == len(train_loader)):
+                global_step += 1
             
-            # Update global step counter
-            global_step += 1
+                # Update controller periodically - only on actual update steps
+                controller_update = controller.step()
             
-            # Update controller periodically
-            controller_update = controller.step()
-            
-            # Log metrics
-            if global_step % args.log_interval == 0:
+            # Log metrics - only on actual update steps
+            if (step + 1) % args.gradient_accumulation_steps == 0 and global_step % args.log_interval == 0:
                 # Get current learning rate
                 current_lr = lr_scheduler.get_last_lr()[0]
                 
@@ -264,13 +279,13 @@ def train(args):
                 # Print progress
                 progress.log_train_step(epoch, step, metrics)
             
-            # Evaluate periodically
-            if global_step % args.eval_interval == 0:
+            # Evaluate periodically - only on actual update steps
+            if (step + 1) % args.gradient_accumulation_steps == 0 and global_step % args.eval_interval == 0:
                 eval_metrics = evaluate(model, eval_loader, device, controller)
                 metrics_logger.log_metrics(eval_metrics, global_step, prefix="eval_")
                 progress.log_eval_step(epoch, step, eval_metrics)
                 
-                # Save checkpoint
+                # Save checkpoint - only on actual update steps
                 if args.save_interval > 0 and global_step % args.save_interval == 0:
                     checkpoint_path = os.path.join(
                         args.output_dir, 
@@ -288,7 +303,12 @@ def train(args):
                         "controller.pt"
                     )
                     torch.save(controller.save_state_dict(), controller_path)
-                    print(f"💾 Saved checkpoint to {checkpoint_path}")
+                    
+                    # Include info about gradient accumulation in checkpoint message
+                    if args.gradient_accumulation_steps > 1:
+                        print(f"💾 Saved checkpoint to {checkpoint_path} (effective batch size: {args.batch_size * args.gradient_accumulation_steps})")
+                    else:
+                        print(f"💾 Saved checkpoint to {checkpoint_path}")
         
         # End of epoch - save checkpoint
         if args.save_every_epoch:
@@ -379,6 +399,8 @@ def parse_args():
     # Training parameters
     parser.add_argument("--batch_size", type=int, default=8,
                         help="Batch size for training")
+    parser.add_argument("--gradient_accumulation_steps", type=int, default=1,
+                        help="Number of steps to accumulate gradients before performing update")
     parser.add_argument("--learning_rate", type=float, default=5e-5,
                         help="Learning rate")
     parser.add_argument("--gate_lr_multiplier", type=float, default=10.0,
