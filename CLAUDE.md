@@ -13,9 +13,16 @@
 - Test OPT: `python main.py --model_name facebook/opt-125m --prompt "Your prompt here"`
 - Test Pythia: `python main.py --model_name EleutherAI/pythia-70m --prompt "Your prompt here"`
 - Test BLOOM: `python main.py --model_name bigscience/bloom-560m --prompt "Your prompt here"`
+- Test Llama: `python main.py --model_name meta-llama/Llama-2-7b-hf --prompt "Your prompt here"`
 - Generate samples: `python generate_samples.py`
 - Fine-tune pruned model: `python scripts/finetune_pruned_model.py --model_path PATH --dataset DATASET --output_path OUTPUT --enable_head_lr`
 - Test multi-model support: `python scripts/test_multi_model_support.py --models gpt2,opt,pythia,bloom`
+- Multi-model profiling: `./scripts/run_multi_model_profile.sh --models "gpt2,distilgpt2,bigscience/bloom-560m" --device cpu`
+
+## Cache Management
+- Clean all Hugging Face caches: `rm -rf ~/.cache/huggingface`
+- View cache contents: `huggingface-cli scan-cache`
+- Clean specific model: `rm -rf ~/.cache/huggingface/hub/models--MODEL_NAME`
 
 ## Code Style Guidelines
 - Imports: standard library → third-party → local modules

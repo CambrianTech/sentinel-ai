@@ -9,7 +9,7 @@ This document details the current support status for different model architectur
 | **GPT-2** | Decoder-only | distilgpt2, gpt2, gpt2-medium | ✅ Full Support | Thoroughly tested and optimized |
 | **OPT** | Decoder-only | facebook/opt-125m | ⚠️ Partial Support | Basic models work, larger ones may have issues |
 | **Pythia/GPT-NeoX** | Decoder-only | EleutherAI/pythia-70m, pythia-160m | ✅ Full Support | Successfully loaded and tested |
-| **BLOOM** | Decoder-only | bigscience/bloom-560m | ✅ Full Support | Successfully loaded and tested |
+| **BLOOM** | Decoder-only | bigscience/bloom-560m | ✅ Full Support | Uses hybrid adapter with original ALiBi attention |
 | **Llama** | Decoder-only | meta-llama/Llama-2-7b-hf | ⚠️ Limited Support | Requires HF token, not fully tested |
 
 ## Detailed Status by Family
@@ -54,14 +54,15 @@ This document details the current support status for different model architectur
 
 | Model | Loading | Inference | Quality | Notes |
 |-------|---------|-----------|---------|-------|
-| bigscience/bloom-560m | ✅ | ✅ | Mixed | Outputs contain mixed script text (multilingual) |
-| bigscience/bloom-1b1 | ⚠️ | ⚠️ | Unknown | Not thoroughly tested |
-| Larger models | ⚠️ | ⚠️ | Unknown | Not thoroughly tested |
+| bigscience/bloom-560m | ✅ | ✅ | Good | Uses hybrid adapter to preserve ALiBi attention |
+| bigscience/bloom-1b1 | ⚠️ | ⚠️ | Unknown | Should work with our hybrid adapter |
+| Larger models | ⚠️ | ⚠️ | Unknown | May work but not thoroughly tested |
 
 **Notes:**
 - BLOOM uses ALiBi positional attention (no explicit position embeddings)
-- Position embeddings are created as needed during loading
-- Multilingual model produces mixed script output by design
+- Our specialized hybrid adapter preserves BLOOM's ALiBi attention mechanism
+- The adapter provides a compatible interface with our adaptive architecture
+- No parameter growth in adapted models since we use the original model internals
 
 ### Llama Family
 
@@ -97,7 +98,7 @@ EleutherAI/pythia-70m: exly-edcase, ")4 seat. 'cked oper-' better.,6ck => and: n
 
 ### BLOOM Family
 ```
-bigscience/bloom-560m: , ୬ing- , (ـ h.ي . dapatecr,élène yीsib and/ ଅନେକaiion فإنماoned bya, ,ع�hipo a # , .,mb) لوسي对leи
+bigscience/bloom-560m: replacing the original conventional power control system with a novel, more compact and robust approach. The proposed method is very effective in reducing operating costs of transformers due to its low total cost.
 ```
 
 ## Usage Examples
@@ -152,9 +153,15 @@ Each model family requires specific weight mapping and configuration handling:
 1. **GPT-2**: Uses combined QKV projection, requires transformation into per-head format
 2. **OPT**: Uses separate Q, K, V projections, needs careful position embedding handling
 3. **Pythia/GPT-NeoX**: Some variants use combined QKV, others separate; loader handles both
-4. **BLOOM**: Uses ALiBi attention instead of position embeddings, requires creating new position embeddings
+4. **BLOOM**: Uses ALiBi attention instead of position embeddings, our hybrid adapter preserves the original ALiBi mechanism
 5. **Llama**: Uses rotary position embeddings and SwiGLU activation, requires special handling
 
+#### BLOOM Adaptation Approach
+For BLOOM models, we use a specialized hybrid approach:
+- The original BLOOM model's ALiBi attention mechanism is preserved
+- A thin adapter layer provides compatibility with our adaptive architecture
+- Gate values are supported for compatibility with our controller framework
+- This approach maintains output quality while enabling integration with our system
 ## Ongoing Improvements
 
 We're actively working to improve multi-model support:
@@ -163,6 +170,9 @@ We're actively working to improve multi-model support:
 2. Improve generation parameter settings for each model family
 3. Add support for more model families (T5, BART, etc.)
 4. Optimize loading process for faster initialization
+5. Extend and test the hybrid adapter approach for Llama models
+6. Implement multi-model profiling and benchmarking in standard workflow
+7. Improve disk space management for large model caches
 
 ## Reporting Issues
 

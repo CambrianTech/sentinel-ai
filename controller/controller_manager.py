@@ -33,10 +33,18 @@ class ControllerManager:
         # Extract model dimensions
         self.num_layers = len(model.blocks)
         
-        # Handle different model structures (original dict-style vs optimized object-style)
+        # Handle different model structures (original dict-style vs optimized object-style vs special adapters)
         if hasattr(model.blocks[0], 'attn'):
             # New optimized model structure
-            self.num_heads = model.blocks[0].attn.num_heads
+            if hasattr(model.blocks[0].attn, 'num_heads'):
+                # Standard attribute
+                self.num_heads = model.blocks[0].attn.num_heads
+            elif hasattr(model.blocks[0].attn, 'gate'):
+                # Infer from gate tensor size for bloom adapter
+                self.num_heads = len(model.blocks[0].attn.gate)
+            else:
+                # Fall back to model attribute
+                self.num_heads = model.n_head if hasattr(model, 'n_head') else 16  # Default
         else:
             # Original structure
             self.num_heads = model.blocks[0]["attn"].num_heads
@@ -402,7 +410,14 @@ class ControllerManager:
                 # Original structure
                 attn_module = block["attn"]
                 
-            for head_idx in range(attn_module.num_heads):
+            # Get number of heads - either from attribute or gate size
+            if hasattr(attn_module, 'num_heads'):
+                num_heads = attn_module.num_heads
+            else:
+                # Infer from gate parameter size
+                num_heads = len(attn_module.gate)
+                
+            for head_idx in range(num_heads):
                 if attn_module.gate[head_idx].item() > threshold:
                     active_heads.append(head_idx)
             active_gates[layer_idx] = active_heads

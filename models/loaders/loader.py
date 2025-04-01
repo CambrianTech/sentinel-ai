@@ -24,10 +24,16 @@ except ImportError:
     load_adaptive_model_gpt_neox = None
 
 try:
-    from .bloom_loader import load_adaptive_model_bloom
+    # First try to load the fixed version for BLOOM
+    from .bloom_loader_fixed import load_adaptive_model_bloom
 except ImportError:
-    print("⚠️ BLOOM loader not available")
-    load_adaptive_model_bloom = None
+    try:
+        # Fallback to original loader
+        from .bloom_loader import load_adaptive_model_bloom
+        print("⚠️ Using original BLOOM loader (consider using the fixed version)")
+    except ImportError:
+        print("⚠️ BLOOM loader not available")
+        load_adaptive_model_bloom = None
 
 try:
     from .llama_loader import load_adaptive_model_llama
@@ -88,8 +94,18 @@ def load_adaptive_model(model_name, baseline_model, device, debug=False, quiet=F
     elif model_type == "gpt_neox" and load_adaptive_model_gpt_neox:
         return load_adaptive_model_gpt_neox(model_name, baseline_model, config, device, debug=debug, quiet=quiet)
     
-    elif model_type == "bloom" and load_adaptive_model_bloom:
-        return load_adaptive_model_bloom(model_name, baseline_model, config, device, debug=debug, quiet=quiet)
+    elif model_type == "bloom":
+        # For BLOOM models, try the special adapter approach first
+        try:
+            from models.bloom_adapter import load_bloom_adapted
+            print("⚡ Using BLOOM hybrid adapter (preserves original model)")
+            return load_bloom_adapted(model_name, device, debug=debug)
+        except ImportError:
+            # Fall back to standard loader if adapter isn't available
+            if load_adaptive_model_bloom:
+                return load_adaptive_model_bloom(model_name, baseline_model, config, device, debug=debug, quiet=quiet)
+            else:
+                raise ImportError("No BLOOM loader available")
     
     elif model_type == "llama" and load_adaptive_model_llama:
         return load_adaptive_model_llama(model_name, baseline_model, config, device, debug=debug, quiet=quiet)
