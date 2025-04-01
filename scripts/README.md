@@ -11,6 +11,8 @@ This directory contains utility scripts for working with Sentinel-AI.
 
 - **`analyze_heads.py`**: Analyze attention head activity and gate values
 - **`benchmark.py`**: Performance benchmarking across model configurations
+- **`benchmark_pruning.py`**: Comprehensive analysis of different pruning strategies and levels
+- **`pruning_impact_analyzer.py`**: Focused analysis of pruning impact on model performance
 - **`prune_heads.py`**: Manually prune specific attention heads for testing
 - **`expand_heads.py`**: Test head expansion for specific model structures
 - **`inference.py`**: Stand-alone inference script for deployment scenarios
@@ -42,12 +44,28 @@ python scripts/analyze_heads.py \
 ### Benchmarking
 
 ```bash
+# General performance benchmarking
 python scripts/benchmark.py \
   --models gpt2,distilgpt2 \
   --pruning_levels 0.0,0.3,0.5,0.7 \
   --batch_sizes 1,4,8 \
   --measure_latency \
   --measure_memory
+
+# Comprehensive pruning strategy analysis
+python scripts/benchmark_pruning.py \
+  --model gpt2 \
+  --pruning_levels 0.0 0.1 0.3 0.5 0.7 \
+  --strategies entropy gradient random combined \
+  --test_perplexity \
+  --test_speed \
+  --test_memory
+
+# Quick pruning impact visualization
+python scripts/pruning_impact_analyzer.py \
+  --model gpt2 \
+  --pruning_levels 0.0 0.1 0.3 0.5 0.7 0.9 \
+  --metric perplexity
 ```
 
 ### Running Inference
