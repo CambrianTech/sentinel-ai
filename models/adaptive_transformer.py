@@ -518,7 +518,7 @@ class AdaptiveTransformerModel(nn.Module):
             return CausalLMOutput(loss=loss, logits=logits)
         return logits
         
-    def get_agency_status(self):
+    def get_agency_report(self):
         """
         Get a comprehensive report on agency status across all layers.
         
