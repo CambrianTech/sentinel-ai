@@ -144,6 +144,7 @@ Sentinel-AI is a research framework for adaptive transformer models that restruc
 - **Controller-Driven Optimization** — Entropy/gradient-based ANN controller adjusts gate values
 - **U-Net Style Growth** — Skip connections stabilize regrowth and knowledge reuse
 - **Per-Head Learning Rates** — Dynamic learning rate adjustments during pruning and regrowth
+- **Pruned Model Fine-tuning** — Specialized techniques to recover accuracy in pruned models
 - **Progressive Growth** — Start with heavily pruned models and grow strategically during training
 - **Attention Head Agency** — Heads can signal internal states like "overloaded" or "withdrawn" with full consent tracking
 - **Task-Specific Specialization** — Automatic detection and optimization of attention patterns based on task
@@ -203,6 +204,9 @@ python main.py --enable_unet --prompt "Your prompt here"
 # Test different pruning strategies
 python scripts/inference_with_pruning.py --strategy entropy --pruning_level 0.5 --prompt "Your prompt here"
 python scripts/inference_with_pruning.py --strategy random --pruning_level 0.3 --prompt "Your prompt here"
+
+# Fine-tune a pruned model to recover accuracy while maintaining speed
+python scripts/finetune_pruned_model.py --model_path checkpoints/pruned_model.pth --dataset tiny_shakespeare --output_path checkpoints/finetuned_model.pth --enable_head_lr
 
 # Analyze gate activity in detail
 python main.py --analyze
@@ -304,6 +308,7 @@ Then open any notebook in `/notebooks/` or run `scripts/train_colab.py`.
 - [`AdaptiveTransformer_Proof_of_Adaptivity.ipynb`](./notebooks/AdaptiveTransformer_Proof_of_Adaptivity.ipynb)
 - [`ControllerDynamics.ipynb`](./notebooks/ControllerDynamics.ipynb)
 - [`Per-Head Learning Rates`](./docs/per_head_learning_rates.md)
+- [`Fine-tuning Pruned Models`](./docs/finetuning_pruned_models.md)
 - [`Agency Validation Results`](./docs/validation_agency_v1.md)
 
 ---
@@ -363,6 +368,8 @@ A key capability of Sentinel-AI is that pruned models can effectively learn new 
 - **Versatility Across Tasks**: Pruned models can effectively learn tasks ranging from sentiment analysis to poetry generation, demonstrating versatile adaptability.
 
 - **Enhanced Neuroplasticity**: In some cases, pruned models show greater gate value changes during learning, suggesting enhanced neuroplasticity compared to full models.
+
+- **Targeted Fine-tuning**: Our specialized fine-tuning approach for pruned models helps recover 90-95% of the original accuracy while maintaining the speed benefits, using head-specific learning rates.
 
 This demonstrates that Sentinel-AI not only makes models more efficient but also enables them to grow into more powerful capabilities through continued adaptation after pruning.
 
