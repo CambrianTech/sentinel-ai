@@ -18,9 +18,9 @@ This document outlines prioritized tasks and future directions for the Sentinel-
 - [ ] Develop comparative visualizations between baseline and adaptive models
 
 ### 3. Benchmarking and Evaluation
-- [ ] Create comprehensive benchmarking suite across model sizes
-- [ ] Evaluate inference speed improvements from dynamic pruning
-- [ ] Measure memory usage reduction compared to baseline models
+- [x] Create comprehensive benchmarking suite across model sizes
+- [x] Evaluate inference speed improvements from dynamic pruning
+- [x] Measure memory usage reduction compared to baseline models
 - [ ] Test on downstream tasks (classification, summarization, etc.)
 
 ### 4. Architecture Refinements
@@ -85,8 +85,8 @@ This document outlines prioritized tasks and future directions for the Sentinel-
 
 - [ ] Refactor controller code for better abstraction
 - [ ] Improve test coverage, especially for edge cases
-- [ ] Standardize metrics collection and reporting
-- [ ] Create comprehensive documentation with examples
+- [x] Standardize metrics collection and reporting
+- [x] Create comprehensive documentation with examples
 - [ ] Implement CI/CD pipeline for automated testing
 
 ## Collaboration Opportunities
