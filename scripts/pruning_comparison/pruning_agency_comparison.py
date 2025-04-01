@@ -27,7 +27,23 @@ import seaborn as sns
 from pathlib import Path
 
 # Add root directory to path
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
+try:
+    # When running as a script with __file__ available
+    sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
+except NameError:
+    # In Colab or interactive environments where __file__ isn't defined
+    # First check if we're in the repo root or one level down
+    if os.path.exists("models") and os.path.exists("utils"):
+        # We're already in the root directory
+        pass
+    elif os.path.exists("../models") and os.path.exists("../utils"):
+        # We're one level down from root
+        sys.path.insert(0, os.path.abspath(".."))
+    elif os.path.exists("sentinel-ai/models") and os.path.exists("sentinel-ai/utils"):
+        # We're in the parent directory of the repo (typical Colab setup)
+        sys.path.insert(0, os.path.abspath("sentinel-ai"))
+    else:
+        print("Warning: Could not determine repository root path. Import errors may occur.")
 
 from models.loaders.loader import load_baseline_model, load_adaptive_model
 from models.loaders.gpt2_loader import load_adaptive_model_gpt
