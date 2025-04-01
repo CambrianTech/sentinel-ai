@@ -1,8 +1,18 @@
 import os
 import argparse
 import torch
+import random
+import numpy as np
 from transformers import AutoTokenizer, AutoModelForCausalLM
 from models.loaders.loader import load_baseline_model, load_adaptive_model
+
+def set_seed(seed):
+    """Set all random seeds for reproducibility"""
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
 
 SUPPORTED_MODELS = [
     "distilgpt2", 
@@ -80,11 +90,19 @@ Examples:
                         help="Repetition penalty (default: 1.2). 1.0 means no penalty.")
     parser.add_argument("--baseline", action="store_true",
                         help="Use only the baseline HuggingFace model, skipping adaptive wrapper.")
+    parser.add_argument("--seed", type=int, default=None,
+                        help="Random seed for reproducibility. Set for consistent generation results.")
 
     return parser.parse_args()
 
 def main():
     args = parse_args()
+    
+    # Set random seed if specified for reproducible results
+    if args.seed is not None:
+        set_seed(args.seed)
+        print(f"🎲 Random seed set to: {args.seed}")
+        
     device = torch.device(args.device if args.device else ("cuda" if torch.cuda.is_available() else "cpu"))
 
     print(f"🚀 Using device: {device}")
