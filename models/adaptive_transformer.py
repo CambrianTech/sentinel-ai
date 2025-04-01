@@ -51,7 +51,7 @@ class GatedMultiHeadSelfAttention(nn.Module):
                 "state": "active",  # active, overloaded, misaligned, withdrawn
                 "consent": True,    # Whether the head consents to activation
                 "utilization": 0.0, # Utilization metric (0.0-1.0)
-                "last_signal": None # Timestamp of last signal change
+                "last_signal": 0    # Timestamp of last signal change (initialized to 0)
             } for head_idx in range(num_heads)
         }
         
@@ -120,7 +120,7 @@ class GatedMultiHeadSelfAttention(nn.Module):
             if head_signal["state"] == "withdrawn":
                 # For withdrawn heads, respect withdrawal but log if activated anyway
                 outputs.append(torch.zeros(B, T, self.embed_dim, device=device))
-                if float(self.gate[i]) > 0.1:
+                if float(self.gate[i]) > 0.5:  # Using same threshold as consent check for consistency
                     self._log_consent_violation(i, "activated despite withdrawal", current_step)
                 continue
             
