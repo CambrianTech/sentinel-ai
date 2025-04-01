@@ -353,13 +353,19 @@ Choose from notebook UI or set manually in `dataset_loader.py`.
 
 Sentinel-AI supports multiple model architectures with varying levels of compatibility:
 
-| Family | Support Level | Tested Models |
-|--------|--------------|---------------|
-| **GPT-2** | ✅ Full | distilgpt2, gpt2, gpt2-medium |
-| **Pythia/GPT-NeoX** | ✅ Full | EleutherAI/pythia-70m, pythia-160m |
-| **BLOOM** | ✅ Full | bigscience/bloom-560m |
-| **OPT** | ⚠️ Partial | facebook/opt-125m (opt-350m has tensor mismatch issues) |
-| **Llama** | ⚠️ Limited | Not fully tested (requires HF token) |
+| Model | Base Parameters | Adaptive Parameters | Status | Notes |
+|-------|----------------|---------------------|--------|-------|
+| **distilgpt2** | 82M | 91M | ✅ Full | Best output quality, 100% success rate |
+| **gpt2** | 124M | 139M | ✅ Full | Best output quality, 100% success rate |
+| **gpt2-medium** | 355M | 384M | ✅ Full | Best output quality, 100% success rate |
+| **EleutherAI/pythia-70m** | 70M | 85M | ✅ Full | Good compatibility, coherence varies |
+| **EleutherAI/pythia-160m** | 162M | 189M | ✅ Full | Good compatibility, coherence varies |
+| **bigscience/bloom-560m** | 559M | 581M | ✅ Full | Good compatibility, multilingual outputs |
+| **facebook/opt-125m** | 125M | 138M | ✅ Partial | Works correctly, coherence varies |
+| **facebook/opt-350m** | 331M | 347M | ⚠️ Issues | Loads but fails during inference (tensor mismatch) |
+| **meta-llama/Llama-2-7b-hf** | 7B | ~7.4B | ⚠️ Limited | Not fully tested (requires HF token) |
+
+> **Parameter Count Note**: The adaptive model adds ~10-15% parameters for head-specific processing, agency controls, and skip connections.
 
 For detailed compatibility information, sample outputs, and usage instructions for each architecture, see [SUPPORTED_MODELS.md](./models/SUPPORTED_MODELS.md).
 

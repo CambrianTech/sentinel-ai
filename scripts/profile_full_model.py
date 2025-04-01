@@ -42,8 +42,14 @@ def setup_args():
     # Model configuration
     parser.add_argument("--model_name", type=str, default="gpt2", 
                         help="Base model to use (default: gpt2)")
+    parser.add_argument("--model_family", type=str, choices=["gpt2", "bloom", "opt", "pythia", "llama"],
+                        help="Specify model family for specialized handling (auto-detected if not specified)")
     parser.add_argument("--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu",
                         help="Device to run on (default: cuda if available, else cpu)")
+    parser.add_argument("--multi_model_comparison", action="store_true",
+                        help="Test multiple model families for comparison (must specify models with --compare_models)")
+    parser.add_argument("--compare_models", type=str, default="gpt2,gpt2-medium",
+                        help="Comma-separated list of models to compare when using --multi_model_comparison")
     
     # Test parameters
     parser.add_argument("--sequence_length", type=int, default=64,
@@ -893,6 +899,143 @@ def visualize_results(results, args):
         plt.tight_layout()
         plt.savefig(os.path.join(output_dir, "model_loading_comparison.png"), dpi=150)
         plt.close()
+        
+    # Multi-Model Comparison Visualizations
+    if "multi_model_comparison" in results and results["multi_model_comparison"]:
+        data = results["multi_model_comparison"]
+        
+        # Skip if no valid data
+        if not data:
+            return
+            
+        # Extract model names
+        model_names = list(data.keys())
+        
+        # Create figure for multi-model comparison
+        plt.figure(figsize=(15, 10))
+        
+        # 1. Parameter Count Comparison
+        plt.subplot(2, 2, 1)
+        
+        baseline_params = [data[model]["parameter_counts"]["baseline"] / 1000000 for model in model_names]  # Convert to millions
+        adaptive_params = [data[model]["parameter_counts"]["adaptive"] / 1000000 for model in model_names]
+        
+        x = np.arange(len(model_names))
+        width = 0.35
+        
+        plt.bar(x - width/2, baseline_params, width, label='Baseline', color="dodgerblue")
+        plt.bar(x + width/2, adaptive_params, width, label='Adaptive', color="green")
+        
+        plt.title('Parameter Count by Model')
+        plt.ylabel('Parameters (Millions)')
+        plt.xticks(x, model_names, rotation=45, ha='right')
+        plt.grid(axis='y', linestyle='--', alpha=0.7)
+        plt.legend()
+        
+        # Add parameter increase percentage annotations
+        for i, model in enumerate(model_names):
+            increase = data[model]["parameter_counts"]["increase_percentage"]
+            plt.annotate(f"+{increase:.1f}%", 
+                         xy=(i, adaptive_params[i]), 
+                         xytext=(0, 5),
+                         textcoords="offset points",
+                         ha='center', va='bottom',
+                         fontsize=8,
+                         color='darkgreen')
+        
+        # 2. Loading Time Comparison
+        plt.subplot(2, 2, 2)
+        
+        baseline_load = [data[model]["loading"]["baseline_model"]["load_time"] for model in model_names]
+        adaptive_load = [data[model]["loading"]["optimized_model"]["load_time"] for model in model_names]
+        
+        plt.bar(x - width/2, baseline_load, width, label='Baseline', color="dodgerblue")
+        plt.bar(x + width/2, adaptive_load, width, label='Adaptive', color="green")
+        
+        plt.title('Model Loading Time')
+        plt.ylabel('Time (seconds)')
+        plt.xticks(x, model_names, rotation=45, ha='right')
+        plt.grid(axis='y', linestyle='--', alpha=0.7)
+        plt.legend()
+        
+        # 3. Generation Speed Comparison
+        plt.subplot(2, 2, 3)
+        
+        gen_speed = [data[model]["inference"]["tokens_per_second"] for model in model_names]
+        
+        bars = plt.bar(model_names, gen_speed, color="coral")
+        plt.title('Generation Speed (Tokens/Second)')
+        plt.ylabel('Tokens per Second')
+        plt.xticks(rotation=45, ha='right')
+        plt.grid(axis='y', linestyle='--', alpha=0.7)
+        
+        # Add value labels
+        for bar in bars:
+            height = bar.get_height()
+            plt.text(bar.get_x() + bar.get_width()/2., height + 0.2,
+                    f"{height:.2f}", ha='center', va='bottom')
+        
+        # 4. First Token Latency
+        plt.subplot(2, 2, 4)
+        
+        latency = [data[model]["inference"]["first_token_time"] for model in model_names]
+        
+        bars = plt.bar(model_names, latency, color="purple")
+        plt.title('First Token Latency')
+        plt.ylabel('Time (seconds)')
+        plt.xticks(rotation=45, ha='right')
+        plt.grid(axis='y', linestyle='--', alpha=0.7)
+        
+        # Add value labels
+        for bar in bars:
+            height = bar.get_height()
+            plt.text(bar.get_x() + bar.get_width()/2., height + 0.02,
+                    f"{height:.4f}s", ha='center', va='bottom')
+        
+        plt.tight_layout()
+        plt.savefig(os.path.join(output_dir, "multi_model_comparison.png"), dpi=150)
+        plt.close()
+        
+        # Create a parameter growth figure specifically
+        plt.figure(figsize=(10, 6))
+        
+        # Sort models by parameter count for clearer visualization
+        sorted_idx = np.argsort(baseline_params)
+        sorted_models = [model_names[i] for i in sorted_idx]
+        sorted_baseline = [baseline_params[i] for i in sorted_idx]
+        sorted_adaptive = [adaptive_params[i] for i in sorted_idx]
+        sorted_increase = [data[model_names[i]]["parameter_counts"]["increase_percentage"] for i in sorted_idx]
+        
+        # Plot parameter counts
+        x = np.arange(len(sorted_models))
+        plt.bar(x - width/2, sorted_baseline, width, label='Baseline', color="dodgerblue")
+        plt.bar(x + width/2, sorted_adaptive, width, label='Adaptive', color="green")
+        
+        plt.title('Parameter Count by Model (Sorted by Size)')
+        plt.ylabel('Parameters (Millions)')
+        plt.xticks(x, sorted_models, rotation=45, ha='right')
+        plt.grid(axis='y', linestyle='--', alpha=0.7)
+        plt.legend()
+        
+        # Add parameter values and increase percentage
+        for i, (base, adaptive, increase) in enumerate(zip(sorted_baseline, sorted_adaptive, sorted_increase)):
+            plt.annotate(f"{base:.1f}M", 
+                         xy=(i - width/2, base), 
+                         xytext=(0, 5),
+                         textcoords="offset points",
+                         ha='center', va='bottom',
+                         fontsize=8)
+            
+            plt.annotate(f"{adaptive:.1f}M\n(+{increase:.1f}%)", 
+                         xy=(i + width/2, adaptive), 
+                         xytext=(0, 5),
+                         textcoords="offset points",
+                         ha='center', va='bottom',
+                         fontsize=8)
+        
+        plt.tight_layout()
+        plt.savefig(os.path.join(output_dir, "parameter_growth.png"), dpi=150)
+        plt.close()
     
     # 2. Pruning Performance Comparison
     if "pruning_comparison" in results:
@@ -1263,6 +1406,89 @@ def visualize_results(results, args):
     print(f"Visualizations saved to {output_dir}")
 
 
+def compare_multiple_models(args):
+    """Compare performance across multiple model architectures."""
+    print("\n==== Multi-Model Architecture Comparison ====")
+    
+    if not args.multi_model_comparison:
+        print("Skipping multi-model comparison (use --multi_model_comparison to run)")
+        return None
+    
+    # Parse model list
+    model_names = [name.strip() for name in args.compare_models.split(",")]
+    
+    # Ensure we have at least two models to compare
+    if len(model_names) < 2:
+        print("Error: Multi-model comparison requires at least two models")
+        print(f"Only found: {model_names}")
+        return None
+        
+    print(f"Comparing {len(model_names)} models: {', '.join(model_names)}")
+    
+    # Store results for each model
+    results = {}
+    model_families = {}
+    
+    # Test each model
+    for model_name in model_names:
+        print(f"\n--- Testing model: {model_name} ---")
+        
+        # Detect model family if not specified
+        model_family = args.model_family
+        if not model_family:
+            if "gpt2" in model_name.lower():
+                model_family = "gpt2"
+            elif "bloom" in model_name.lower():
+                model_family = "bloom"
+            elif "opt" in model_name.lower():
+                model_family = "opt"
+            elif "pythia" in model_name.lower() or "neox" in model_name.lower():
+                model_family = "pythia"
+            elif "llama" in model_name.lower():
+                model_family = "llama"
+            else:
+                model_family = "gpt2"  # Default to gpt2 handling
+                
+        print(f"Using model family handling: {model_family}")
+        model_families[model_name] = model_family
+                
+        # Record start time for overall profiling
+        start_time = time.time()
+        
+        # Set up a temporary modified args object for testing this model
+        temp_args = argparse.Namespace(**vars(args))
+        temp_args.model_name = model_name
+        temp_args.model_family = model_family
+        
+        # Prepare input data specific to this model
+        data = prepare_input_data(temp_args)
+        
+        # Profile model loading
+        loading_results = profile_model_loading(temp_args)
+        
+        # Only test one pruning level (0%) for comparative clarity
+        inference_results = profile_inference(temp_args, data, "optimized", 0)
+        
+        # Store results together
+        results[model_name] = {
+            "model_family": model_family,
+            "loading": loading_results,
+            "inference": inference_results,
+            "total_time": time.time() - start_time
+        }
+        
+        # Add parameter counts
+        results[model_name]["parameter_counts"] = {
+            "baseline": loading_results["baseline_model"]["parameter_count"],
+            "adaptive": loading_results["optimized_model"]["parameter_count"],
+            "increase_percentage": ((loading_results["optimized_model"]["parameter_count"] - 
+                                    loading_results["baseline_model"]["parameter_count"]) / 
+                                    loading_results["baseline_model"]["parameter_count"] * 100)
+        }
+        
+    return results
+
+
 def main():
     """Main function."""
     # Parse arguments
@@ -1289,24 +1515,29 @@ def main():
             except Exception as e:
                 print(f"Error loading previous results: {e}")
     
-    # Profile model loading
-    results["model_loading"] = profile_model_loading(args)
-    
-    # Prepare input data
-    data = prepare_input_data(args)
-    
-    # Run profiling tests based on mode
-    if args.profile_mode in ["all", "basic"]:
-        # Compare pruning levels with basic generation metrics
-        results["pruning_comparison"] = compare_pruning_levels(args, data)
-    
-    if args.profile_mode in ["all", "component"]:
-        # Profile component breakdown to identify bottlenecks
-        results["component_breakdown"] = profile_component_breakdown(args, data)
-    
-    if args.profile_mode in ["all"] or args.test_integration_points:
-        # Test different integration optimizations
-        results["integration_tests"] = test_integration_optimizations(args, data)
+    # If multi-model comparison is enabled, run that and exit
+    if args.multi_model_comparison:
+        results["multi_model_comparison"] = compare_multiple_models(args)
+    else:
+        # Regular profiling flow
+        # Profile model loading
+        results["model_loading"] = profile_model_loading(args)
+        
+        # Prepare input data
+        data = prepare_input_data(args)
+        
+        # Run profiling tests based on mode
+        if args.profile_mode in ["all", "basic"]:
+            # Compare pruning levels with basic generation metrics
+            results["pruning_comparison"] = compare_pruning_levels(args, data)
+        
+        if args.profile_mode in ["all", "component"]:
+            # Profile component breakdown to identify bottlenecks
+            results["component_breakdown"] = profile_component_breakdown(args, data)
+        
+        if args.profile_mode in ["all"] or args.test_integration_points:
+            # Test different integration optimizations
+            results["integration_tests"] = test_integration_optimizations(args, data)
         
     # Save timestamp for the results
     results["timestamp"] = time.time()
@@ -1315,7 +1546,10 @@ def main():
         "device": args.device,
         "optimization_level": args.optimization_level,
         "pruning_levels": args.pruning_levels,
-        "profile_mode": args.profile_mode
+        "profile_mode": args.profile_mode,
+        "multi_model_comparison": args.multi_model_comparison,
+        "compare_models": args.compare_models if args.multi_model_comparison else None,
+        "model_family": args.model_family
     }
     
     # Save results
@@ -1338,7 +1572,47 @@ def main():
     # Print summary
     print("\n===== Profiling Summary =====")
     
-    # Loading time summary
+    # Multi-model comparison summary (if available)
+    if "multi_model_comparison" in results and results["multi_model_comparison"]:
+        data = results["multi_model_comparison"]
+        print("\nMulti-Model Comparison Summary:")
+        
+        # Table header
+        print("\n{:<15} | {:<10} | {:<12} | {:<12} | {:<15} | {:<15}".format(
+            "Model", "Family", "Base Params", "Adapt Params", "Param Growth", "Tokens/sec"))
+        print("-" * 90)
+        
+        # Sort models by parameter count for clearer presentation
+        model_names = list(data.keys())
+        model_names.sort(key=lambda x: data[x]["parameter_counts"]["baseline"])
+        
+        for model_name in model_names:
+            model_data = data[model_name]
+            family = model_data["model_family"]
+            baseline_params = model_data["parameter_counts"]["baseline"] / 1000000  # Convert to millions
+            adaptive_params = model_data["parameter_counts"]["adaptive"] / 1000000
+            param_growth = model_data["parameter_counts"]["increase_percentage"]
+            tokens_per_sec = model_data["inference"]["tokens_per_second"]
+            
+            print("{:<15} | {:<10} | {:<12.2f}M | {:<12.2f}M | {:<15.2f}% | {:<15.2f}".format(
+                model_name, family, baseline_params, adaptive_params, param_growth, tokens_per_sec))
+        
+        # Overall observations
+        print("\nKey observations:")
+        
+        # Calculate average parameter growth
+        avg_growth = sum(data[m]["parameter_counts"]["increase_percentage"] for m in model_names) / len(model_names)
+        print(f"  • Average parameter increase: {avg_growth:.2f}%")
+        
+        # Find fastest model
+        fastest_model = max(model_names, key=lambda m: data[m]["inference"]["tokens_per_second"])
+        print(f"  • Fastest generation: {fastest_model} ({data[fastest_model]['inference']['tokens_per_second']:.2f} tokens/sec)")
+        
+        # Find model with lowest latency
+        lowest_latency = min(model_names, key=lambda m: data[m]["inference"]["first_token_time"])
+        print(f"  • Lowest first token latency: {lowest_latency} ({data[lowest_latency]['inference']['first_token_time']:.4f}s)")
+    
+    # Regular loading time summary
     if "model_loading" in results:
         loading_data = results["model_loading"]
         print("\nModel Loading:")
