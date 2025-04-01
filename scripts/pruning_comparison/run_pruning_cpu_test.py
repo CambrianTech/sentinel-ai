@@ -34,6 +34,16 @@ def main():
     project_root = Path(__file__).parent.parent.parent.absolute()
     os.chdir(project_root)
     
+    # Ensure we're working with the latest code from main branch
+    try:
+        if os.path.exists(".git"):
+            print("Updating from main branch...")
+            subprocess.run(["git", "fetch", "origin", "main"], check=False)
+            subprocess.run(["git", "merge", "origin/main"], check=False)
+    except Exception as e:
+        print(f"Note: Unable to update from main branch: {e}")
+        print("Continuing with current code...")
+    
     # Ensure output directory exists
     output_dir = Path("validation_results/pruning_agency")
     output_dir.mkdir(parents=True, exist_ok=True)

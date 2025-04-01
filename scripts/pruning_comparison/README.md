@@ -2,6 +2,8 @@
 
 This directory contains scripts for empirically measuring and visualizing the benefits of agency-enabled transformer models compared to baseline models when subjected to progressive pruning.
 
+**Note:** These scripts are designed to work with the main branch of the repository. They automatically pull the latest code from the main branch when run.
+
 ## Key Features
 
 - **Comprehensive Testing**: Compare baseline and agency-enabled models at multiple pruning levels

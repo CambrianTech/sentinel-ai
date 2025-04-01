@@ -50,7 +50,7 @@ if IN_COLAB:
 if not os.path.exists('sentinel-ai'):
     print("Cloning Sentinel-AI repository...")
     
-    # Clone the repo
+    # Clone the repo from main branch
     !git clone https://github.com/CambrianTech/sentinel-ai.git
     
     # Move into the directory
@@ -60,9 +60,9 @@ else:
     if 'sentinel-ai' not in os.getcwd():
         %cd sentinel-ai
     
-    # Pull latest changes
+    # Pull latest changes from main branch
     print("Updating Sentinel-AI repository...")
-    !git pull
+    !git pull origin main
 
 # Fix the import error: Create a Python script to patch the imports
 print("Patching imports for compatibility...")
