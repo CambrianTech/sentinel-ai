@@ -359,6 +359,8 @@ Examples:
                         help="Random seed for reproducibility. Set for consistent generation results.")
     parser.add_argument("--debug", action="store_true",
                         help="Enable debug output")
+    parser.add_argument("--quiet", action="store_true",
+                        help="Reduce verbose loading output")
 
     return parser.parse_args()
 
@@ -386,7 +388,8 @@ def main():
     else:
         print("⚙️  Creating adaptive transformer model")
         debug_mode = args.debug or os.environ.get("DEBUG", "0") == "1"
-        model = load_adaptive_model(args.model_name, baseline_model, device, debug=debug_mode)
+        quiet_mode = args.quiet or os.environ.get("QUIET", "0") == "1"
+        model = load_adaptive_model(args.model_name, baseline_model, device, debug=debug_mode, quiet=quiet_mode)
         
         # Initialize the controller
         controller = ControllerManager(model)
