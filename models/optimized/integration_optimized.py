@@ -473,11 +473,21 @@ class IntegrationOptimizedTransformer(nn.Module):
         # Return appropriate output format
         if return_baseline and baseline_outputs is not None:
             # Return both agency and baseline outputs
-            agency_output = CausalLMOutput(loss=loss, logits=logits, past_key_values=past_key_values)
+            agency_output = CausalLMOutput(
+                loss=loss, 
+                logits=logits, 
+                hidden_states=None,
+                attentions=None
+            )
             return agency_output, baseline_outputs["logits"]
         elif labels is not None:
             # Return output with loss
-            return CausalLMOutput(loss=loss, logits=logits, past_key_values=past_key_values)
+            return CausalLMOutput(
+                loss=loss, 
+                logits=logits, 
+                hidden_states=None,
+                attentions=None
+            )
         else:
             # Return logits only
             return logits
@@ -609,9 +619,13 @@ class IntegrationOptimizedCausalLmWrapper(IntegrationOptimizedTransformer, Gener
         inputs = {
             "input_ids": input_ids,
             "attention_mask": attention_mask,
-            "past_key_values": past_key_values,
             "use_cache": True
         }
+        
+        # We don't use past_key_values for our model, but need to 
+        # include a placeholder to be compatible with HF generation
+        if past_key_values is not None:
+            inputs["past_key_values"] = past_key_values
         
         return inputs
     
@@ -660,7 +674,13 @@ class IntegrationOptimizedCausalLmWrapper(IntegrationOptimizedTransformer, Gener
         
         # Return in the expected format
         if return_dict and not isinstance(outputs, CausalLMOutput):
-            return CausalLMOutput(logits=outputs, past_key_values=kwargs.get("past_key_values", None))
+            # Create the CausalLMOutput object with the correct field names
+            return CausalLMOutput(
+                loss=None,
+                logits=outputs, 
+                hidden_states=None,
+                attentions=None
+            )
         return outputs
 
 
