@@ -151,11 +151,13 @@ Then open any notebook in `/notebooks/` or run `scripts/train_colab.py`.
 
 | Notebook | Description |
 |----------|-------------|
+| **SentinelAI_Colab_Tutorial** | Comprehensive tutorial with pruning and learning examples |
 | **AdaptiveTransformerNotebook** | Full training + benchmarking notebook |
 | **Proof of Adaptivity** | Shows dynamic pruning and regrowth in action |
 | **UNet Adaptivity** | Demonstrates skip-based reinitialization for heads |
 | **Controller Dynamics** | Tracks ANN logits and gating patterns |
 | **Attention Heatmaps** | Side-by-side attention comparisons |
+| **HeadPruningEffectiveness** | Evaluates pruning strategies and their impact |
 | **Checkpoint Resumption** | Tests that training resumes with gates intact |
 | **Low Resource Adaptivity** | Confirms pruning under low-compute conditions |
 | **Model Scaling Test** | Compare performance across model sizes |
@@ -247,6 +249,22 @@ Our research conclusively demonstrates that the Sentinel-AI framework effectivel
 - **Resource Efficiency**: Our model can operate efficiently with significantly fewer attention heads, validating the dynamic pruning approach and enabling more efficient deployment on resource-constrained devices.
 
 These findings provide robust evidence that our Sentinel-AI framework achieves its core objective: enabling efficient transformer architectures through strategic pruning of attention heads while maintaining model performance.
+
+### Learning After Pruning
+
+A key capability of Sentinel-AI is that pruned models can effectively learn new tasks. Our experiments demonstrate that models pruned up to 50% maintain—and sometimes improve—their ability to adapt to new tasks.
+
+- **Maintained Learning Efficiency**: Pruned models learn new tasks as efficiently as full models, but with significantly reduced computational requirements.
+
+- **Gate Evolution During Learning**: As pruned models learn new tasks, their remaining attention gates dynamically adjust to optimize for the new task requirements.
+
+- **Versatility Across Tasks**: Pruned models can effectively learn tasks ranging from sentiment analysis to poetry generation, demonstrating versatile adaptability.
+
+- **Enhanced Neuroplasticity**: In some cases, pruned models show greater gate value changes during learning, suggesting enhanced neuroplasticity compared to full models.
+
+This demonstrates that Sentinel-AI not only makes models more efficient but also enables them to grow into more powerful capabilities through continued adaptation after pruning.
+
+Try our [learning_after_pruning.py](./scripts/learning_after_pruning.py) script and see the [SentinelAI_Colab_Tutorial.ipynb](./notebooks/SentinelAI_Colab_Tutorial.ipynb) for detailed examples.
 
 ### Comparison With Standard Approaches
 
