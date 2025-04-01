@@ -25,6 +25,7 @@ This document outlines prioritized tasks and future directions for the Sentinel-
 - [ ] Test on more complex downstream tasks (summarization, translation, etc.)
 
 ### 4. Architecture Refinements
+- [x] Implement progressive growth (starting with heavily pruned model and strategically growing)
 - [ ] Experiment with different controller architectures (RNN vs. Feedforward)
 - [ ] Test various skip connection patterns beyond standard U-Net structure
 - [ ] Implement adaptive layer pruning in addition to head pruning

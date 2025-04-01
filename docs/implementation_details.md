@@ -120,6 +120,62 @@ While our implementation aligns with the paper's concepts, we faced several chal
    - The U-Net style skip connections could cause instability during early inference
    - We implemented gradual scaling for skip connections to manage this issue
 
+## Advanced Features
+
+### 6. Progressive Growth (New Feature)
+
+**Description:**
+> Progressive growth flips the traditional pruning approach on its head - instead of starting with a fully-parameterized model and pruning it down, we start with a heavily pruned model (e.g., 90% of heads disabled) and strategically regrow attention heads based on their importance to the task. This approach:
+> 
+> 1. Starts with minimal computational requirements
+> 2. Evolves architectural complexity in response to task demands
+> 3. Targets computational resources to the most valuable pathways
+> 4. Creates architectures that are inherently more efficient by construction
+
+**Implementation:** [`progressive_growth.py` script and `ProgressiveGrowthDemo.ipynb`]
+```python
+# Apply initial heavy pruning
+def apply_initial_pruning(model, strategy, pruning_level, device):
+    # Set most gates to near-zero initially
+    with torch.no_grad():
+        for l in range(num_layers):
+            for h in range(num_heads):
+                model.blocks[l]["attn"].gate[h] = torch.tensor(0.001, device=device)
+    
+    # Keep only a small percentage of heads active
+    heads_to_keep = int(total_heads * (1 - pruning_level))
+    # ...select most important heads to keep active...
+
+# Progressive growth during training
+def grow_attention_heads(model, num_heads_to_grow, growth_order, device):
+    heads_to_grow = growth_order[:num_heads_to_grow]
+    
+    # Activate the selected heads
+    with torch.no_grad():
+        for layer_idx, head_idx in heads_to_grow:
+            model.blocks[layer_idx]["attn"].gate[head_idx] = torch.tensor(1.0, device=device)
+```
+
+The growth order is determined by importance metrics collected during training, ensuring that only the most valuable heads are activated:
+
+```python
+def get_head_growth_order(model, strategy, dataloader, device):
+    # Compute importance metrics for inactive heads
+    if strategy == "importance":
+        # Calculate contribution of each head to loss reduction
+        importance_scores = compute_head_importance(model, batch)
+        
+        # Sort inactive heads by importance
+        head_importance = []
+        for layer_idx, head_idx in inactive_heads:
+            imp = importance_scores[layer_idx][head_idx].item()
+            head_importance.append((imp, layer_idx, head_idx))
+        
+        # Return heads in order of decreasing importance
+        head_importance.sort(reverse=True)
+        return [(layer_idx, head_idx) for _, layer_idx, head_idx in head_importance]
+```
+
 ## Modifications from Original Paper
 
 Some implementation details differ slightly from the paper for practical or stability reasons:
@@ -135,3 +191,8 @@ Some implementation details differ slightly from the paper for practical or stab
 3. **Additional Regularization**:
    - We incorporated dropout in attention and residual paths for better stability
    - The paper doesn't explicitly mention these standard regularization techniques
+
+4. **Progressive Growth**:
+   - We introduced the concept of progressive growth as an extension of the pruning framework
+   - This approach starts with minimal architecture and grows strategically, rather than starting with a full model and pruning
+   - Provides a biologically-inspired approach to model development (similar to neural development in biological systems)
