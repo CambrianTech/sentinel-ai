@@ -107,8 +107,18 @@ def load_adaptive_model(model_name, baseline_model, device, debug=False, quiet=F
             else:
                 raise ImportError("No BLOOM loader available")
     
-    elif model_type == "llama" and load_adaptive_model_llama:
-        return load_adaptive_model_llama(model_name, baseline_model, config, device, debug=debug, quiet=quiet)
+    elif model_type == "llama":
+        # For Llama models, try the special adapter approach first
+        try:
+            from models.llama_adapter import load_llama_adapted
+            print("⚡ Using Llama hybrid adapter (preserves rotary embeddings and SwiGLU)")
+            return load_llama_adapted(model_name, device, debug=debug)
+        except ImportError:
+            # Fall back to standard loader if adapter isn't available
+            if load_adaptive_model_llama:
+                return load_adaptive_model_llama(model_name, baseline_model, config, device, debug=debug, quiet=quiet)
+            else:
+                raise ImportError("No Llama loader available")
     
     else:
         # Try to infer model type from architectures if not found directly
@@ -136,10 +146,20 @@ def load_adaptive_model(model_name, baseline_model, device, debug=False, quiet=F
                     print(f"Inferred BLOOM-style model from architecture: {arch_name}")
                 return load_adaptive_model_bloom(model_name, baseline_model, config, device, debug=debug, quiet=quiet)
                 
-            elif "llama" in arch_name and load_adaptive_model_llama:
+            elif "llama" in arch_name:
                 if not quiet:
                     print(f"Inferred Llama-style model from architecture: {arch_name}")
-                return load_adaptive_model_llama(model_name, baseline_model, config, device, debug=debug, quiet=quiet)
+                # Try the adapter first
+                try:
+                    from models.llama_adapter import load_llama_adapted
+                    print("⚡ Using Llama hybrid adapter (preserves rotary embeddings and SwiGLU)")
+                    return load_llama_adapted(model_name, device, debug=debug)
+                except ImportError:
+                    # Fall back to standard loader if adapter isn't available
+                    if load_adaptive_model_llama:
+                        return load_adaptive_model_llama(model_name, baseline_model, config, device, debug=debug, quiet=quiet)
+                    else:
+                        raise ImportError("No Llama loader available")
         
         # If we get here, no supported loader was found
         raise NotImplementedError(

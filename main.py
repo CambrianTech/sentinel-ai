@@ -381,7 +381,16 @@ def main():
     device = torch.device(args.device if args.device else ("cuda" if torch.cuda.is_available() else "cpu"))
 
     print(f"🚀 Using device: {device}")
-    tokenizer = AutoTokenizer.from_pretrained(args.model_name)
+    
+    # Special handling for Llama models to avoid tokenizer issues
+    if "llama" in args.model_name.lower():
+        from transformers import LlamaTokenizer
+        print("Using LlamaTokenizer for Llama model")
+        tokenizer = LlamaTokenizer.from_pretrained(args.model_name)
+    else:
+        tokenizer = AutoTokenizer.from_pretrained(args.model_name)
+    
+    # Ensure there's a pad token
     tokenizer.pad_token = tokenizer.eos_token
 
     # Load the baseline model
