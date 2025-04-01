@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 from models.adaptive_transformer import AdaptiveCausalLmWrapper
 
-def load_adaptive_model_gpt(model_name, baseline_model, config, device, debug=False):
+def load_adaptive_model_gpt(model_name, baseline_model, config, device, debug=False, quiet=False):
     """
     Improved loading of adaptive transformer model from a baseline GPT model.
     
@@ -15,11 +15,12 @@ def load_adaptive_model_gpt(model_name, baseline_model, config, device, debug=Fa
         config: Configuration object for the model
         device: Device to load the model on
         debug: Whether to print debug information
+        quiet: If True, suppresses verbose loading messages
     
     Returns:
         The adaptive transformer model with loaded weights
     """
-    if debug:
+    if debug and not quiet:
         print(f"✅ Using fixed GPT2 loader")
     
     # Get the token embeddings and position embeddings from the baseline model

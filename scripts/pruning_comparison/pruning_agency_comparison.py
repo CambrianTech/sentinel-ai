@@ -109,7 +109,7 @@ def load_model(model_name, agency_enabled=False, device="cpu", precision="float3
         baseline_model = load_baseline_model(model_name, torch_device)
         
         # Then load adaptive model with agency
-        model = load_adaptive_model(model_name, baseline_model, torch_device, debug=True)
+        model = load_adaptive_model(model_name, baseline_model, torch_device, debug=False, quiet=quiet)
         
         # Set agency enabled flag for reference in pruning
         if hasattr(model, "model"):
