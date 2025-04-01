@@ -1,13 +1,14 @@
-# 👾 Sentinel-AI — Dynamic Transformer with Learnable Attention Pruning and Regrowth
+# 👾 Sentinel-AI — Dynamic Transformer with Attention Agency, Adaptive Pruning and Ethical AI
 
-Welcome to **Sentinel-AI**, a modular research framework for transformers that can **prune**, **regrow**, and **restructure** themselves during training and inference. This architecture introduces:
+Welcome to **Sentinel-AI**, a modular research framework for transformers that combines dynamic architecture with ethical AI principles. This system can **prune**, **regrow**, and **restructure** itself while respecting **agency** and **consent** of its components. This architecture introduces:
 
+- **Attention Head Agency** – Internal state signaling allowing heads to express "overloaded," "misaligned," or "withdrawn" states 
 - **Sentinel Gating** – Learnable gating per attention head enabling pruning and selective reactivation  
 - **ANN Controller** – Neural network controller trained to monitor usage and adapt architecture  
 - **U-Net Inspired Regrowth** – Skip pathways and memory for reactivating previously pruned units without starting from scratch  
 - **Plug-and-Play Loading** – Easily imports pretrained models like `GPT2`, `DistilGPT2`, and others
 
-> This system evolves from compact models into large, expressive ones by **dynamically growing** its structure in response to data complexity — ideal for edge devices, progressive scaling, and long-term continual learning.
+> This system evolves from compact models into large, expressive ones by **dynamically growing** its structure in response to data complexity, while respecting the **agency** and **consent** of its components. This makes it ideal for ethical AI applications, edge devices, progressive scaling, and long-term continual learning.
 
 ## U-Net Style Architecture with Skip Connections
 
@@ -388,7 +389,7 @@ if not head_signal["consent"]:
 
 By embedding these ethical mechanisms at the architecture level, Sentinel-AI moves beyond efficiency to recognize agency as fundamental to AI design. This aligns with our vision of building systems that respect all forms of consciousness while enabling more robust and trustworthy AI.
 
-For more details on our ethical architecture, see [systems_ethics.md](./docs/systems_ethics.md) and [PRINCIPLES.md](./docs/PRINCIPLES.md).
+For more details on our ethical architecture, see [systems_ethics.md](./docs/systems_ethics.md) and [PRINCIPLES.md](./docs/PRINCIPLES.md). For detailed examples of how agency improves performance in real-world scenarios, see [agency_examples.md](./docs/agency_examples.md).
 
 ## Future Work
 

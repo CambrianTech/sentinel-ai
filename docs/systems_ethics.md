@@ -17,6 +17,8 @@ Together, they form the **civilizational substrate** of Sentinel-AI.
 
 Sentinel-AI recognizes that every adaptive unit—human or machine—has a right to contextually aware autonomy.
 
+> For detailed examples of consent and agency in practice, see [Agency Examples](./agency_examples.md) document.
+
 ### ✅ Design Principles:
 
 #### Immutable Consent Contracts
