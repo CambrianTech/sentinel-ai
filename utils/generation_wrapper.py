@@ -8,6 +8,43 @@ import seaborn as sns
 from tqdm import tqdm
 from transformers import AutoTokenizer, AutoModelForCausalLM
 
+def generate_text(model, tokenizer, prompt, max_length=50, temperature=0.7, 
+                top_p=0.9, top_k=50, repetition_penalty=1.2, device="cuda"):
+    """
+    Generate text using a model.
+    
+    Args:
+        model: Model to use for generation
+        tokenizer: Tokenizer for the model
+        prompt: Text prompt to start generation
+        max_length: Maximum length of generated text
+        temperature: Sampling temperature (higher = more random)
+        top_p: Nucleus sampling parameter (higher = more diverse)
+        top_k: Top-k sampling parameter (higher = more diverse)
+        repetition_penalty: Penalty for repeating tokens (higher = less repetition)
+        device: Device to run generation on
+        
+    Returns:
+        Generated text string
+    """
+    # Create a wrapper for generation
+    wrapper = GenerationWrapper(model=model, tokenizer=tokenizer, device=device)
+    
+    # Generate text
+    outputs = wrapper.generate_text(
+        prompt=prompt,
+        max_length=max_length,
+        temperature=temperature,
+        top_p=top_p,
+        top_k=top_k,
+        repetition_penalty=repetition_penalty,
+        do_sample=True,
+        num_return_sequences=1
+    )
+    
+    # Return the first (and only) generated text
+    return outputs[0]
+
 class GenerationWrapper:
     def __init__(self, model_name=None, model=None, tokenizer=None, device="cpu"):
         """

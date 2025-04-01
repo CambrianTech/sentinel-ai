@@ -103,3 +103,13 @@ When running the comparison with default parameters, you should expect to see:
 4. **Responsiveness**: First token latency remains lower for agency-enabled models
 
 These results empirically validate that agency mechanisms provide tangible benefits for model efficiency and quality when resources are constrained.
+
+## Interpreting Results
+
+The experiment allows us to answer several key questions:
+
+1. **Does agency improve resilience to pruning?** - By comparing the slope of performance decline
+2. **What is the optimal pruning level?** - Where performance gains are maximized
+3. **How does temperature affect pruned models?** - Via cross-temperature comparisons
+4. **Is agency more beneficial under resource constraints?** - By comparing relative gains at high pruning levels
+5. **What types of quality metrics benefit most?** - Through multi-metric radar visualizations

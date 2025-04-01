@@ -327,3 +327,98 @@ def repetition_metrics(texts):
         "repetition_score": sum(repetition_scores) / len(repetition_scores) if repetition_scores else 0,
         "avg_repetition_length": sum(repetition_lengths) / len(repetition_lengths) if repetition_lengths else 0
     }
+
+def compute_text_statistics(text):
+    """
+    Compute various quality metrics for generated text.
+    
+    Args:
+        text: The generated text to analyze
+        
+    Returns:
+        Dictionary with text quality metrics
+    """
+    if not text:
+        return {}
+        
+    words = text.split()
+    if not words:
+        return {}
+        
+    results = {}
+    
+    # 1. Lexical diversity (higher is better)
+    unique_words = len(set(words))
+    total_words = len(words)
+    results["lexical_diversity"] = unique_words / total_words if total_words > 0 else 0
+    
+    # 2. Repetition score (lower is better)
+    if len(words) <= 1:
+        results["repetition_score"] = 0.0
+    else:
+        window_size = min(50, len(words))
+        repeats = 0
+        for i in range(len(words) - 1):
+            end_idx = min(i + window_size, len(words))
+            if words[i] in words[i+1:end_idx]:
+                repeats += 1
+                
+        results["repetition_score"] = repeats / (len(words) - 1)
+    
+    # 3. Average word length
+    avg_word_length = sum(len(word) for word in words) / total_words if total_words > 0 else 0
+    results["avg_word_length"] = avg_word_length
+    
+    return results
+
+def calculate_perplexity(generated_texts, prompts):
+    """
+    Calculate an approximate perplexity measure for generated texts.
+    
+    This is a simplified version for validation that doesn't require the model.
+    For more accurate perplexity, use compute_perplexity with a language model.
+    
+    Args:
+        generated_texts: List of generated texts
+        prompts: List of corresponding prompts
+        
+    Returns:
+        Approximate perplexity score
+    """
+    if not generated_texts or not prompts:
+        return float('nan')
+    
+    # Extract only the generated portions (exclude the prompts)
+    generated_portions = []
+    for i, text in enumerate(generated_texts):
+        if i < len(prompts) and text.startswith(prompts[i]):
+            # Remove the prompt from the beginning
+            generated_portion = text[len(prompts[i]):].strip()
+            generated_portions.append(generated_portion)
+        else:
+            generated_portions.append(text)
+    
+    # Calculate token-level entropy using frequency distribution
+    all_tokens = []
+    for text in generated_portions:
+        # Simple tokenization (split by whitespace and punctuation)
+        tokens = re.findall(r'\w+|[^\w\s]', text.lower())
+        all_tokens.extend(tokens)
+    
+    if not all_tokens:
+        return float('nan')
+    
+    # Calculate token frequencies
+    token_counts = Counter(all_tokens)
+    total_tokens = len(all_tokens)
+    
+    # Calculate entropy
+    entropy = 0
+    for token, count in token_counts.items():
+        prob = count / total_tokens
+        entropy -= prob * math.log(prob)
+    
+    # Convert entropy to perplexity
+    perplexity = math.exp(entropy)
+    
+    return perplexity

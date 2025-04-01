@@ -47,7 +47,11 @@ outputs/
 generated/
 validation_results/
 dist/
-pruning_results/
+
+# Benchmark results, but keep specific examples
+/pruning_results/*
+!/pruning_results/examples/
+/pruning_speed_results.png
 
 # Visualization files
 *.png
@@ -56,6 +60,10 @@ pruning_results/
 *.gif
 *.pdf
 
-# Temporary files
+# Configuration files with runtime data
+/config/specialization_patterns.json
+
+# Temporary and development files
 message.txt
 docs/MANIFESTO.md
+MANIFESTO.md

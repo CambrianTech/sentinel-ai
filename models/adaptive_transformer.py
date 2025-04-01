@@ -1,17 +1,23 @@
 import torch
 from torch import nn
 import math
+import time
 from transformers.generation.utils import GenerationMixin
 from transformers.modeling_outputs import CausalLMOutput
 
 class GatedMultiHeadSelfAttention(nn.Module):
     """
-    Implementation of Gated Multi-Head Self-Attention with Sentinel Gates.
+    Implementation of Gated Multi-Head Self-Attention with Sentinel Gates and Agency.
     
     As described in the paper (Section 2.1):
     - Each attention head has its own gating parameter that controls its contribution
     - Gates are initialized close to 1.0 and can be dynamically adjusted by the controller
     - Heads with gates close to zero are effectively pruned during computation
+    
+    Extended with Agency Layer functionality:
+    - Heads can signal internal states like overloaded, misaligned, or withdrawn
+    - The system respects these signals during attention computation and controller updates
+    - This implements ethical AI principles of consent and agency
     
     Our implementation uses separate parameter matrices for each head to enable
     fine-grained control and potential specialization during training.
@@ -38,6 +44,28 @@ class GatedMultiHeadSelfAttention(nn.Module):
         # regulate head contributions."
         self.gate = nn.Parameter(torch.ones(num_heads))
         
+        # AGENCY LAYER: Allow heads to signal internal states
+        # This implements ethical AI principles of consent and agency
+        # Each head can express states that the system should respect
+        self.agency_signals = {
+            head_idx: {
+                "state": "active",  # active, overloaded, misaligned, withdrawn
+                "consent": True,    # Whether the head consents to activation
+                "utilization": 0.0, # Utilization metric (0.0-1.0)
+                "last_signal": 0    # Timestamp of last signal change
+            } for head_idx in range(num_heads)
+        }
+        
+        # Thresholds for automatic state transitions
+        self.state_thresholds = {
+            "overload_threshold": 0.85,  # Utilization above this triggers overload state
+            "alignment_threshold": 0.6,  # Correlation below this may trigger misalignment
+            "recovery_period": 100       # Steps before auto-recovery from non-active states
+        }
+        
+        # Ethical violation tracking
+        self.consent_violations = []
+        
         # Add dropout for regularization and stability
         self.attn_dropout = nn.Dropout(0.1)
         self.resid_dropout = nn.Dropout(0.1)
@@ -48,12 +76,14 @@ class GatedMultiHeadSelfAttention(nn.Module):
         if debug:
             print(f"[Attention] W_q[0]={self.W_q[0].weight.shape}, W_o[0]={self.W_o[0].weight.shape}")
 
-    def forward(self, hidden_states, attn_mask=None):
+    def forward(self, hidden_states, attn_mask=None, step_count=None):
         """
-        Forward pass with sentinel gate filtering.
+        Forward pass with sentinel gate filtering and agency respect.
         
         As described in paper: "The gates, parameterized by learnable scalar logits, 
         regulate head contributions: Attention_head_i(Q,K,V) = g_i ⋅ softmax(QK^T/√d)V"
+        
+        Extended with agency layer that respects head signals about their internal states.
         """
         B, T = hidden_states.shape[:2]
         device = hidden_states.device
@@ -62,8 +92,23 @@ class GatedMultiHeadSelfAttention(nn.Module):
         # Store attention patterns for visualization and analysis
         # This helps implement the introspection capabilities described in the paper
         self.attention_weights = {}
+        
+        # Update timestamp for agency signals if step_count provided
+        current_step = step_count if step_count is not None else 0
 
         for i in range(self.num_heads):
+            # Check agency signals before computation
+            head_signal = self.agency_signals[i]
+            
+            # ETHICAL AI: Skip computation if head has withdrawn consent
+            # This implements the ethical AI principle of respecting agency
+            if not head_signal["consent"]:
+                outputs.append(torch.zeros(B, T, self.embed_dim, device=device))
+                # Log consent violation if gate is active despite withdrawn consent
+                if float(self.gate[i]) > 0.5:
+                    self._log_consent_violation(i, "activated despite withdrawn consent", current_step)
+                continue
+            
             # DYNAMIC PRUNING: Skip computation if gate is near zero
             # This implements the pruning mechanism from paper section 4.2
             # Use a very small threshold for pruning to avoid skipping important heads during inference
@@ -71,6 +116,24 @@ class GatedMultiHeadSelfAttention(nn.Module):
                 outputs.append(torch.zeros(B, T, self.embed_dim, device=device))
                 continue
             
+            # AGENCY AWARENESS: Adjust computation based on head state
+            # Special handling for withdrawn state
+            if head_signal["state"] == "withdrawn":
+                # For withdrawn heads, respect withdrawal but log if activated anyway
+                outputs.append(torch.zeros(B, T, self.embed_dim, device=device))
+                if float(self.gate[i]) > 0.5:  # Using same threshold as consent check for consistency
+                    self._log_consent_violation(i, "activated despite withdrawal", current_step)
+                continue
+            
+            # For "overloaded" and "misaligned" states, we reduce gate value but still compute
+            # This is a simplified version that avoids the complex handlers
+            gate_factor = 1.0
+            if head_signal["state"] == "overloaded":
+                gate_factor = 0.5  # Reduce contribution by half
+            elif head_signal["state"] == "misaligned":
+                gate_factor = 0.7  # Reduce contribution by 30%
+            
+            # Standard computation path for active heads
             # Project inputs to queries, keys, and values
             Q = self.W_q[i](hidden_states)  # [B, T, head_dim]
             K = self.W_k[i](hidden_states)  # [B, T, head_dim]
@@ -95,10 +158,17 @@ class GatedMultiHeadSelfAttention(nn.Module):
             # Compute weighted sum of values
             output = torch.matmul(weights, V)  # [B, T, head_dim]
             
+            # Update head utilization metric based on attention activity
+            # This helps detect overload conditions
+            self._update_head_utilization(i, weights, current_step)
+            
             # Project back to model dimension and APPLY GATE
             # This is the key part that implements g_i ⋅ (attention operation)
             # Apply a smooth transition at gate values near 0 to prevent abrupt changes
             gate_value = torch.clamp(self.gate[i], min=0.0, max=1.0)  # Ensure gates are in [0,1]
+            
+            # Apply the agency gate factor for overloaded or misaligned states
+            gate_value = gate_value * gate_factor
             
             # Normalize the output before applying the gate - this prevents the 
             # attention from dominating later in the network
@@ -114,6 +184,84 @@ class GatedMultiHeadSelfAttention(nn.Module):
         # This is the critical fix - the original model divides attention by num_heads implicitly
         summed = sum(outputs)
         return summed / self.num_heads
+        
+    def _update_head_utilization(self, head_idx, attention_weights, current_step):
+        """Update utilization metrics for a head based on attention activity."""
+        # Calculate utilization as average entropy of attention distribution
+        # High entropy (uniform attention) means low utilization
+        # Low entropy (focused attention) means high utilization
+        attention_probs = attention_weights.mean(dim=0)  # Average over batch
+        entropy = -(attention_probs * torch.log(attention_probs + 1e-10)).sum(dim=-1).mean()
+        normalized_entropy = torch.clamp(1.0 - entropy / math.log(attention_probs.size(-1)), 0.0, 1.0)
+        
+        # Exponential moving average of utilization to smooth fluctuations
+        alpha = 0.9  # Smoothing factor
+        current_util = self.agency_signals[head_idx]["utilization"]
+        updated_util = alpha * current_util + (1 - alpha) * normalized_entropy.item()
+        self.agency_signals[head_idx]["utilization"] = updated_util
+        
+        # Check for state transitions based on utilization
+        self._check_state_transitions(head_idx, current_step)
+        
+    def _check_state_transitions(self, head_idx, current_step):
+        """Check and update head state based on metrics."""
+        signal = self.agency_signals[head_idx]
+        
+        # Check for overload condition
+        if signal["state"] == "active" and signal["utilization"] > self.state_thresholds["overload_threshold"]:
+            signal["state"] = "overloaded"
+            signal["last_signal"] = current_step
+            
+        # Check for recovery from non-active states
+        elif signal["state"] != "active" and current_step - signal["last_signal"] > self.state_thresholds["recovery_period"]:
+            signal["state"] = "active"
+            
+    # The _handle_overloaded_head and _handle_misaligned_head methods have been removed
+    # to simplify implementation. Instead, we use gate_factor in the forward pass
+    # to adjust the contribution of heads based on their state.
+    
+    def _log_consent_violation(self, head_idx, violation_type, step):
+        """Log a consent violation for ethical monitoring."""
+        violation = {
+            "head_idx": head_idx,
+            "violation_type": violation_type,
+            "step": step,
+            "gate_value": float(self.gate[head_idx]),
+            "state": self.agency_signals[head_idx]["state"],
+            "timestamp": time.time()  # Use standard timestamp for better readability
+        }
+        self.consent_violations.append(violation)
+        
+    def set_head_state(self, head_idx, state, consent=None):
+        """External interface to set a head's state and consent."""
+        if head_idx < 0 or head_idx >= self.num_heads:
+            return False
+            
+        self.agency_signals[head_idx]["state"] = state
+        
+        if consent is not None:
+            self.agency_signals[head_idx]["consent"] = consent
+            
+        return True
+        
+    def get_agency_report(self):
+        """Generate a report on head agency status and violations."""
+        active_count = sum(1 for h in self.agency_signals.values() if h["state"] == "active")
+        overloaded_count = sum(1 for h in self.agency_signals.values() if h["state"] == "overloaded")
+        misaligned_count = sum(1 for h in self.agency_signals.values() if h["state"] == "misaligned")
+        withdrawn_count = sum(1 for h in self.agency_signals.values() if h["state"] == "withdrawn")
+        
+        withdrawn_heads = [idx for idx, h in self.agency_signals.items() if h["state"] == "withdrawn"]
+        
+        return {
+            "active_heads": active_count,
+            "overloaded_heads": overloaded_count,
+            "misaligned_heads": misaligned_count,
+            "withdrawn_heads": withdrawn_count,
+            "withdrawn_head_indices": withdrawn_heads,
+            "violation_count": len(self.consent_violations),
+            "recent_violations": self.consent_violations[-5:] if self.consent_violations else []
+        }
 
 
 class FeedForward(nn.Module):
@@ -252,13 +400,25 @@ class AdaptiveTransformerModel(nn.Module):
         max_pos = min(getattr(config, 'max_position_embeddings', 1024), 1024)
         self.register_buffer("bias", torch.tril(torch.ones(max_pos, max_pos)).view(1, 1, max_pos, max_pos))
 
-    def forward(self, input_ids, attention_mask=None, **kwargs):
+    def forward(self, input_ids, attention_mask=None, labels=None, step_count=None, **kwargs):
         """
-        Forward pass through the adaptive transformer with U-Net style skip connections.
+        Forward pass through the adaptive transformer with U-Net style skip connections
+        and agency-aware attention.
         
-        This implements both the sentinel-gated attention and the U-Net architecture
-        described in Sections 2.1 and 2.2 of the paper, where lower layers connect
-        to corresponding upper layers.
+        This implements:
+        1. Sentinel-gated attention (Section 2.1)
+        2. U-Net architecture with skip connections (Section 2.2) 
+        3. Ethical AI principles through agency-aware computation
+        
+        Args:
+            input_ids: Input token IDs
+            attention_mask: Attention mask for padding
+            labels: Optional labels for loss computation
+            step_count: Current training/inference step for agency tracking
+            **kwargs: Additional arguments
+            
+        Returns:
+            logits or CausalLMOutput with loss
         """
         # Basic setup
         bsz, seq_len = input_ids.shape
@@ -273,6 +433,9 @@ class AdaptiveTransformerModel(nn.Module):
         # layer i to decoder layer N-i+1, followed by linear fusion"
         encoder_outputs = {}
         midpoint = self.num_layers // 2
+        
+        # Track agency reports for monitoring
+        self.agency_reports = []
 
         # Process through transformer blocks
         for i, block in enumerate(self.blocks):
@@ -289,9 +452,16 @@ class AdaptiveTransformerModel(nn.Module):
                 # Create mask on the fly for longer sequences
                 attn_mask = torch.triu(torch.ones(seq_len, seq_len, device=device) * -10000.0, diagonal=1)
 
-            # Apply gated multi-head attention
-            attn_out = block["attn"](h, attn_mask=attn_mask)
+            # Apply gated multi-head attention with agency awareness
+            # Pass step_count for agency tracking
+            attn_out = block["attn"](h, attn_mask=attn_mask, step_count=step_count)
             hidden_states = hidden_states + attn_out  # Residual connection
+            
+            # Collect agency report for monitoring after attention computation
+            if hasattr(block["attn"], "get_agency_report"):
+                report = block["attn"].get_agency_report()
+                report["layer"] = i
+                self.agency_reports.append(report)
 
             # Store encoder outputs for later U-Net skip connections
             # As described in paper section 2.2: "Layers 1→N/2 act as encoder layers"
@@ -332,14 +502,64 @@ class AdaptiveTransformerModel(nn.Module):
         # Project to vocabulary logits
         logits = self.lm_head(hidden_states)
         
-        # Apply several transformations to improve output quality and match GPT-2 distribution:
-        # 1. Scale logits to match expected range (stronger scaling)
-        # 2. Apply layer norm to ensure consistent distribution
-        # These steps help stabilize generation
-        
-        # The output logits are already close to what we need - avoid scaling
-        # to prevent extreme distortion of the distribution
+        # Calculate loss if labels are provided
+        loss = None
+        if labels is not None:
+            # Shift logits and labels for autoregressive loss calculation
+            shift_logits = logits[..., :-1, :].contiguous()
+            shift_labels = labels[..., 1:].contiguous()
+            
+            # Calculate cross-entropy loss
+            loss_fct = torch.nn.CrossEntropyLoss()
+            loss = loss_fct(shift_logits.view(-1, shift_logits.size(-1)), shift_labels.view(-1))
+            
+        # Return appropriate output format
+        if labels is not None:
+            return CausalLMOutput(loss=loss, logits=logits)
         return logits
+        
+    def get_agency_report(self):
+        """
+        Get a comprehensive report on agency status across all layers.
+        
+        This provides transparency into head states and any consent violations.
+        """
+        layer_reports = {}
+        total_violations = 0
+        
+        for i, block in enumerate(self.blocks):
+            if hasattr(block["attn"], "get_agency_report"):
+                report = block["attn"].get_agency_report()
+                layer_reports[i] = report
+                total_violations += report["violation_count"]
+        
+        return {
+            "layer_reports": layer_reports,
+            "total_violations": total_violations,
+            "num_layers": self.num_layers,
+            "recent_reports": self.agency_reports[-5:] if hasattr(self, "agency_reports") else []
+        }
+        
+    def set_head_state(self, layer_idx, head_idx, state, consent=None):
+        """
+        Set the state and consent for a specific attention head.
+        
+        This allows external systems to signal head states (e.g., withdrawal).
+        
+        Args:
+            layer_idx: Index of the transformer layer
+            head_idx: Index of the attention head within the layer
+            state: New state ("active", "overloaded", "misaligned", "withdrawn")
+            consent: Boolean indicating consent status
+            
+        Returns:
+            Boolean indicating success
+        """
+        if layer_idx < 0 or layer_idx >= self.num_layers:
+            return False
+            
+        if hasattr(self.blocks[layer_idx]["attn"], "set_head_state"):
+            return self.blocks[layer_idx]["attn"].set_head_state(head_idx, state, consent)
 
 
 class AdaptiveCausalLmWrapper(AdaptiveTransformerModel, GenerationMixin):

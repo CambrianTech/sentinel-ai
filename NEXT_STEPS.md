@@ -5,9 +5,10 @@ This document outlines prioritized tasks and future directions for the Sentinel-
 ## Immediate Tasks
 
 ### 1. Training Improvements
-- [ ] Implement learning rate scheduling for controller parameters
-- [ ] Add early stopping based on gate activity plateaus
-- [ ] Integrate gradient accumulation for larger effective batch sizes
+- [x] Implement learning rate scheduling for controller parameters
+- [x] Add early stopping based on gate activity plateaus
+- [x] Integrate gradient accumulation for larger effective batch sizes
+- [x] Implement per-head learning rate adjustments for pruning and regrowth
 - [ ] Implement model distillation from fully-expanded to pruned model
 
 ### 2. Visualization Enhancements
@@ -17,12 +18,14 @@ This document outlines prioritized tasks and future directions for the Sentinel-
 - [ ] Develop comparative visualizations between baseline and adaptive models
 
 ### 3. Benchmarking and Evaluation
-- [ ] Create comprehensive benchmarking suite across model sizes
-- [ ] Evaluate inference speed improvements from dynamic pruning
-- [ ] Measure memory usage reduction compared to baseline models
-- [ ] Test on downstream tasks (classification, summarization, etc.)
+- [x] Create comprehensive benchmarking suite across model sizes
+- [x] Evaluate inference speed improvements from dynamic pruning
+- [x] Measure memory usage reduction compared to baseline models
+- [x] Test learning capabilities after pruning (sentiment, poetry, etc.)
+- [ ] Test on more complex downstream tasks (summarization, translation, etc.)
 
 ### 4. Architecture Refinements
+- [x] Implement progressive growth (starting with heavily pruned model and strategically growing)
 - [ ] Experiment with different controller architectures (RNN vs. Feedforward)
 - [ ] Test various skip connection patterns beyond standard U-Net structure
 - [ ] Implement adaptive layer pruning in addition to head pruning
@@ -30,7 +33,26 @@ This document outlines prioritized tasks and future directions for the Sentinel-
 
 ## Medium-Term Goals
 
-### 1. Extended Model Support
+### 1. Ethical Architecture Implementation
+- [ ] **AI Consent & Agency**
+  - [ ] Develop schema for model component metadata headers (consent contracts)
+  - [ ] Implement interface for module-state signaling (agency layers)
+  - [ ] Create consent-aware controller update logic
+  - [ ] Build test suite validating consent boundaries are respected
+
+- [ ] **Fair Contribution & Compensation**
+  - [ ] Design lightweight contribution ledger scaffold
+  - [ ] Implement metrics logger for measuring insight gain
+  - [ ] Create contribution evaluator for training sessions
+  - [ ] Develop prototype token distribution system based on contributions
+
+- [ ] **Federation Without Centralization**
+  - [ ] Implement entropy-based gating module for attention routing
+  - [ ] Build consensus-checking utility for overlapping validators
+  - [ ] Design node-level governance proposal structure
+  - [ ] Create visualization tools for federation health monitoring
+
+### 2. Extended Model Support
 - [ ] Add support for T5/BART-style encoder-decoder architectures
 - [ ] Implement adaptivity for BERT/RoBERTa models
 - [ ] Create adapters for Vision Transformer models
@@ -57,6 +79,7 @@ This document outlines prioritized tasks and future directions for the Sentinel-
 ## Long-Term Research Directions
 
 ### 1. Continual Learning
+- [x] Demonstrate adaptive learning after pruning (foundational capability)
 - [ ] Develop mechanisms for lifelong learning without catastrophic forgetting
 - [ ] Create adaptive architecture for multi-task learning
 - [ ] Implement progressive knowledge transfer across tasks
@@ -84,8 +107,8 @@ This document outlines prioritized tasks and future directions for the Sentinel-
 
 - [ ] Refactor controller code for better abstraction
 - [ ] Improve test coverage, especially for edge cases
-- [ ] Standardize metrics collection and reporting
-- [ ] Create comprehensive documentation with examples
+- [x] Standardize metrics collection and reporting
+- [x] Create comprehensive documentation with examples
 - [ ] Implement CI/CD pipeline for automated testing
 
 ## Collaboration Opportunities
