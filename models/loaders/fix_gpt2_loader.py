@@ -1,69 +1,52 @@
-"""
-Improved GPT2 weight loader to handle weight tensor shape issues
-"""
 import torch
 import torch.nn as nn
 from models.adaptive_transformer import AdaptiveCausalLmWrapper
 
 def load_adaptive_model_gpt(model_name, baseline_model, config, device):
     """
-    Load an adaptive transformer model initialized from a baseline GPT model.
-    Properly handles GPT-2's specific weight storage format.
+    Improved loading of adaptive transformer model from a baseline GPT model.
+    
+    This loader properly handles the weight transfer to ensure maximum accuracy
+    and coherence in the adaptive model's outputs.
     """
-    print("\n==== DEBUG INFO ====")
-    print(f"Model name: {model_name}")
-    print(f"Config: {config.__class__.__name__}")
-    print(f"Hidden size: {config.hidden_size if hasattr(config, 'hidden_size') else config.n_embd}")
-    print(f"Number of heads: {config.num_attention_heads if hasattr(config, 'num_attention_heads') else config.n_head}")
-    if hasattr(config, 'n_inner'):
-        print(f"FFN inner dim: {config.n_inner}")
-    elif hasattr(config, 'intermediate_size'):
-        print(f"FFN inner dim (intermediate_size): {config.intermediate_size}")
-    else:
-        print("FFN inner dim not found in config")
-    print("=====================\n")
-
-    # Get the token and position embeddings
+    print(f"✅ Using fixed GPT2 loader")
+    
+    # Get the token embeddings and position embeddings from the baseline model
     token_embeddings = baseline_model.get_input_embeddings()
     
-    # For GPT-2, position embeddings are stored in transformer.wpe
+    # Get position embeddings correctly
     if hasattr(baseline_model, 'transformer') and hasattr(baseline_model.transformer, 'wpe'):
         position_embeddings = baseline_model.transformer.wpe
     else:
+        # Fallback - create new position embeddings
         position_embeddings = nn.Embedding(config.max_position_embeddings, config.hidden_size)
-        print("Warning: Could not find position embeddings, created new ones")
+        print("Warning: Could not get position embeddings from baseline model, created new ones")
     
-    # Create our adaptive model
     model = AdaptiveCausalLmWrapper(config, token_embeddings, position_embeddings).to(device)
     model.eval()
-    
-    # Get state dictionaries
+
     baseline_state = baseline_model.state_dict()
     adaptive_state = model.state_dict()
-    
-    # Track successfully loaded and skipped parameters
+
     loaded, skipped = [], []
-    
-    # Extract dimensions
+
     num_heads = config.n_head if hasattr(config, "n_head") else config.num_attention_heads
     hidden_size = config.n_embd if hasattr(config, "n_embd") else config.hidden_size
     head_dim = hidden_size // num_heads
-    
-    # Copy layernorms
+
+    # Copy final layer norm
     try:
-        # Final layer norm
         adaptive_state["ln_f.weight"].copy_(baseline_state["transformer.ln_f.weight"])
         adaptive_state["ln_f.bias"].copy_(baseline_state["transformer.ln_f.bias"])
         loaded.extend(["ln_f.weight", "ln_f.bias"])
-    except Exception as e:
-        print(f"Error loading final layernorm: {e}")
+    except Exception:
         skipped.extend(["ln_f.weight", "ln_f.bias"])
-    
-    # Process each transformer layer
+
+    # Process each transformer block
     for layer_idx in range(config.n_layer):
         print(f"\n[Processing layer {layer_idx}]")
         
-        # 1. Load layer norms
+        # Load layer norms
         try:
             adaptive_state[f"blocks.{layer_idx}.ln1.weight"].copy_(
                 baseline_state[f"transformer.h.{layer_idx}.ln_1.weight"])
@@ -73,161 +56,187 @@ def load_adaptive_model_gpt(model_name, baseline_model, config, device):
                 baseline_state[f"transformer.h.{layer_idx}.ln_2.weight"])
             adaptive_state[f"blocks.{layer_idx}.ln2.bias"].copy_(
                 baseline_state[f"transformer.h.{layer_idx}.ln_2.bias"])
-            loaded.extend([
-                f"blocks.{layer_idx}.ln1.weight", f"blocks.{layer_idx}.ln1.bias",
-                f"blocks.{layer_idx}.ln2.weight", f"blocks.{layer_idx}.ln2.bias"
-            ])
             print("  ✓ Loaded layer norms")
+            loaded.extend([
+                f"blocks.{layer_idx}.ln1.weight", f"blocks.{layer_idx}.ln1.bias",
+                f"blocks.{layer_idx}.ln2.weight", f"blocks.{layer_idx}.ln2.bias"
+            ])
         except Exception as e:
-            print(f"  ✗ Error loading layer norms: {e}")
+            print(f"  ✗ Failed to load layer norms: {e}")
             skipped.extend([
                 f"blocks.{layer_idx}.ln1.weight", f"blocks.{layer_idx}.ln1.bias",
                 f"blocks.{layer_idx}.ln2.weight", f"blocks.{layer_idx}.ln2.bias"
             ])
-        
-        # 2. Load feedforward layers
+
+        # Load feedforward layers
         try:
-            # Get weights from baseline
-            mlp_fc_weight = baseline_state[f"transformer.h.{layer_idx}.mlp.c_fc.weight"] 
-            mlp_fc_bias = baseline_state[f"transformer.h.{layer_idx}.mlp.c_fc.bias"]
-            mlp_proj_weight = baseline_state[f"transformer.h.{layer_idx}.mlp.c_proj.weight"]
-            mlp_proj_bias = baseline_state[f"transformer.h.{layer_idx}.mlp.c_proj.bias"]
+            in_w = f"blocks.{layer_idx}.ffn.dense_in.weight"
+            in_b = f"blocks.{layer_idx}.ffn.dense_in.bias"
+            out_w = f"blocks.{layer_idx}.ffn.dense_out.weight"
+            out_b = f"blocks.{layer_idx}.ffn.dense_out.bias"
+
+            base_in_w = f"transformer.h.{layer_idx}.mlp.c_fc.weight"
+            base_in_b = f"transformer.h.{layer_idx}.mlp.c_fc.bias"
+            base_out_w = f"transformer.h.{layer_idx}.mlp.c_proj.weight"
+            base_out_b = f"transformer.h.{layer_idx}.mlp.c_proj.bias"
+
+            # Match dimensions properly
+            if baseline_state[base_in_w].shape[0] == adaptive_state[in_w].shape[1]:
+                # Need to transpose weights
+                adaptive_state[in_w].copy_(baseline_state[base_in_w].t())
+            else:
+                adaptive_state[in_w].copy_(baseline_state[base_in_w])
             
-            # Check and handle transposition if needed
-            if mlp_fc_weight.shape[1] != adaptive_state[f"blocks.{layer_idx}.ffn.dense_in.weight"].shape[1]:
-                mlp_fc_weight = mlp_fc_weight.t()
-            if mlp_proj_weight.shape[1] != adaptive_state[f"blocks.{layer_idx}.ffn.dense_out.weight"].shape[1]:
-                mlp_proj_weight = mlp_proj_weight.t()
+            # Copy biases directly
+            adaptive_state[in_b].copy_(baseline_state[base_in_b])
+
+            # Also match dimensions for output projection
+            if baseline_state[base_out_w].shape[0] == adaptive_state[out_w].shape[1]:
+                adaptive_state[out_w].copy_(baseline_state[base_out_w].t())
+            else:
+                adaptive_state[out_w].copy_(baseline_state[base_out_w])
                 
-            # Copy weights to our model
-            adaptive_state[f"blocks.{layer_idx}.ffn.dense_in.weight"].copy_(mlp_fc_weight)
-            adaptive_state[f"blocks.{layer_idx}.ffn.dense_in.bias"].copy_(mlp_fc_bias)
-            adaptive_state[f"blocks.{layer_idx}.ffn.dense_out.weight"].copy_(mlp_proj_weight)
-            adaptive_state[f"blocks.{layer_idx}.ffn.dense_out.bias"].copy_(mlp_proj_bias)
+            adaptive_state[out_b].copy_(baseline_state[base_out_b])
             
-            loaded.extend([
-                f"blocks.{layer_idx}.ffn.dense_in.weight", f"blocks.{layer_idx}.ffn.dense_in.bias",
-                f"blocks.{layer_idx}.ffn.dense_out.weight", f"blocks.{layer_idx}.ffn.dense_out.bias"
-            ])
             print("  ✓ Loaded feedforward layers")
+            loaded.extend([in_w, in_b, out_w, out_b])
         except Exception as e:
-            print(f"  ✗ Error loading feedforward layers: {e}")
-            skipped.extend([
-                f"blocks.{layer_idx}.ffn.dense_in.weight", f"blocks.{layer_idx}.ffn.dense_in.bias",
-                f"blocks.{layer_idx}.ffn.dense_out.weight", f"blocks.{layer_idx}.ffn.dense_out.bias"
-            ])
-        
-        # 3. Initialize gates to reasonable values that create slight asymmetry
+            print(f"  ✗ Failed to load feedforward layers: {e}")
+            skipped.extend([in_w, in_b, out_w, out_b])
+
+        # Initialize gate values with slight asymmetry
         try:
             gate_key = f"blocks.{layer_idx}.attn.gate"
-            # Initialize with slightly different values to break symmetry
-            num_heads = adaptive_state[gate_key].shape[0]
+            # Create different initial gate values for each head
             gate_values = torch.ones_like(adaptive_state[gate_key])
             
-            for h in range(num_heads):
-                # Apply slight reduction based on position (0.9-1.0 range)
-                pos_factor = 1.0 - 0.1 * abs(h - num_heads//2) / (num_heads//2)
-                gate_values[h] = pos_factor
+            # Apply a slight asymmetry to break symmetry during training
+            for head_idx in range(num_heads):
+                # Calculate distance from middle (0 to 1 scale)
+                distance = abs(head_idx - (num_heads-1)/2) / ((num_heads-1)/2)
+                # Apply small variation (max 5%)
+                gate_values[head_idx] = 1.0 - 0.05 * distance
                 
             adaptive_state[gate_key].copy_(gate_values)
+            print("  ✓ Initialized gate values with slight asymmetry")
             loaded.append(gate_key)
-            print(f"  ✓ Initialized gate values with slight asymmetry")
         except Exception as e:
-            print(f"  ✗ Error initializing gates: {e}")
+            print(f"  ✗ Failed to initialize gate values: {e}")
             skipped.append(gate_key)
-        
-        # 4. Load attention weights - this is the tricky part
+
+        # Load attention weights with careful handling of shapes
         try:
-            # Get the combined QKV weights from GPT-2
-            qkv_weight = baseline_state[f"transformer.h.{layer_idx}.attn.c_attn.weight"]
-            qkv_bias = baseline_state[f"transformer.h.{layer_idx}.attn.c_attn.bias"]
-            attn_proj_weight = baseline_state[f"transformer.h.{layer_idx}.attn.c_proj.weight"]
-            attn_proj_bias = baseline_state[f"transformer.h.{layer_idx}.attn.c_proj.bias"]
+            # Get attention weights from baseline
+            qkv_w = baseline_state[f"transformer.h.{layer_idx}.attn.c_attn.weight"] 
+            qkv_b = baseline_state[f"transformer.h.{layer_idx}.attn.c_attn.bias"]
+            proj_w = baseline_state[f"transformer.h.{layer_idx}.attn.c_proj.weight"]
+            proj_b = baseline_state[f"transformer.h.{layer_idx}.attn.c_proj.bias"]
             
-            print(f"  • QKV weight shape: {qkv_weight.shape}, Proj weight shape: {attn_proj_weight.shape}")
+            # Debug
+            print(f"  • QKV weight shape: {qkv_w.shape}, Proj weight shape: {proj_w.shape}")
             
-            # GPT-2's attention weights might need transposing
-            gpt2_convention = (qkv_weight.shape[0] == hidden_size and qkv_weight.shape[1] == 3 * hidden_size)
-            if gpt2_convention:
+            # Check shapes to determine layout format
+            if qkv_w.shape[0] == hidden_size and qkv_w.shape[1] == 3 * hidden_size:
+                # Standard GPT-2 shape: [hidden_size, 3*hidden_size]
                 print("  • Using standard GPT-2 convention (transpose needed)")
-                qkv_weight = qkv_weight.t()  # [3*hidden, hidden] after transpose
+                qkv_w = qkv_w.t()  # Transpose to [3*hidden_size, hidden_size]
+                if proj_w.shape[0] == hidden_size:
+                    proj_w = proj_w.t()
+            elif qkv_w.shape[0] == 3 * hidden_size and qkv_w.shape[1] == hidden_size:
+                # Already in the format we need [3*hidden_size, hidden_size]
+                print("  • Using pre-transposed weights format")
             else:
-                print("  • Using non-standard weight format")
-                
-            # GPT-2 concatenates Q, K, V for all heads
-            # Our model separates them by head
+                print(f"  • Unexpected weight shape: {qkv_w.shape}, attempting to adjust...")
+                # Try to adjust to the expected shape
+                if qkv_w.numel() == 3 * hidden_size * hidden_size:
+                    qkv_w = qkv_w.reshape(3 * hidden_size, hidden_size)
+            
+            # Process each head separately
             for head_idx in range(num_heads):
                 # Calculate slices for this head in the combined weights
                 h_start = head_idx * head_dim
                 h_end = (head_idx + 1) * head_dim
                 
                 # Extract Q, K, V slices for this head
-                # In GPT-2: First hidden_size values are Q, next hidden_size are K, last hidden_size are V
                 q_slice = slice(h_start, h_end)
                 k_slice = slice(hidden_size + h_start, hidden_size + h_end)
                 v_slice = slice(2 * hidden_size + h_start, 2 * hidden_size + h_end)
                 
-                # Extract weight matrices for Q, K, V
-                # These need to be transposed to match our model's convention
-                q_weight = qkv_weight[q_slice, :].clone()  # [head_dim, hidden_size]
-                k_weight = qkv_weight[k_slice, :].clone()  # [head_dim, hidden_size]
-                v_weight = qkv_weight[v_slice, :].clone()  # [head_dim, hidden_size]
-                
-                # Extract bias vectors
-                q_bias = qkv_bias[q_slice].clone()  # [head_dim]
-                k_bias = qkv_bias[k_slice].clone()  # [head_dim]
-                v_bias = qkv_bias[v_slice].clone()  # [head_dim]
-                
-                # Extract output projection for this head
-                # GPT-2 has a single output projection matrix; we need to slice it
-                if attn_proj_weight.shape[0] == hidden_size:
-                    # [hidden_size, hidden_size] -> slice to [hidden_size, head_dim]
-                    o_weight = attn_proj_weight[:, h_start:h_end].clone()
-                else:
-                    # [head_dim, hidden_size] for each head
-                    o_weight = attn_proj_weight[h_start:h_end, :].clone()
+                # Get weights and biases
+                if qkv_w.shape[1] == hidden_size:
+                    # This is the case where the QKV weight matrix is [3*hidden_size, hidden_size]
+                    print(f"  • Using altered slicing for shape {qkv_w.shape}")
+                    q_start, q_end = 0, hidden_size // num_heads
+                    k_start, k_end = hidden_size, hidden_size + hidden_size // num_heads
+                    v_start, v_end = 2 * hidden_size, 2 * hidden_size + hidden_size // num_heads
                     
-                # Output bias is shared, so divide by number of heads
-                o_bias = attn_proj_bias.clone() / num_heads
+                    # Extract slices for this head
+                    qw = qkv_w[h_start:h_end, :].clone()  # [head_dim, hidden_size]
+                    qb = qkv_b[h_start:h_end].clone()     # [head_dim]
+                    
+                    kw = qkv_w[hidden_size + h_start:hidden_size + h_end, :].clone()
+                    kb = qkv_b[hidden_size + h_start:hidden_size + h_end].clone()
+                    
+                    vw = qkv_w[2 * hidden_size + h_start:2 * hidden_size + h_end, :].clone()
+                    vb = qkv_b[2 * hidden_size + h_start:2 * hidden_size + h_end].clone()
+                else:
+                    # Standard case where QKV weight matrix is [hidden_size, 3*hidden_size]
+                    qw = qkv_w[:, q_slice].clone()
+                    qb = qkv_b[q_slice].clone()
+                    
+                    kw = qkv_w[:, k_slice].clone()
+                    kb = qkv_b[k_slice].clone()
+                    
+                    vw = qkv_w[:, v_slice].clone()
+                    vb = qkv_b[v_slice].clone()
                 
-                # Transpose to match our model's expected dimensions if needed
-                if q_weight.shape[1] != adaptive_state[f"blocks.{layer_idx}.attn.W_q.{head_idx}.weight"].shape[1]:
-                    q_weight = q_weight.t()
-                    k_weight = k_weight.t()
-                    v_weight = v_weight.t()
+                # Get projection weights for this head
+                # For projection, we need to distribute the projection evenly
+                # Original is [hidden_size, hidden_size], we want [head_dim, hidden_size]
+                ow_full = proj_w.clone()
+                ow = ow_full[h_start:h_end, :].clone()
                 
-                if o_weight.shape != adaptive_state[f"blocks.{layer_idx}.attn.W_o.{head_idx}.weight"].shape:
-                    o_weight = o_weight.t()
+                # Output bias is shared across heads, so divide by num_heads
+                ob = proj_b.clone() / num_heads
                 
-                # Copy to our model's per-head parameters
-                param_mapping = [
-                    (f"blocks.{layer_idx}.attn.W_q.{head_idx}.weight", q_weight),
-                    (f"blocks.{layer_idx}.attn.W_q.{head_idx}.bias", q_bias),
-                    (f"blocks.{layer_idx}.attn.W_k.{head_idx}.weight", k_weight),
-                    (f"blocks.{layer_idx}.attn.W_k.{head_idx}.bias", k_bias),
-                    (f"blocks.{layer_idx}.attn.W_v.{head_idx}.weight", v_weight),
-                    (f"blocks.{layer_idx}.attn.W_v.{head_idx}.bias", v_bias),
-                    (f"blocks.{layer_idx}.attn.W_o.{head_idx}.weight", o_weight),
-                    (f"blocks.{layer_idx}.attn.W_o.{head_idx}.bias", o_bias)
-                ]
+                # Check if we need to transpose individual weights
+                if qw.shape[0] != head_dim and qw.shape[1] == head_dim:
+                    qw = qw.t()
+                    kw = kw.t()
+                    vw = vw.t()
                 
-                # Copy the weights to our model
-                for name, value in param_mapping:
-                    try:
-                        if value.shape != adaptive_state[name].shape:
-                            print(f"  • Shape mismatch for {name}: {value.shape} vs {adaptive_state[name].shape}")
-                            continue
-                            
-                        adaptive_state[name].copy_(value)
-                        loaded.append(name)
-                    except Exception as e:
-                        print(f"  • Error loading {name}: {e}")
-                        skipped.append(name)
-                        
+                if ow.shape[0] != hidden_size and ow.shape[1] == hidden_size:
+                    ow = ow.t()
+                
+                # Copy to our model's separated head weights
+                adaptive_state[f"blocks.{layer_idx}.attn.W_q.{head_idx}.weight"].copy_(qw)
+                adaptive_state[f"blocks.{layer_idx}.attn.W_q.{head_idx}.bias"].copy_(qb)
+                
+                adaptive_state[f"blocks.{layer_idx}.attn.W_k.{head_idx}.weight"].copy_(kw)
+                adaptive_state[f"blocks.{layer_idx}.attn.W_k.{head_idx}.bias"].copy_(kb)
+                
+                adaptive_state[f"blocks.{layer_idx}.attn.W_v.{head_idx}.weight"].copy_(vw)
+                adaptive_state[f"blocks.{layer_idx}.attn.W_v.{head_idx}.bias"].copy_(vb)
+                
+                adaptive_state[f"blocks.{layer_idx}.attn.W_o.{head_idx}.weight"].copy_(ow)
+                adaptive_state[f"blocks.{layer_idx}.attn.W_o.{head_idx}.bias"].copy_(ob)
+                
+                # Add to loaded list
+                loaded.extend([
+                    f"blocks.{layer_idx}.attn.W_q.{head_idx}.weight",
+                    f"blocks.{layer_idx}.attn.W_q.{head_idx}.bias",
+                    f"blocks.{layer_idx}.attn.W_k.{head_idx}.weight",
+                    f"blocks.{layer_idx}.attn.W_k.{head_idx}.bias",
+                    f"blocks.{layer_idx}.attn.W_v.{head_idx}.weight",
+                    f"blocks.{layer_idx}.attn.W_v.{head_idx}.bias",
+                    f"blocks.{layer_idx}.attn.W_o.{head_idx}.weight",
+                    f"blocks.{layer_idx}.attn.W_o.{head_idx}.bias"
+                ])
+                
             print(f"  ✓ Loaded attention weights for layer {layer_idx}")
-            
+                
         except Exception as e:
-            print(f"  ✗ Error loading attention weights: {e}")
+            print(f"  ✗ Failed to load attention weights: {e}")
             for head_idx in range(num_heads):
                 skipped.extend([
                     f"blocks.{layer_idx}.attn.W_q.{head_idx}.weight",
@@ -240,41 +249,51 @@ def load_adaptive_model_gpt(model_name, baseline_model, config, device):
                     f"blocks.{layer_idx}.attn.W_o.{head_idx}.bias"
                 ])
         
-        # 5. Initialize skip connections
-        skip_fuse_weight = f"blocks.{layer_idx}.skip_fuse.weight"
-        skip_fuse_bias = f"blocks.{layer_idx}.skip_fuse.bias"
-        if skip_fuse_weight in adaptive_state:
+        # Initialize skip connection fusion with small values
+        try:
+            fuse_w = f"blocks.{layer_idx}.skip_fuse.weight"
+            fuse_b = f"blocks.{layer_idx}.skip_fuse.bias"
+            
             with torch.no_grad():
-                # Initialize with small random values for stable gradient flow
-                adaptive_state[skip_fuse_weight].normal_(mean=0.0, std=0.01)
-                adaptive_state[skip_fuse_bias].zero_()
+                # Initialize with small values
+                adaptive_state[fuse_w].normal_(mean=0.0, std=0.01)
+                adaptive_state[fuse_b].zero_()
                 
-                # Apply layer-dependent scaling
-                layer_pos = layer_idx - config.n_layer // 2
-                if layer_pos > 0:
-                    # Later layers get smaller initial values for stability
-                    scaling = 1.0 - 0.5 * (layer_pos / (config.n_layer // 2))
-                    adaptive_state[skip_fuse_weight].mul_(scaling)
+                # Apply scaling for deeper layers
+                scale = 1.0
+                if layer_idx > config.n_layer // 2:
+                    # Gradually reduce scale for deeper layers
+                    progress = (layer_idx - config.n_layer // 2) / (config.n_layer - config.n_layer // 2)
+                    scale = 1.0 - progress * 0.5  # Scale from 1.0 down to 0.5
                     
-            loaded.extend([skip_fuse_weight, skip_fuse_bias])
-            print(f"  ✓ Initialized skip connection with small values (scale={scaling if layer_pos > 0 else 1.0:.2f})")
-    
+                adaptive_state[fuse_w] *= scale
+                
+            print(f"  ✓ Initialized skip connection with small values (scale={scale:.2f})")
+            loaded.extend([fuse_w, fuse_b])
+        except Exception as e:
+            print(f"  ✗ Failed to initialize skip connection: {e}")
+            skipped.extend([fuse_w, fuse_b])
+
     # Copy embeddings and output weights
-    adaptive_state["wte.weight"].copy_(baseline_state["transformer.wte.weight"])
-    adaptive_state["wpe.weight"][:baseline_state["transformer.wpe.weight"].shape[0]].copy_(
-        baseline_state["transformer.wpe.weight"]
-    )
-    adaptive_state["lm_head.weight"].copy_(baseline_state["transformer.wte.weight"])
-    loaded.extend(["wte.weight", "wpe.weight", "lm_head.weight"])
-    print("✓ Loaded embeddings and output weights")
-    
-    # Initialize causal mask
+    try:
+        adaptive_state["wte.weight"].copy_(baseline_state["transformer.wte.weight"])
+        adaptive_state["wpe.weight"][:baseline_state["transformer.wpe.weight"].shape[0]].copy_(
+            baseline_state["transformer.wpe.weight"]
+        )
+        adaptive_state["lm_head.weight"].copy_(baseline_state["transformer.wte.weight"])
+        loaded.extend(["wte.weight", "wpe.weight", "lm_head.weight"])
+        print(f"✓ Loaded embeddings and output weights")
+    except Exception as e:
+        print(f"✗ Failed to load embeddings and output weights: {e}")
+        skipped.extend(["wte.weight", "wpe.weight", "lm_head.weight"])
+
     if "bias" in adaptive_state:
         with torch.no_grad():
             adaptive_state["bias"].zero_()
         loaded.append("bias")
-    
-    print(f"\n✅ Adaptive model initialized from {model_name} weights ({len(loaded)}/{len(adaptive_state)} parameters loaded)")
-    print(f"   Skipped {len(skipped)} parameters")
-    
+
+    print(f"\n✅ Adaptive model initialized from {model_name} weights ({len(loaded)}/{len(loaded) + len(skipped)} parameters loaded)")
+    if skipped:
+        print(f"   Skipped {len(skipped)} parameters")
+        
     return model

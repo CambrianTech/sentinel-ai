@@ -15,59 +15,37 @@ SUPPORTED_MODELS = [
     # Add other HuggingFace-supported models here
 ]
 
-def generate_sample_output(model, tokenizer, prompt, device, max_length=50, temperature=0.8, top_k=50, top_p=0.95):
+def generate_text(model, tokenizer, prompt, device, max_length=50, temperature=0.8, 
+                  top_k=50, top_p=0.95, repetition_penalty=1.0):
+    """Generate text using HuggingFace's generation API"""
+    # Set model to eval mode
     model.eval()
+    
+    # Prepare inputs
     inputs = tokenizer(prompt, return_tensors="pt").to(device)
-
+    
+    # Configure generation parameters
+    generation_config = {
+        "max_length": max_length,
+        "do_sample": True, 
+        "temperature": temperature,
+        "top_k": top_k,
+        "top_p": top_p,
+        "repetition_penalty": repetition_penalty,
+        "pad_token_id": tokenizer.eos_token_id
+    }
+    
+    # Generate text
     with torch.no_grad():
-        # For adaptive model, use more careful settings
-        is_adaptive = not hasattr(model, "config") or not hasattr(model.config, "model_type")
+        output_sequences = model.generate(
+            **inputs,
+            **generation_config
+        )
         
-        generation_params = {
-            "max_length": max_length,
-            "do_sample": True,
-            "pad_token_id": tokenizer.eos_token_id,
-            "no_repeat_ngram_size": 3  # Prevent 3-gram repetition loops
-        }
-        
-        # Special settings for the adaptive model
-        if is_adaptive:
-            generation_params.update({
-                "temperature": 0.7,        # Lower temperature (more focused text)
-                "top_k": 100,              # Consider more candidates 
-                "top_p": 0.9,              # More focused nucleus sampling
-                "repetition_penalty": 1.2, # Discourage repetition
-                "num_beams": 5,            # Use beam search for better coherence
-                "num_beam_groups": 3,      # Diverse beam groups
-                "diversity_penalty": 1.0,  # Encourage diversity between beams
-            })
-        else:
-            # Standard settings for baseline model
-            generation_params.update({
-                "temperature": temperature,
-                "top_k": top_k if top_k > 0 else None,
-                "top_p": top_p,
-            })
-            
-        output = model.generate(**inputs, **generation_params)
-        
-    # Inspect logits of known input
-    test = tokenizer("The cat", return_tensors="pt").to(device)
-    with torch.no_grad():
-        logits = model(**test).logits
-        print("Logits for 'The cat':", logits[0, -1].topk(5).indices.tolist())
-        print("Top 5 tokens:", [tokenizer.decode([i]) for i in logits[0, -1].topk(5).indices.tolist()])
-
-
-    print("\n🧠 Prompt:", prompt)
-    print("[Generated]:", tokenizer.decode(output[0], skip_special_tokens=True))
-
-    # If adaptive model supports gate introspection
-    if hasattr(model, "get_gate_activity"):
-        print("\n=== GATE ACTIVITY ===")
-        gate_activity = model.get_gate_activity()
-        for layer, indices in gate_activity.items():
-            print(f"Layer {layer}: Active heads -> {indices}")
+    # Decode the generated text
+    generated_text = tokenizer.decode(output_sequences[0], skip_special_tokens=True)
+    
+    return generated_text
 
 def parse_args():
     parser = argparse.ArgumentParser(
@@ -77,12 +55,15 @@ def parse_args():
 Examples:
   python main.py
   python main.py --model_name=gpt2 --prompt="The future of AI is"
-  python main.py --model_name=gpt2 --baseline_only
+  python main.py --model_name=gpt2 --baseline
+  python main.py --model_path=checkpoints/model.pth
 """
     )
 
     parser.add_argument("--model_name", type=str, default=os.getenv("MODEL_NAME", "gpt2"),
                         help="HuggingFace model name (see supported list below).")
+    parser.add_argument("--model_path", type=str, default=None,
+                        help="Path to a saved adaptive model checkpoint.")
     parser.add_argument("--prompt", type=str, default="The meaning of life is",
                         help="Prompt text for generating output.")
     parser.add_argument("--max_length", type=int, default=50,
@@ -95,6 +76,8 @@ Examples:
                         help="Top-k sampling (default: 50). Set to 0 to disable.")
     parser.add_argument("--top_p", type=float, default=0.95,
                         help="Top-p nucleus sampling (default: 0.95).")
+    parser.add_argument("--repetition_penalty", type=float, default=1.2,
+                        help="Repetition penalty (default: 1.2). 1.0 means no penalty.")
     parser.add_argument("--baseline", action="store_true",
                         help="Use only the baseline HuggingFace model, skipping adaptive wrapper.")
 
@@ -108,24 +91,50 @@ def main():
     tokenizer = AutoTokenizer.from_pretrained(args.model_name)
     tokenizer.pad_token = tokenizer.eos_token
 
+    # Load the baseline model
     baseline_model = load_baseline_model(args.model_name, device)
 
     if args.baseline:
         print("⚙️  Running with baseline HuggingFace model only")
         model = baseline_model
     else:
+        print("⚙️  Creating adaptive transformer model")
         model = load_adaptive_model(args.model_name, baseline_model, device)
-
-    generate_sample_output(
-        model,
-        tokenizer,
-        args.prompt,
-        device,
-        max_length=args.max_length,
-        temperature=args.temperature,
-        top_k=args.top_k,
-        top_p=args.top_p
-    )
+        
+        # Load checkpoint if provided
+        if args.model_path and os.path.exists(args.model_path):
+            from utils.checkpoint import load_checkpoint
+            optimizer = torch.optim.AdamW(model.parameters())
+            head_lr_multipliers = {}
+            model, _, _, _, _ = load_checkpoint(
+                model, optimizer, head_lr_multipliers, args.model_path, device)
+            print(f"📂 Loaded checkpoint from {args.model_path}")
+    
+    # Display gate activity for adaptive model
+    if hasattr(model, "blocks"):
+        print("\n=== GATE ACTIVITY ===")
+        for layer_idx, block in enumerate(model.blocks):
+            attn_module = block["attn"]
+            active_heads = []
+            
+            for head_idx in range(attn_module.num_heads):
+                if attn_module.gate[head_idx].item() > 0.1:
+                    active_heads.append(head_idx)
+            
+            print(f"Layer {layer_idx}: Active heads -> {active_heads}")
+    
+    # Generate text
+    generation_params = {
+        "max_length": args.max_length,
+        "temperature": args.temperature,
+        "top_k": args.top_k,
+        "top_p": args.top_p,
+        "repetition_penalty": args.repetition_penalty
+    }
+    
+    print("\n🧠 Prompt:", args.prompt)
+    generated_text = generate_text(model, tokenizer, args.prompt, device, **generation_params)
+    print("\n[Generated]:", generated_text)
 
 if __name__ == "__main__":
     main()
