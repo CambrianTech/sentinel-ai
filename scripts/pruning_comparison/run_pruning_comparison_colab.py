@@ -116,6 +116,45 @@ print(" ".join(cmd))
 print("\n" + "="*80 + "\n")
 
 start_time = time.time()
+# Add a patching step before running
+print("Patching imports for compatibility...")
+pruning_agency_file = "scripts/pruning_comparison/pruning_agency_comparison.py"
+
+# Check if patching is needed
+with open(pruning_agency_file, "r") as f:
+    content = f.read()
+
+if "try:" in content and "except NameError:" in content:
+    print(f"✓ File {pruning_agency_file} already has correct imports")
+else:
+    # Patch the file to handle __file__ in Colab
+    content = content.replace(
+        "# Add root directory to path\nsys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), \"../..\")))",
+        """# Add root directory to path
+try:
+    # When running as a script with __file__ available
+    sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
+except NameError:
+    # In Colab or interactive environments where __file__ isn't defined
+    # First check if we're in the repo root or one level down
+    if os.path.exists("models") and os.path.exists("utils"):
+        # We're already in the root directory
+        pass
+    elif os.path.exists("../models") and os.path.exists("../utils"):
+        # We're one level down from root
+        sys.path.insert(0, os.path.abspath(".."))
+    elif os.path.exists("sentinel-ai/models") and os.path.exists("sentinel-ai/utils"):
+        # We're in the parent directory of the repo (typical Colab setup)
+        sys.path.insert(0, os.path.abspath("sentinel-ai"))
+    else:
+        print("Warning: Could not determine repository root path. Import errors may occur.")"""
+    )
+    
+    with open(pruning_agency_file, "w") as f:
+        f.write(content)
+    print(f"✓ Patched {pruning_agency_file} to work in Colab")
+
+# Now run the command
 !{" ".join(cmd)}
 end_time = time.time()
 
