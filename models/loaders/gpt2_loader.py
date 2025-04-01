@@ -132,6 +132,7 @@ def load_adaptive_model_gpt(model_name, baseline_model, config, device, quiet=Fa
 
         # Attention QKV + O
         try:
+            # Layer header should respect quiet flag
             if not quiet:
                 print(f"[Processing layer {layer_idx}]")
             # Get the attention weights from baseline model
@@ -275,15 +276,19 @@ def load_adaptive_model_gpt(model_name, baseline_model, config, device, quiet=Fa
                     
             loaded.extend([fuse_w, fuse_b])
 
-    # Always show final success message
-    print(f"\n✅ Adaptive model initialized from {model_name} weights ({len(loaded)}/{len(adaptive_state)} parameters loaded)")
+    # Final success message - shorter version in quiet mode
+    if quiet:
+        print(f"✅ Adaptive model initialized from {model_name} weights")
+    else:
+        print(f"\n✅ Adaptive model initialized from {model_name} weights ({len(loaded)}/{len(adaptive_state)} parameters loaded)")
     
-    # Show gate activity summary
-    print("\n=== GATE ACTIVITY ===")
-    for layer_idx in range(config.n_layer):
-        gate_key = f"blocks.{layer_idx}.attn.gate"
-        gate_values = adaptive_state[gate_key]
-        active_heads = [i for i, v in enumerate(gate_values) if v > 0.5]  # Threshold at 0.5
-        print(f"Layer {layer_idx}: Active heads -> {active_heads}")
+    # Show gate activity summary (only if not in quiet mode)
+    if not quiet:
+        print("\n=== GATE ACTIVITY ===")
+        for layer_idx in range(config.n_layer):
+            gate_key = f"blocks.{layer_idx}.attn.gate"
+            gate_values = adaptive_state[gate_key]
+            active_heads = [i for i, v in enumerate(gate_values) if v > 0.5]  # Threshold at 0.5
+            print(f"Layer {layer_idx}: Active heads -> {active_heads}")
     
     return model
