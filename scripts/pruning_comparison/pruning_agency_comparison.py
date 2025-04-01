@@ -427,13 +427,11 @@ def evaluate_model(model, tokenizer, prompts, num_tokens, temperature=0.7,
                 # Create attention mask (all 1s since we don't have padding)
                 attention_mask = torch.ones_like(input_ids)
                 
-                # Make sure inputs match model precision
-                model_dtype = next(model.parameters()).dtype
-                input_dtype = input_ids.dtype
-                if input_dtype != model_dtype:
+                # IMPORTANT: input_ids should always be integers (Long/Int)
+                # Only convert attention mask if needed, never convert input_ids to float
+                if attention_mask.dtype != model_dtype:
                     if not quiet:
-                        print(f"    Converting inputs from {input_dtype} to {model_dtype} to match model precision")
-                    input_ids = input_ids.to(model_dtype)
+                        print(f"    Converting attention mask from {attention_mask.dtype} to {model_dtype}")
                     attention_mask = attention_mask.to(model_dtype)
                 
                 try:
@@ -441,9 +439,9 @@ def evaluate_model(model, tokenizer, prompts, num_tokens, temperature=0.7,
                     temp_value = float(temperature)
                     
                     # Use context manager to catch and convert any half-precision errors
-                    with torch.cuda.amp.autocast(enabled=(model_dtype == torch.float16)):
+                    with torch.amp.autocast(device_type=device, enabled=(model_dtype == torch.float16)):
                         output_ids = generate_method(
-                            input_ids,
+                            input_ids,  # Keep as integers (Long)
                             attention_mask=attention_mask,
                             max_length=input_ids.size(1) + num_tokens,
                             temperature=temp_value,
@@ -462,9 +460,9 @@ def evaluate_model(model, tokenizer, prompts, num_tokens, temperature=0.7,
                             # Only convert for generation
                             if hasattr(model, 'generate'):
                                 # For direct model generate
-                                with torch.cuda.amp.autocast(enabled=False):
+                                with torch.amp.autocast(device_type=device, enabled=False):
                                     model = model.float()
-                                    input_ids = input_ids.float()
+                                    # Keep input_ids as integers (Long)
                                     attention_mask = attention_mask.float()
                                     output_ids = model.generate(
                                         input_ids,
