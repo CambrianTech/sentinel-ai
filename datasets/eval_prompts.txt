@@ -1,0 +1,20 @@
+Write a short summary of the history of artificial intelligence.
+Explain how transformer neural networks function in simple terms.
+What are the ethical implications of large language models?
+Describe the concept of attention in neural networks.
+Write a function to calculate the Fibonacci sequence in Python.
+Compose a short poem about the changing seasons.
+Explain the difference between supervised and unsupervised learning.
+Compare and contrast classical and quantum computing.
+Describe the advantages and limitations of reinforcement learning.
+Write a short story about a robot that develops consciousness.
+Explain how gradient descent works in machine learning.
+What are the key milestones in the development of computer vision?
+Describe the principle of Occam's razor and its relevance to machine learning.
+How might artificial intelligence impact the future of healthcare?
+Write a dialogue between two AI systems discussing what it means to be conscious.
+Explain how transformer models handle long-range dependencies in text.
+What are the challenges of building multi-modal AI systems?
+Describe the concept of fine-tuning in the context of large language models.
+How does the architecture of GPT differ from BERT?
+Explain the concept of agency in the context of AI systems.
