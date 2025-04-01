@@ -9,9 +9,11 @@ Welcome to **Sentinel-AI**, a modular research framework for transformers that c
 
 > This system evolves from compact models into large, expressive ones by **dynamically growing** its structure in response to data complexity — ideal for edge devices, progressive scaling, and long-term continual learning.
 
--<p align="center">
+<p align="center">
   <img src="./docs/assets/architecture_full_diagram.png" width="1000"/>
 </p>
+
+For a more detailed architecture diagram including U-Net skip connections, see the [updated architecture diagram](./docs/updated_architecture_diagram.md).
 
 ### Why Sentinel-AI?
 
