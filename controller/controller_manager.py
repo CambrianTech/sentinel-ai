@@ -32,7 +32,14 @@ class ControllerManager:
         
         # Extract model dimensions
         self.num_layers = len(model.blocks)
-        self.num_heads = model.blocks[0]["attn"].num_heads
+        
+        # Handle different model structures (original dict-style vs optimized object-style)
+        if hasattr(model.blocks[0], 'attn'):
+            # New optimized model structure
+            self.num_heads = model.blocks[0].attn.num_heads
+        else:
+            # Original structure
+            self.num_heads = model.blocks[0]["attn"].num_heads
         
         # Initialize the controller
         controller_type = self.config.get("controller_type", "ann")
@@ -278,9 +285,18 @@ class ControllerManager:
                 
                 # If we have a proposed state change, signal the head
                 if proposed_state:
+                    # Get the attention module based on model structure
+                    block = self.model.blocks[layer_idx]
+                    if hasattr(block, 'attn'):
+                        # New optimized model structure
+                        attn_module = block.attn
+                    else:
+                        # Original structure
+                        attn_module = block["attn"]
+                    
                     # Direct signal to the head if possible
-                    if hasattr(self.model.blocks[layer_idx]["attn"], "set_head_state"):
-                        self.model.blocks[layer_idx]["attn"].set_head_state(
+                    if hasattr(attn_module, "set_head_state"):
+                        attn_module.set_head_state(
                             head_idx, proposed_state, None  # Don't change consent
                         )
                         signals_emitted.append({
@@ -312,19 +328,32 @@ class ControllerManager:
             # If no agency state, use simple assignment
             if agency_state is None:
                 for layer_idx, block in enumerate(self.model.blocks):
-                    # Copy gate values to model's attention module
-                    block["attn"].gate.copy_(gate_values[layer_idx])
+                    # Handle different model structures
+                    if hasattr(block, 'attn'):
+                        # New optimized model structure
+                        block.attn.gate.copy_(gate_values[layer_idx])
+                    else:
+                        # Original structure
+                        block["attn"].gate.copy_(gate_values[layer_idx])
                 return
                 
             # With agency state, respect head agency and consent
             for layer_idx, block in enumerate(self.model.blocks):
+                # Handle different model structures
+                if hasattr(block, 'attn'):
+                    # New optimized model structure
+                    attn_module = block.attn
+                else:
+                    # Original structure
+                    attn_module = block["attn"]
+                    
                 for head_idx in range(self.num_heads):
                     head_key = (layer_idx, head_idx)
                     gate_value = gate_values[layer_idx, head_idx]
                     
                     # Apply normal gate value if head not in agency state
                     if head_key not in agency_state:
-                        block["attn"].gate[head_idx].copy_(gate_value)
+                        attn_module.gate[head_idx].copy_(gate_value)
                         continue
                         
                     # Get head agency state
@@ -334,24 +363,24 @@ class ControllerManager:
                     
                     # Respect withdrawn consent - set gate to zero regardless of controller
                     if not consent or state == "withdrawn":
-                        block["attn"].gate[head_idx].zero_()
+                        attn_module.gate[head_idx].zero_()
                         # Log if this was a significant change (potential consent violation)
-                        if gate_value > 0.5 and hasattr(block["attn"], "_log_consent_violation"):
-                            block["attn"]._log_consent_violation(
+                        if gate_value > 0.5 and hasattr(attn_module, "_log_consent_violation"):
+                            attn_module._log_consent_violation(
                                 head_idx, "controller gate override prevented", self.current_step
                             )
                     # Adjust gate value based on state for non-withdrawn heads
                     elif state == "overloaded":
                         # Reduce gate value for overloaded heads
                         adjusted_gate = gate_value * 0.5
-                        block["attn"].gate[head_idx].copy_(adjusted_gate)
+                        attn_module.gate[head_idx].copy_(adjusted_gate)
                     elif state == "misaligned":
                         # Reduce gate value for misaligned heads
                         adjusted_gate = gate_value * 0.7
-                        block["attn"].gate[head_idx].copy_(adjusted_gate)
+                        attn_module.gate[head_idx].copy_(adjusted_gate)
                     else:
                         # Normal assignment for active heads
-                        block["attn"].gate[head_idx].copy_(gate_value)
+                        attn_module.gate[head_idx].copy_(gate_value)
     
     def _get_active_gates(self):
         """
@@ -365,8 +394,16 @@ class ControllerManager:
         
         for layer_idx, block in enumerate(self.model.blocks):
             active_heads = []
-            for head_idx in range(block["attn"].num_heads):
-                if block["attn"].gate[head_idx].item() > threshold:
+            # Handle different model structures
+            if hasattr(block, 'attn'):
+                # New optimized model structure
+                attn_module = block.attn
+            else:
+                # Original structure
+                attn_module = block["attn"]
+                
+            for head_idx in range(attn_module.num_heads):
+                if attn_module.gate[head_idx].item() > threshold:
                     active_heads.append(head_idx)
             active_gates[layer_idx] = active_heads
         
@@ -422,13 +459,28 @@ class ControllerManager:
                 else:
                     scale = connection_scale
                 
-                # Enable or disable in model config
+                # Get the block
+                block = self.model.blocks[decoder_index]
+                
+                # Enable or disable in model config based on model structure
                 if enable:
-                    self.model.blocks[decoder_index].use_skip_connection = True
-                    self.model.blocks[decoder_index].skip_source = encoder_index
-                    self.model.blocks[decoder_index].skip_scale = scale
+                    if hasattr(block, 'use_skip_connection'):
+                        # Direct attribute access (new optimized structure)
+                        block.use_skip_connection = True
+                        block.skip_source = encoder_index
+                        block.skip_scale = scale
+                    else:
+                        # Dictionary access (original structure)
+                        block.use_skip_connection = True
+                        block.skip_source = encoder_index
+                        block.skip_scale = scale
                 else:
-                    self.model.blocks[decoder_index].use_skip_connection = False
+                    if hasattr(block, 'use_skip_connection'):
+                        # Direct attribute access
+                        block.use_skip_connection = False
+                    else:
+                        # Dictionary access
+                        block.use_skip_connection = False
     
     def _update_controller_learning_rate(self):
         """
