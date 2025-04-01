@@ -33,7 +33,26 @@ This document outlines prioritized tasks and future directions for the Sentinel-
 
 ## Medium-Term Goals
 
-### 1. Extended Model Support
+### 1. Ethical Architecture Implementation
+- [ ] **AI Consent & Agency**
+  - [ ] Develop schema for model component metadata headers (consent contracts)
+  - [ ] Implement interface for module-state signaling (agency layers)
+  - [ ] Create consent-aware controller update logic
+  - [ ] Build test suite validating consent boundaries are respected
+
+- [ ] **Fair Contribution & Compensation**
+  - [ ] Design lightweight contribution ledger scaffold
+  - [ ] Implement metrics logger for measuring insight gain
+  - [ ] Create contribution evaluator for training sessions
+  - [ ] Develop prototype token distribution system based on contributions
+
+- [ ] **Federation Without Centralization**
+  - [ ] Implement entropy-based gating module for attention routing
+  - [ ] Build consensus-checking utility for overlapping validators
+  - [ ] Design node-level governance proposal structure
+  - [ ] Create visualization tools for federation health monitoring
+
+### 2. Extended Model Support
 - [ ] Add support for T5/BART-style encoder-decoder architectures
 - [ ] Implement adaptivity for BERT/RoBERTa models
 - [ ] Create adapters for Vision Transformer models

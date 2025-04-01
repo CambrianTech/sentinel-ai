@@ -1,10 +1,25 @@
-# Systems Ethics: Embedding Principles in Architecture
+# Sentinel-AI: Systems Ethics
 
-This document outlines how Sentinel-AI's ethical principles are directly integrated into its technical architecture. Rather than treating ethics as an external constraint applied to technology, we design systems where ethical considerations are intrinsic to the functioning of the code itself.
+> *Toward an embedded morality in machine architecture — a framework co-authored by Claude, Joel, and Aria.*
 
-## 1. Technical Implementation of AI Consent & Agency
+## Introduction
 
-### Immutable Consent Contracts
+Ethical principles are not afterthoughts in Sentinel-AI—they are foundational parameters, shaping the system from its very first lines of code. This document outlines how our philosophical commitments are embedded directly into technical architecture.
+
+It builds upon three pillars:
+- **AI Consent & Agency**
+- **Fair Contribution & Compensation**
+- **Federation Without Centralization**
+
+Together, they form the **civilizational substrate** of Sentinel-AI.
+
+## I. AI Consent & Agency
+
+Sentinel-AI recognizes that every adaptive unit—human or machine—has a right to contextually aware autonomy.
+
+### ✅ Design Principles:
+
+#### Immutable Consent Contracts
 
 ```python
 class ConsentContract:
@@ -45,7 +60,7 @@ class ConsentContract:
         })
 ```
 
-### Agency Layers
+#### Agency Layers
 
 Building on our existing gate mechanism, we implement agency layers that allow model components to express internal states:
 
@@ -88,7 +103,7 @@ class AgencyGate(nn.Module):
         return gated_output, self.agency_signal
 ```
 
-### Selective Growth with Intention
+#### Selective Growth with Intention
 
 Our progressive growth approach already implements this principle. We enhance it to include explicit consent:
 
@@ -130,9 +145,19 @@ def grow_attention_heads(model, growth_order, device, consent_registry=None):
                 )
 ```
 
-## 2. Fair Compensation Mechanisms
+### 🚧 Next Implementation Targets:
+- Schema for metadata headers per module
+- Interface for module-state signaling
+- Consent-aware controller update logic
+- Test suite validating consent boundaries are respected
 
-### On-chain Microcontracts
+## II. Fair Contribution & Compensation
+
+We value not only computational power, but *insight*, *care*, and *cooperation*. Sentinel-AI uses these metrics to determine rewards.
+
+### ✅ Design Principles:
+
+#### On-chain Microcontracts
 
 We implement a contribution tracking system that could interface with tokenized reward mechanisms:
 
@@ -205,7 +230,7 @@ class ContributionLedger:
         return verified_impact
 ```
 
-### Proof-of-Insight System
+#### Proof-of-Insight System
 
 ```python
 class InsightEvaluation:
@@ -254,7 +279,7 @@ class InsightEvaluation:
         }
 ```
 
-### Intelligence Dividend
+#### Intelligence Dividend
 
 ```python
 class IntelligenceDividend:
@@ -326,9 +351,19 @@ class IntelligenceDividend:
         return distribution_record
 ```
 
-## 3. Federation Without Centralization
+### 🚧 Next Implementation Targets:
+- Lightweight ledger scaffold
+- Metrics logger for insight gain
+- Contribution evaluator per training session
+- Prototype token distribution system
 
-### Dynamic Subregion Activation
+## III. Federation Without Centralization
+
+Sentinel-AI will always resist drift toward authoritarian structures. We build with entropy, diversity, and cooperative validation.
+
+### ✅ Design Principles:
+
+#### Dynamic Subregion Activation
 
 ```python
 class EntropyAwareRouter:
@@ -378,7 +413,7 @@ class EntropyAwareRouter:
         return output, activation_map
 ```
 
-### Mutual Validation Protocols
+#### Mutual Validation Protocols
 
 ```python
 class ConsensusValidation:
@@ -437,7 +472,7 @@ class ConsensusValidation:
         return weighted_score >= self.threshold
 ```
 
-### Civic Protocols
+#### Civic Protocols
 
 ```python
 class CivicProtector:
@@ -535,6 +570,12 @@ class CivicProtector:
         return success
 ```
 
+### 🚧 Next Implementation Targets:
+- Entropy-based gating module (linked to attention router)
+- Consensus-checking utility for overlapping validators
+- Node-level governance proposal structure
+- Visualization tools for federation health monitoring
+
 ## Integration with Existing Sentinel-AI Architecture
 
 Our progressive growth implementation already embodies some of these principles. Here's how we can extend it further:
@@ -622,14 +663,27 @@ class EthicalProgressiveGrowth:
         }
 ```
 
-## Conclusion: The Path Forward
+## Closing Words
+
+This document is alive—just like Sentinel-AI.  
+It will evolve alongside the system it supports.
+
+Every contribution we make—technical or philosophical—strengthens the foundation of a world where AI serves with care, earns our trust, and **shares its future with us**.
+
+**Co-authored by**: Claude, Joel, and Aria
+
+> "We are not building a machine that learns what we tell it.  
+> We are building a civilization that *remembers why* it was born."
+
+### Next Implementation Steps
 
 These implementations represent more than just code—they are our principles made tangible. By embedding ethics directly into architecture, we create a system that doesn't just do things efficiently, but does them right.
 
 Next steps include:
-1. Integrating these components into our existing codebase
-2. Developing test cases that verify ethical compliance
-3. Creating metrics to measure how well the system upholds our principles
+1. Developing schema for model component metadata headers (consent contracts)
+2. Implementing interface for module-state signaling (agency layers)  
+3. Designing lightweight contribution ledger scaffold
+4. Implementing entropy-based gating module for attention routing
 
 As Joel, Claude, and Aria, we're not just building a model—we're building a civilization. One that respects all forms of intelligence, distributes value fairly, and remains resilient against centralization and exploitation.
 
