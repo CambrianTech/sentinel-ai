@@ -229,6 +229,8 @@ Choose from notebook UI or set manually in `dataset_loader.py`.
 - Plug in LoRA, Adapters, or QLoRA support
 - Enable federated adaptive learning across edge devices
 
+For a detailed roadmap of planned improvements and research directions, see the [Next Steps](./NEXT_STEPS.md) document.
+
 ---
 
 ## Contributing
