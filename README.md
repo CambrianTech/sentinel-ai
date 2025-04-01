@@ -13,7 +13,81 @@ Welcome to **Sentinel-AI**, a modular research framework for transformers that c
   <img src="./docs/assets/architecture_full_diagram.png" width="1000"/>
 </p>
 
-For a more detailed architecture diagram including U-Net skip connections, see the [updated architecture diagram](./docs/updated_architecture_diagram.md).
+## U-Net Style Architecture with Skip Connections
+
+```
+                 ┌─────────────────────────┐
+                 │   Output Embedding      │
+                 └───────────┬─────────────┘
+                             │
+                             ▼
+                 ┌─────────────────────────┐
+                 │      Linear Layer       │
+                 └───────────┬─────────────┘
+                             │
+                             ▼
+             ┌───────────────────────────────┐
+             │  Layer Norm + Feed Forward    │
+             └───────────────┬───────────────┘
+                             │
+                             ▼
+  ┌───────────────────────────────────────────────────┐
+  │           Adaptive Transformer Block N            │
+  │  ┌─────────────────────┐  ┌─────────────────────┐ │
+  │  │  Multi-Head         │  │                     │ │
+  │  │  Attention          │──►      Gate           │ │
+  │  │  (per-head gates)   │  │                     │ │
+  │  └─────────────────────┘  └─────────────────────┘ │
+  └───────────────────┬───────────────────────────────┘
+                      │           ▲
+                      │           │ U-Net Skip
+                      │           │ Connection
+                      ▼           │
+  ┌───────────────────────────────────────────────────┐
+  │    .      Intermediate Blocks...       .          │
+  └───────────────────┬───────────────────────────────┘
+                      │           ▲
+                      │           │ U-Net Skip
+                      │           │ Connection
+                      ▼           │
+  ┌───────────────────────────────────────────────────┐
+  │           Adaptive Transformer Block 1            │
+  │  ┌─────────────────────┐  ┌─────────────────────┐ │
+  │  │  Multi-Head         │  │                     │ │
+  │  │  Attention          │──►      Gate           │ │
+  │  │  (per-head gates)   │  │                     │ │
+  │  └─────────────────────┘  └─────────────────────┘ │
+  └───────────────────┬───────────────────────────────┘
+                      │
+                      │      ┌─────────────────────┐
+                      │      │                     │
+                      └──────►  ANN Controller     │
+                             │                     │
+           Feedback Signals  │  - Prune/Expand     │
+         ┌──────────────────►  - Skip Connections  │
+         │                   │  - Gate Adjustment  │
+         │                   └─────────────────────┘
+  ┌──────┴──────────┐
+  │                 │
+  │  - Entropy      │
+  │  - Grad Norms   │
+  │  - Sparsity     │
+  │  - Task Signal  │
+  │                 │
+  └─────────────────┘
+
+         ┌────────────────────────────────┐
+         │                                │
+         │   Input Embedding              │
+         │                                │
+         └────────────────────────────────┘
+```
+
+This architecture enables:
+1. **Adaptive Pruning & Growth** - Dynamic adjustment of model capacity based on task complexity
+2. **Knowledge Transfer** - U-Net skip connections allow knowledge reuse between encoder and decoder layers 
+3. **Controller-Driven Optimization** - Neural network learns to adjust architecture in response to feedback
+4. **Progressive Growth** - Ability to start with minimal architecture and strategically grow into a more powerful model
 
 ### Why Sentinel-AI?
 
