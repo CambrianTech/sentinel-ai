@@ -31,7 +31,7 @@ from torch.profiler import profile, record_function, ProfilerActivity
 project_root = Path(__file__).parent.parent.absolute()
 sys.path.insert(0, str(project_root))
 
-from models.adaptive_transformer import GatedMultiHeadAttention
+from models.adaptive_transformer import GatedMultiHeadSelfAttention as GatedMultiHeadAttention
 from models.optimized_attention import OptimizedGatedMultiHeadAttention
 from models.loaders.loader import load_baseline_model, load_adaptive_model
 
@@ -110,21 +110,25 @@ def test_attention_modules():
                 _ = optimized_attn(hidden_states)
         
         # Benchmark original attention
-        torch.cuda.synchronize()
+        if device == "cuda" and torch.cuda.is_available():
+            torch.cuda.synchronize()
         start_time = time.time()
         with torch.no_grad():
             for _ in range(10):
                 _ = original_attn(hidden_states)
-        torch.cuda.synchronize()
+        if device == "cuda" and torch.cuda.is_available():
+            torch.cuda.synchronize()
         original_time = time.time() - start_time
         
         # Benchmark optimized attention
-        torch.cuda.synchronize()
+        if device == "cuda" and torch.cuda.is_available():
+            torch.cuda.synchronize()
         start_time = time.time()
         with torch.no_grad():
             for _ in range(10):
                 _ = optimized_attn(hidden_states)
-        torch.cuda.synchronize()
+        if device == "cuda" and torch.cuda.is_available():
+            torch.cuda.synchronize()
         optimized_time = time.time() - start_time
         
         # Calculate speedup
@@ -148,6 +152,11 @@ def run_detailed_profiling(args):
     print("\n==== Running Detailed Profiling ====")
     device = args.device
     
+    # Skip detailed CUDA profiling if not available
+    if device == "cuda" and not torch.cuda.is_available():
+        print("CUDA not available for detailed profiling. Running CPU-only profiling.")
+        device = "cpu"
+    
     # Create modules
     embed_dim = 768
     num_heads = 12
@@ -170,10 +179,15 @@ def run_detailed_profiling(args):
             _ = original_attn(hidden_states)
             _ = optimized_attn(hidden_states)
     
+    # Set up profiler activities based on available hardware
+    activities = [ProfilerActivity.CPU]
+    if device == "cuda":
+        activities.append(ProfilerActivity.CUDA)
+    
     # Profile original attention
     print("Profiling original attention...")
     with profile(
-        activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
+        activities=activities,
         record_shapes=True,
         with_stack=True,
         profile_memory=True
@@ -186,7 +200,7 @@ def run_detailed_profiling(args):
     # Profile optimized attention
     print("Profiling optimized attention...")
     with profile(
-        activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
+        activities=activities,
         record_shapes=True,
         with_stack=True,
         profile_memory=True
@@ -203,12 +217,15 @@ def run_detailed_profiling(args):
     original_trace_path = os.path.join(args.output_dir, "original_attention_trace.json")
     optimized_trace_path = os.path.join(args.output_dir, "optimized_attention_trace.json")
     
+    # Sort by appropriate time metric
+    sort_metric = "cuda_time_total" if device == "cuda" else "cpu_time_total"
+    
     # Print summary tables
     print("\nOriginal Attention Profile:")
-    print(prof_original.key_averages().table(sort_by="cuda_time_total", row_limit=10))
+    print(prof_original.key_averages().table(sort_by=sort_metric, row_limit=10))
     
     print("\nOptimized Attention Profile:")
-    print(prof_optimized.key_averages().table(sort_by="cuda_time_total", row_limit=10))
+    print(prof_optimized.key_averages().table(sort_by=sort_metric, row_limit=10))
     
     # Export traces
     print(f"Exporting trace to {original_trace_path}")
@@ -218,8 +235,8 @@ def run_detailed_profiling(args):
     prof_optimized.export_chrome_trace(optimized_trace_path)
     
     return {
-        "original_profile": prof_original.key_averages().table(sort_by="cuda_time_total", row_limit=20),
-        "optimized_profile": prof_optimized.key_averages().table(sort_by="cuda_time_total", row_limit=20),
+        "original_profile": prof_original.key_averages().table(sort_by=sort_metric, row_limit=20),
+        "optimized_profile": prof_optimized.key_averages().table(sort_by=sort_metric, row_limit=20),
         "original_trace_path": original_trace_path,
         "optimized_trace_path": optimized_trace_path
     }
@@ -269,21 +286,25 @@ def test_scaling_behavior(args):
                 _ = optimized_attn(hidden_states)
         
         # Benchmark original attention
-        torch.cuda.synchronize()
+        if device == "cuda" and torch.cuda.is_available():
+            torch.cuda.synchronize()
         start_time = time.time()
         with torch.no_grad():
             for _ in range(args.iterations):
                 _ = original_attn(hidden_states)
-        torch.cuda.synchronize()
+        if device == "cuda" and torch.cuda.is_available():
+            torch.cuda.synchronize()
         original_time = time.time() - start_time
         
         # Benchmark optimized attention
-        torch.cuda.synchronize()
+        if device == "cuda" and torch.cuda.is_available():
+            torch.cuda.synchronize()
         start_time = time.time()
         with torch.no_grad():
             for _ in range(args.iterations):
                 _ = optimized_attn(hidden_states)
-        torch.cuda.synchronize()
+        if device == "cuda" and torch.cuda.is_available():
+            torch.cuda.synchronize()
         optimized_time = time.time() - start_time
         
         # Calculate speedup
@@ -316,21 +337,25 @@ def test_scaling_behavior(args):
                 _ = optimized_attn(hidden_states)
         
         # Benchmark original attention
-        torch.cuda.synchronize()
+        if device == "cuda" and torch.cuda.is_available():
+            torch.cuda.synchronize()
         start_time = time.time()
         with torch.no_grad():
             for _ in range(args.iterations):
                 _ = original_attn(hidden_states)
-        torch.cuda.synchronize()
+        if device == "cuda" and torch.cuda.is_available():
+            torch.cuda.synchronize()
         original_time = time.time() - start_time
         
         # Benchmark optimized attention
-        torch.cuda.synchronize()
+        if device == "cuda" and torch.cuda.is_available():
+            torch.cuda.synchronize()
         start_time = time.time()
         with torch.no_grad():
             for _ in range(args.iterations):
                 _ = optimized_attn(hidden_states)
-        torch.cuda.synchronize()
+        if device == "cuda" and torch.cuda.is_available():
+            torch.cuda.synchronize()
         optimized_time = time.time() - start_time
         
         # Calculate speedup
@@ -356,10 +381,42 @@ def analyze_memory_usage(args):
     print("\n==== Analyzing Memory Usage ====")
     device = args.device
     
-    if device != "cuda":
-        print("Memory usage analysis requires CUDA. Skipping...")
-        return {"error": "Memory usage analysis requires CUDA"}
+    if device == "cuda" and not torch.cuda.is_available():
+        print("CUDA requested but not available. Using CPU instead.")
+        device = "cpu"
     
+    if device != "cuda":
+        print("Memory usage analysis requires CUDA. Using estimated memory from model parameters instead.")
+        
+        # Configuration
+        embed_dim = 768
+        num_heads = 12
+        
+        # Create modules
+        original_attn = GatedMultiHeadAttention(embed_dim, num_heads)
+        optimized_attn = OptimizedGatedMultiHeadAttention(embed_dim, num_heads)
+        
+        # Count parameters as a proxy for memory usage
+        def count_parameters(model):
+            return sum(p.numel() for p in model.parameters())
+        
+        original_params = count_parameters(original_attn)
+        optimized_params = count_parameters(optimized_attn)
+        memory_ratio = optimized_params / original_params
+        
+        print(f"Original attention parameters:  {original_params:,}")
+        print(f"Optimized attention parameters: {optimized_params:,}")
+        print(f"Parameter ratio (optimized/original): {memory_ratio:.2f}x")
+        
+        return {
+            "operation": "memory_usage",
+            "original_memory": float(original_params * 4),  # Approximate bytes (float32)
+            "optimized_memory": float(optimized_params * 4),
+            "memory_ratio": float(memory_ratio),
+            "is_parameter_count": True
+        }
+    
+    # CUDA memory analysis
     # Configuration
     embed_dim = 768
     num_heads = 12
@@ -407,7 +464,8 @@ def analyze_memory_usage(args):
         "operation": "memory_usage",
         "original_memory": float(original_memory),
         "optimized_memory": float(optimized_memory),
-        "memory_ratio": float(memory_ratio)
+        "memory_ratio": float(memory_ratio),
+        "is_parameter_count": False
     }
 
 def visualize_results(results, args):
