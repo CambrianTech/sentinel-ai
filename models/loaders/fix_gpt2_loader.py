@@ -2,14 +2,25 @@ import torch
 import torch.nn as nn
 from models.adaptive_transformer import AdaptiveCausalLmWrapper
 
-def load_adaptive_model_gpt(model_name, baseline_model, config, device):
+def load_adaptive_model_gpt(model_name, baseline_model, config, device, debug=False):
     """
     Improved loading of adaptive transformer model from a baseline GPT model.
     
     This loader properly handles the weight transfer to ensure maximum accuracy
     and coherence in the adaptive model's outputs.
+    
+    Args:
+        model_name: Name of the model to load
+        baseline_model: The pretrained model to adapt
+        config: Configuration object for the model
+        device: Device to load the model on
+        debug: Whether to print debug information
+    
+    Returns:
+        The adaptive transformer model with loaded weights
     """
-    print(f"✅ Using fixed GPT2 loader")
+    if debug:
+        print(f"✅ Using fixed GPT2 loader")
     
     # Get the token embeddings and position embeddings from the baseline model
     token_embeddings = baseline_model.get_input_embeddings()
@@ -20,9 +31,10 @@ def load_adaptive_model_gpt(model_name, baseline_model, config, device):
     else:
         # Fallback - create new position embeddings
         position_embeddings = nn.Embedding(config.max_position_embeddings, config.hidden_size)
-        print("Warning: Could not get position embeddings from baseline model, created new ones")
+        if debug:
+            print("Warning: Could not get position embeddings from baseline model, created new ones")
     
-    model = AdaptiveCausalLmWrapper(config, token_embeddings, position_embeddings).to(device)
+    model = AdaptiveCausalLmWrapper(config, token_embeddings, position_embeddings, debug=debug).to(device)
     model.eval()
 
     baseline_state = baseline_model.state_dict()

@@ -16,12 +16,13 @@ class GatedMultiHeadSelfAttention(nn.Module):
     Our implementation uses separate parameter matrices for each head to enable
     fine-grained control and potential specialization during training.
     """
-    def __init__(self, embed_dim, num_heads):
+    def __init__(self, embed_dim, num_heads, debug=False):
         super().__init__()
         assert embed_dim % num_heads == 0
         self.embed_dim = embed_dim
         self.num_heads = num_heads
         self.head_dim = embed_dim // num_heads
+        self.debug = debug
         
         # Initialize separate projection matrices for each head
         # Unlike standard transformers which use a single matrix, this allows for
@@ -44,7 +45,8 @@ class GatedMultiHeadSelfAttention(nn.Module):
         # Scaling factor for dot-product attention (for numerical stability)
         self.scale = 1.0 / math.sqrt(self.head_dim)
         
-        print(f"[Attention] W_q[0]={self.W_q[0].weight.shape}, W_o[0]={self.W_o[0].weight.shape}")
+        if debug:
+            print(f"[Attention] W_q[0]={self.W_q[0].weight.shape}, W_o[0]={self.W_o[0].weight.shape}")
 
     def forward(self, hidden_states, attn_mask=None):
         """
@@ -124,7 +126,7 @@ class FeedForward(nn.Module):
     While not the focus of our adaptive architecture innovations, this component
     is essential for the transformer's ability to model complex patterns.
     """
-    def __init__(self, embed_dim, ffn_dim=None):
+    def __init__(self, embed_dim, ffn_dim=None, debug=False):
         super().__init__()
         # Use standard 4x expansion factor if not specified
         if ffn_dim is None:
@@ -139,7 +141,8 @@ class FeedForward(nn.Module):
         # Projection back to embedding dimension
         self.dense_out = nn.Linear(ffn_dim, embed_dim, bias=True)
 
-        print(f"[FFN] dense_in={self.dense_in.weight.shape}, dense_out={self.dense_out.weight.shape}")
+        if debug:
+            print(f"[FFN] dense_in={self.dense_in.weight.shape}, dense_out={self.dense_out.weight.shape}")
 
     def forward(self, x):
         """
@@ -176,27 +179,30 @@ class AdaptiveTransformerModel(nn.Module):
     This model can load weights from standard pretrained models (e.g., GPT-2)
     and adapt them for more efficient execution through dynamic pruning.
     """
-    def __init__(self, config, token_embeddings, position_embeddings):
+    def __init__(self, config, token_embeddings, position_embeddings, debug=False):
         super().__init__()
         self.config = config
         self.embed_dim = config.hidden_size if hasattr(config, 'hidden_size') else config.n_embd
         self.num_heads = config.num_attention_heads if hasattr(config, 'num_attention_heads') else config.n_head
         self.num_layers = config.num_hidden_layers if hasattr(config, 'num_hidden_layers') else config.n_layer
+        self.debug = debug
 
         # Determine FFN dimension from config or use standard 4x multiplier
         ffn_dim = getattr(config, 'n_inner', None) or getattr(config, 'intermediate_size', None) or 4 * self.embed_dim
 
-        print(f"[Model Init] embed_dim={self.embed_dim}, num_heads={self.num_heads}, ffn_dim={ffn_dim}")
+        if debug:
+            print(f"[Model Init] embed_dim={self.embed_dim}, num_heads={self.num_heads}, ffn_dim={ffn_dim}")
 
         # Use pretrained embeddings provided by the baseline model
         self.wte = token_embeddings  # Token embeddings
         self.wpe = position_embeddings  # Position embeddings
         
         # Debug info about embeddings for verification
-        print(f"[Embeddings] token_embedding={self.wte.weight.shape}, pos_embedding={self.wpe.weight.shape}")
-        with torch.no_grad():
-            print(f"[Debug] First token embedding value: {self.wte.weight[0, 0:3].cpu().numpy()}")
-            print(f"[Debug] First position embedding value: {self.wpe.weight[0, 0:3].cpu().numpy()}")
+        if debug:
+            print(f"[Embeddings] token_embedding={self.wte.weight.shape}, pos_embedding={self.wpe.weight.shape}")
+            with torch.no_grad():
+                print(f"[Debug] First token embedding value: {self.wte.weight[0, 0:3].cpu().numpy()}")
+                print(f"[Debug] First position embedding value: {self.wpe.weight[0, 0:3].cpu().numpy()}")
 
         # Build transformer blocks
         self.blocks = nn.ModuleList()
@@ -208,13 +214,14 @@ class AdaptiveTransformerModel(nn.Module):
 
         # Create transformer blocks with gated attention and skip connections
         for i in range(self.num_layers):
-            print(f"[Block {i}] Initializing...")
+            if debug:
+                print(f"[Block {i}] Initializing...")
             
             # Gated multi-head attention with sentinel gates
-            attn = GatedMultiHeadSelfAttention(self.embed_dim, self.num_heads)
+            attn = GatedMultiHeadSelfAttention(self.embed_dim, self.num_heads, debug=debug)
             
             # Standard feed-forward network
-            ffn = FeedForward(self.embed_dim, ffn_dim)
+            ffn = FeedForward(self.embed_dim, ffn_dim, debug=debug)
             
             # Block components including layer norms and skip connection fusion layer
             block = nn.ModuleDict({
@@ -226,6 +233,11 @@ class AdaptiveTransformerModel(nn.Module):
                 # "Linear fusion: h'_decoder_N-i+1 = Linear([h_encoder_i; h_decoder_N-i+1])"
                 "skip_fuse": nn.Linear(2 * self.embed_dim, self.embed_dim)
             })
+            
+            # Add configuration attributes for U-Net connections (not part of ModuleDict)
+            block.use_skip_connection = False  # Disabled by default until controller enables them
+            block.skip_source = -1  # Source layer for skip connection
+            block.skip_scale = 0.01  # Scaling factor for skip connection
             self.blocks.append(block)
 
         # Final layer norm and output projection
@@ -291,36 +303,28 @@ class AdaptiveTransformerModel(nn.Module):
             ffn_out = block["ffn"](h2)
             hidden_states = hidden_states + ffn_out  # Residual connection
 
-            # Temporarily disable U-Net connections until we have coherent basic generation
-            """
             # U-Net style skip connections from Section 2.2 of the paper
-            # With improved scaling and gradual ramping mechanism for stability
+            # Can be dynamically enabled/disabled by the controller
             
-            # Decoder layers (N/2+1→N) receive skip connections from encoder layers
-            if i >= midpoint:
-                # Find corresponding encoder layer
-                encoder_layer = self.num_layers - i - 1
-                if encoder_layer in encoder_outputs:
-                    # Get matching encoder output
-                    enc_out = encoder_outputs[encoder_layer]
-                    
-                    # Calculate how deep we are in the decoder (0.0 to 1.0)
-                    # This scales the skip connection impact based on depth
-                    decoder_progress = (i - midpoint) / (self.num_layers - midpoint)
-                    
-                    # Use a very small scale for the skip connection to maintain stability
-                    # Start with a very minimal impact and gradually reduce even further
-                    # This allows the model to benefit from skip connections without instability
-                    skip_scale = 0.01 * (1.0 - decoder_progress * 0.5)
-                    
-                    # Concatenate hidden states as described in paper:
-                    # "h'_decoder_N-i+1 = Linear([h_encoder_i; h_decoder_N-i+1])"
-                    fused = torch.cat([hidden_states, enc_out], dim=-1)
-                    
-                    # Apply linear fusion with careful scaling to maintain stability
-                    fusion_output = block["skip_fuse"](fused)
-                    hidden_states = hidden_states + skip_scale * fusion_output
-            """
+            # Check if this block has U-Net skip connections enabled
+            if hasattr(block, 'use_skip_connection') and block.use_skip_connection:
+                # Get the source encoder layer
+                if hasattr(block, 'skip_source'):
+                    encoder_layer = block.skip_source
+                    if encoder_layer >= 0 and encoder_layer in encoder_outputs:
+                        # Get matching encoder output
+                        enc_out = encoder_outputs[encoder_layer]
+                        
+                        # Get the configured scaling factor
+                        skip_scale = getattr(block, 'skip_scale', 0.01)
+                        
+                        # Concatenate hidden states as described in paper:
+                        # "h'_decoder_N-i+1 = Linear([h_encoder_i; h_decoder_N-i+1])"
+                        fused = torch.cat([hidden_states, enc_out], dim=-1)
+                        
+                        # Apply linear fusion with careful scaling to maintain stability
+                        fusion_output = block["skip_fuse"](fused)
+                        hidden_states = hidden_states + skip_scale * fusion_output
 
         # Final layer normalization
         hidden_states = self.ln_f(hidden_states)
@@ -342,14 +346,15 @@ class AdaptiveCausalLmWrapper(AdaptiveTransformerModel, GenerationMixin):
     main_input_name = "input_ids"
     supports_gradient_checkpointing = False
 
-    def __init__(self, config, token_embeddings, position_embeddings):
-        super().__init__(config, token_embeddings, position_embeddings)
+    def __init__(self, config, token_embeddings, position_embeddings, debug=False):
+        super().__init__(config, token_embeddings, position_embeddings, debug=debug)
         self.config = config
         from transformers import GenerationConfig
         try:
             self.generation_config = GenerationConfig.from_model_config(config)
         except Exception as e:
-            print(f"Warning: Could not create generation config, falling back to defaults: {e}")
+            if debug:
+                print(f"Warning: Could not create generation config, falling back to defaults: {e}")
             self.generation_config = GenerationConfig()
 
     def prepare_inputs_for_generation(self, input_ids, attention_mask=None, **kwargs):

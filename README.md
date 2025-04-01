@@ -109,7 +109,21 @@ Train on `distilgpt2`, `gpt2`, or other Hugging Face models. The ANN controller 
 ### Inference
 
 ```bash
-python main.py
+# Basic text generation
+python main.py --prompt "Your prompt here"
+
+# Use baseline model (no adaptive features)
+python main.py --baseline --prompt "Your prompt here"
+
+# Enable U-Net skip connections
+python main.py --enable_unet --prompt "Your prompt here"
+
+# Analyze gate activity in detail
+python main.py --analyze
+
+# Interactive mode for experimentation
+python main.py --interactive
+
 # Or specify a different model
 MODEL_NAME=gpt2 python main.py
 ```
@@ -156,12 +170,23 @@ Then open any notebook in `/notebooks/` or run `scripts/train_colab.py`.
                 └──────────────────────┘     │
                           │                  │
                           ▼                  │
-               ┌──────────────────────┐      │
-               │ Attention & FFN      │      │
-               └──────────────────────┘      │
-                          ▲                  │
+   ┌─────────┐   ┌──────────────────────┐    │
+   │ Encoder │───┤ Attention & FFN      │    │
+   └─────────┘   └──────────────────────┘    │
+                          │                  │
+                          ▼                  │
+   ┌─────────┐   ┌──────────────────────┐    │
+   │ U-Net   │───┤ Skip Connections     │    │
+   │  Skip   │   └──────────────────────┘    │
+   └─────────┘              │                │
+                            ▼                │
                 ┌──────────────────────┐     │
                 │  ANN Controller       ─────┘
+                └──────────────────────┘
+                            │
+                            ▼
+                ┌──────────────────────┐
+                │ Dynamic Architecture │
                 └──────────────────────┘
 ```
 

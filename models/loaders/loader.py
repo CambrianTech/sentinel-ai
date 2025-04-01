@@ -3,7 +3,6 @@ from transformers import AutoConfig, AutoModelForCausalLM
 try:
     # First try to load the fixed version
     from .fix_gpt2_loader import load_adaptive_model_gpt
-    print("✅ Using fixed GPT2 loader")
 except ImportError:
     # Fallback to original loader
     from .gpt2_loader import load_adaptive_model_gpt
@@ -31,7 +30,7 @@ def load_baseline_model(model_name, device):
         raise
 
 
-def load_adaptive_model(model_name, baseline_model, device):
+def load_adaptive_model(model_name, baseline_model, device, debug=False):
     """
     Create an adaptive transformer model initialized from a baseline model.
     
@@ -39,6 +38,7 @@ def load_adaptive_model(model_name, baseline_model, device):
         model_name: Name of the model to load (e.g., 'distilgpt2', 'gpt2')
         baseline_model: Loaded baseline model to initialize from
         device: Torch device to load the model onto
+        debug: Whether to print debug information
     
     Returns:
         Initialized adaptive model
@@ -47,11 +47,11 @@ def load_adaptive_model(model_name, baseline_model, device):
     
     # Determine model architecture from config and dispatch to appropriate loader
     if hasattr(config, "model_type") and config.model_type.lower() in ["gpt2", "distilgpt2", "gpt_neo", "gptj"]:
-        return load_adaptive_model_gpt(model_name, baseline_model, config, device)
+        return load_adaptive_model_gpt(model_name, baseline_model, config, device, debug=debug)
     else:
         # Get architecture from first architecture in config.architectures if exists
         model_type = getattr(config, "architectures", [""])[0].lower()
         if "gpt" in model_type:
-            return load_adaptive_model_gpt(model_name, baseline_model, config, device)
+            return load_adaptive_model_gpt(model_name, baseline_model, config, device, debug=debug)
         
         raise NotImplementedError(f"Adaptive loader not implemented for architecture: {getattr(config, 'model_type', model_type)}")
