@@ -255,7 +255,6 @@ def apply_pruning(model, pruning_percentage, method="entropy", verbose=True, qui
     # Print pruning stats if verbose
     if verbose:
         duration = time.time() - start_time
-        log_pruning(f"Pruned {num_to_prune}/{num_heads} heads ({pruning_percentage}%) using {method} method in {duration:.2f}s")
         
         # If agency is enabled, report agency states
         # Check both direct model and model.model for enable_agency attribute
@@ -266,20 +265,41 @@ def apply_pruning(model, pruning_percentage, method="entropy", verbose=True, qui
         elif hasattr(model, "model") and hasattr(model.model, "enable_agency") and model.model.enable_agency:
             has_agency = True
             agency_blocks = model.model.blocks
+        
+        # Create different output based on quiet mode
+        if quiet:
+            # In quiet mode, just show a single concise line
+            if has_agency:
+                agency_states = {"active": 0, "overloaded": 0, "misaligned": 0, "withdrawn": 0}
+                consent_withdrawn = 0
+                
+                for layer_idx, block in enumerate(agency_blocks):
+                    if hasattr(block["attn"], "agency_signals"):
+                        for head_idx, signals in block["attn"].agency_signals.items():
+                            agency_states[signals["state"]] += 1
+                            if not signals["consent"]:
+                                consent_withdrawn += 1
+                
+                log_pruning(f"Pruned {num_to_prune}/{num_heads} heads ({pruning_percentage}%) using {method} method in {duration:.2f}s", force=True)
+            else:
+                log_pruning(f"Pruned {num_to_prune}/{num_heads} heads ({pruning_percentage}%) using {method} method in {duration:.2f}s", force=True)
+        else:
+            # In normal mode, show detailed output
+            log_pruning(f"Pruned {num_to_prune}/{num_heads} heads ({pruning_percentage}%) using {method} method in {duration:.2f}s")
             
-        if has_agency:
-            agency_states = {"active": 0, "overloaded": 0, "misaligned": 0, "withdrawn": 0}
-            consent_withdrawn = 0
-            
-            for layer_idx, block in enumerate(agency_blocks):
-                if hasattr(block["attn"], "agency_signals"):
-                    for head_idx, signals in block["attn"].agency_signals.items():
-                        agency_states[signals["state"]] += 1
-                        if not signals["consent"]:
-                            consent_withdrawn += 1
-            
-            log_pruning(f"Agency states after pruning: {agency_states}")
-            log_pruning(f"Heads with withdrawn consent: {consent_withdrawn}")
+            if has_agency:
+                agency_states = {"active": 0, "overloaded": 0, "misaligned": 0, "withdrawn": 0}
+                consent_withdrawn = 0
+                
+                for layer_idx, block in enumerate(agency_blocks):
+                    if hasattr(block["attn"], "agency_signals"):
+                        for head_idx, signals in block["attn"].agency_signals.items():
+                            agency_states[signals["state"]] += 1
+                            if not signals["consent"]:
+                                consent_withdrawn += 1
+                
+                log_pruning(f"Agency states after pruning: {agency_states}")
+                log_pruning(f"Heads with withdrawn consent: {consent_withdrawn}")
     
     return model, num_to_prune, pruned_heads
 
@@ -485,10 +505,15 @@ def evaluate_model(model, tokenizer, prompts, num_tokens, temperature=0.7,
     averaged_results["outputs"] = results["outputs"]
     averaged_results["success_rate"] = (len(prompts) - failures) / len(prompts)
     
-    # Print summary
-    print(f"\nEvaluation complete: {len(prompts) - failures}/{len(prompts)} prompts successful")
-    print(f"Average tokens/sec: {averaged_results['tokens_per_second']:.2f}")
-    print(f"Average perplexity: {averaged_results['perplexity']:.2f}")
+    # Print summary (always show this even in quiet mode)
+    if quiet:
+        # In quiet mode, just show a single summary line
+        print(f"Evaluation completed: {len(prompts) - failures}/{len(prompts)} prompts, {averaged_results['tokens_per_second']:.2f} tokens/sec, PPL: {averaged_results['perplexity']:.2f}")
+    else:
+        # In normal mode, show more detailed summary
+        print(f"\nEvaluation complete: {len(prompts) - failures}/{len(prompts)} prompts successful")
+        print(f"Average tokens/sec: {averaged_results['tokens_per_second']:.2f}")
+        print(f"Average perplexity: {averaged_results['perplexity']:.2f}")
     
     return averaged_results
 
@@ -643,11 +668,14 @@ def run_pruning_comparison(args):
                             f.write(output + "\n\n")
                 
                 # Print comparison for this iteration
-                # Skip per-iteration logging entirely in quiet mode
+                # Calculate improvements
+                speed_improvement = ((agency_results['tokens_per_second'] / baseline_results['tokens_per_second']) - 1) * 100
+                quality_improvement = ((baseline_results['perplexity'] / agency_results['perplexity']) - 1) * 100
+                
+                # Show different output depending on verbosity level
                 if args.quiet:
-                    # Just calculate improvements silently
-                    speed_improvement = ((agency_results['tokens_per_second'] / baseline_results['tokens_per_second']) - 1) * 100
-                    quality_improvement = ((baseline_results['perplexity'] / agency_results['perplexity']) - 1) * 100
+                    # Just show a single line summary for each iteration
+                    log(f"Iteration {iteration+1} @ {level}%: Agency is {speed_improvement:.1f}% faster, {quality_improvement:.1f}% better quality")
                 else:
                     # Show detailed per-iteration results
                     log(f"\nIteration {iteration+1} Results at {level}% pruning, temp={temperature}:")
@@ -657,11 +685,6 @@ def run_pruning_comparison(args):
                     log(f"  Agency:   {agency_results['tokens_per_second']:.2f} tokens/sec, "
                          f"perplexity: {agency_results['perplexity']:.2f}, "
                          f"diversity: {agency_results['diversity']:.3f}")
-                    
-                    # Calculate improvement
-                    speed_improvement = ((agency_results['tokens_per_second'] / baseline_results['tokens_per_second']) - 1) * 100
-                    quality_improvement = ((baseline_results['perplexity'] / agency_results['perplexity']) - 1) * 100
-                    
                     log(f"  Improvement: {speed_improvement:.1f}% faster, {quality_improvement:.1f}% better quality")
                 
                 # Free memory
@@ -697,20 +720,24 @@ def run_pruning_comparison(args):
             results[f"temperature_{temperature}"]["agency"][level] = agency_avg
             
             # Print averaged results
-            # Only force display of key results at highest pruning level and in final temperature
-            force_display = (level == max(pruning_levels) and temperature == temperatures[-1])
-            
-            log(f"\nAveraged Results at {level}% pruning, temp={temperature}:", force=force_display)
-            log(f"  Baseline: {baseline_avg['tokens_per_second']['mean']:.2f} ± {baseline_avg['tokens_per_second']['std']:.2f} tokens/sec, "
-                 f"perplexity: {baseline_avg['perplexity']['mean']:.2f} ± {baseline_avg['perplexity']['std']:.2f}", force=force_display)
-            log(f"  Agency:   {agency_avg['tokens_per_second']['mean']:.2f} ± {agency_avg['tokens_per_second']['std']:.2f} tokens/sec, "
-                 f"perplexity: {agency_avg['perplexity']['mean']:.2f} ± {agency_avg['perplexity']['std']:.2f}", force=force_display)
-            
             # Calculate improvement
             speed_improvement = ((agency_avg['tokens_per_second']['mean'] / baseline_avg['tokens_per_second']['mean']) - 1) * 100
             quality_improvement = ((baseline_avg['perplexity']['mean'] / agency_avg['perplexity']['mean']) - 1) * 100
             
-            log(f"  Improvement: {speed_improvement:.1f}% faster, {quality_improvement:.1f}% better quality", force=force_display)
+            # Create different outputs based on verbosity
+            is_last = (level == max(pruning_levels) and temperature == temperatures[-1])
+            
+            if args.quiet:
+                # For quiet mode, always show a concise single-line summary
+                log(f"Results at {level}% pruning (T={temperature}): Agency is {speed_improvement:.1f}% faster, {quality_improvement:.1f}% better quality", force=is_last)
+            else:
+                # For normal mode, show full detailed results
+                log(f"\nAveraged Results at {level}% pruning, temp={temperature}:", force=is_last)
+                log(f"  Baseline: {baseline_avg['tokens_per_second']['mean']:.2f} ± {baseline_avg['tokens_per_second']['std']:.2f} tokens/sec, "
+                     f"perplexity: {baseline_avg['perplexity']['mean']:.2f} ± {baseline_avg['perplexity']['std']:.2f}", force=is_last)
+                log(f"  Agency:   {agency_avg['tokens_per_second']['mean']:.2f} ± {agency_avg['tokens_per_second']['std']:.2f} tokens/sec, "
+                     f"perplexity: {agency_avg['perplexity']['mean']:.2f} ± {agency_avg['perplexity']['std']:.2f}", force=is_last)
+                log(f"  Improvement: {speed_improvement:.1f}% faster, {quality_improvement:.1f}% better quality", force=is_last)
             
             # Save incremental results after each pruning level
             incremental_results_file = output_dir / f"incremental_results_temp{temperature}.json"
