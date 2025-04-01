@@ -35,7 +35,7 @@ except NameError:
     # First check if we're in the repo root or one level down
     if os.path.exists("models") and os.path.exists("utils"):
         # We're already in the root directory
-        pass
+        sys.path.insert(0, os.path.abspath("."))
     elif os.path.exists("../models") and os.path.exists("../utils"):
         # We're one level down from root
         sys.path.insert(0, os.path.abspath(".."))
@@ -43,7 +43,16 @@ except NameError:
         # We're in the parent directory of the repo (typical Colab setup)
         sys.path.insert(0, os.path.abspath("sentinel-ai"))
     else:
-        print("Warning: Could not determine repository root path. Import errors may occur.")
+        # Additional fallback paths for Colab - check common locations
+        import glob
+        possible_paths = glob.glob("*/models") + glob.glob("*/*/models")
+        if possible_paths:
+            # Use the first directory that has models
+            repo_path = os.path.dirname(possible_paths[0])
+            print(f"Found models directory at {repo_path}, adding to path")
+            sys.path.insert(0, os.path.abspath(repo_path))
+        else:
+            print("Warning: Could not determine repository root path. Import errors may occur.")
 
 from models.loaders.loader import load_baseline_model, load_adaptive_model
 from models.loaders.gpt2_loader import load_adaptive_model_gpt
@@ -429,6 +438,7 @@ def evaluate_model(model, tokenizer, prompts, num_tokens, temperature=0.7,
                 
                 # IMPORTANT: input_ids should always be integers (Long/Int)
                 # Only convert attention mask if needed, never convert input_ids to float
+                model_dtype = next(model.parameters()).dtype
                 if attention_mask.dtype != model_dtype:
                     if not quiet:
                         print(f"    Converting attention mask from {attention_mask.dtype} to {model_dtype}")

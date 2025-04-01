@@ -120,17 +120,83 @@ start_time = time.time()
 print("Patching imports for compatibility...")
 pruning_agency_file = "scripts/pruning_comparison/pruning_agency_comparison.py"
 
-# Check if patching is needed
-with open(pruning_agency_file, "r") as f:
-    content = f.read()
+# Ensure directories exist
+os.makedirs(os.path.dirname(pruning_agency_file), exist_ok=True)
 
-if "try:" in content and "except NameError:" in content:
-    print(f"✓ File {pruning_agency_file} already has correct imports")
-else:
-    # Patch the file to handle __file__ in Colab
-    content = content.replace(
-        "# Add root directory to path\nsys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), \"../..\")))",
-        """# Add root directory to path
+# Check if file exists
+if not os.path.exists(pruning_agency_file):
+    print(f"Warning: {pruning_agency_file} does not exist. We will search for it...")
+    # Try to find it in the current directory structure
+    import glob
+    matching_files = glob.glob("**/pruning_agency_comparison.py", recursive=True)
+    if matching_files:
+        pruning_agency_file = matching_files[0]
+        print(f"Found script at: {pruning_agency_file}")
+    else:
+        print("Could not find pruning_agency_comparison.py, will need to create it")
+        # Create directories if needed
+        os.makedirs(os.path.dirname(pruning_agency_file), exist_ok=True)
+
+# Check if we need to create or patch the file
+if os.path.exists(pruning_agency_file):
+    # Check if patching is needed
+    with open(pruning_agency_file, "r") as f:
+        content = f.read()
+    
+    # Add improved path handling
+    if "possible_paths = glob.glob" not in content:
+        if "try:" in content and "except NameError:" in content:
+            print(f"File {pruning_agency_file} has correct imports but we'll enhance them")
+            
+            # Find the existing try/except block
+            try_pos = content.find("try:")
+            end_except_pos = content.find("print(\"Warning: Could not determine repository root path. Import errors may occur.\")")
+            if try_pos > 0 and end_except_pos > try_pos:
+                # Get the code before and after the try/except block
+                before_try = content[:try_pos]
+                after_except = content[end_except_pos + len("print(\"Warning: Could not determine repository root path. Import errors may occur.\")") + 1:]
+                
+                # Create enhanced try/except block
+                enhanced_try_except = """try:
+    # When running as a script with __file__ available
+    sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
+except NameError:
+    # In Colab or interactive environments where __file__ isn't defined
+    # First check if we're in the repo root or one level down
+    if os.path.exists("models") and os.path.exists("utils"):
+        # We're already in the root directory
+        sys.path.insert(0, os.path.abspath("."))
+    elif os.path.exists("../models") and os.path.exists("../utils"):
+        # We're one level down from root
+        sys.path.insert(0, os.path.abspath(".."))
+    elif os.path.exists("sentinel-ai/models") and os.path.exists("sentinel-ai/utils"):
+        # We're in the parent directory of the repo (typical Colab setup)
+        sys.path.insert(0, os.path.abspath("sentinel-ai"))
+    else:
+        # Additional fallback paths for Colab - check common locations
+        import glob
+        possible_paths = glob.glob("*/models") + glob.glob("*/*/models")
+        if possible_paths:
+            # Use the first directory that has models
+            repo_path = os.path.dirname(possible_paths[0])
+            print(f"Found models directory at {repo_path}, adding to path")
+            sys.path.insert(0, os.path.abspath(repo_path))
+        else:
+            print("Warning: Could not determine repository root path. Import errors may occur.")"""
+                
+                # Combine everything
+                content = before_try + enhanced_try_except + after_except
+                
+                with open(pruning_agency_file, "w") as f:
+                    f.write(content)
+                print(f"✓ Enhanced {pruning_agency_file} with better path handling for Colab")
+            else:
+                print(f"Could not find try/except block in {pruning_agency_file}")
+        else:
+            # Patch the file to handle __file__ in Colab
+            content = content.replace(
+                "# Add root directory to path\nsys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), \"../..\")))",
+                """# Add root directory to path
 try:
     # When running as a script with __file__ available
     sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
@@ -139,7 +205,7 @@ except NameError:
     # First check if we're in the repo root or one level down
     if os.path.exists("models") and os.path.exists("utils"):
         # We're already in the root directory
-        pass
+        sys.path.insert(0, os.path.abspath("."))
     elif os.path.exists("../models") and os.path.exists("../utils"):
         # We're one level down from root
         sys.path.insert(0, os.path.abspath(".."))
@@ -147,12 +213,49 @@ except NameError:
         # We're in the parent directory of the repo (typical Colab setup)
         sys.path.insert(0, os.path.abspath("sentinel-ai"))
     else:
-        print("Warning: Could not determine repository root path. Import errors may occur.")"""
-    )
-    
-    with open(pruning_agency_file, "w") as f:
-        f.write(content)
-    print(f"✓ Patched {pruning_agency_file} to work in Colab")
+        # Additional fallback paths for Colab - check common locations
+        import glob
+        possible_paths = glob.glob("*/models") + glob.glob("*/*/models")
+        if possible_paths:
+            # Use the first directory that has models
+            repo_path = os.path.dirname(possible_paths[0])
+            print(f"Found models directory at {repo_path}, adding to path")
+            sys.path.insert(0, os.path.abspath(repo_path))
+        else:
+            print("Warning: Could not determine repository root path. Import errors may occur.")"""
+            )
+            
+            with open(pruning_agency_file, "w") as f:
+                f.write(content)
+            print(f"✓ Patched {pruning_agency_file} to work in Colab")
+    else:
+        print(f"✓ File {pruning_agency_file} already has enhanced imports")
+
+# Make sure model_dtype is defined
+with open(pruning_agency_file, "r") as f:
+    content = f.read()
+
+if "model_dtype = next(model.parameters()).dtype" not in content:
+    # Find the correct spot to add it
+    insert_point = content.find("# IMPORTANT: input_ids should always be integers (Long/Int)")
+    if insert_point > 0:
+        insert_point = content.find("# Only convert attention mask if needed", insert_point)
+        if insert_point > 0:
+            # Find the end of the line
+            line_end = content.find("\n", insert_point)
+            if line_end > 0:
+                modified_content = content[:line_end+1] + "                model_dtype = next(model.parameters()).dtype\n" + content[line_end+1:]
+                with open(pruning_agency_file, "w") as f:
+                    f.write(modified_content)
+                print(f"✓ Added model_dtype definition to {pruning_agency_file}")
+            else:
+                print(f"Could not find line end in {pruning_agency_file}")
+        else:
+            print(f"Could not find insertion point for model_dtype in {pruning_agency_file}")
+    else:
+        print(f"Could not find IMPORTANT comment in {pruning_agency_file}")
+else:
+    print(f"✓ File {pruning_agency_file} already has model_dtype defined")
 
 # Now run the command
 !{" ".join(cmd)}
