@@ -6,6 +6,8 @@
 - Validate notebook: `python notebooks/validate_notebook.py notebook_path`
 - Fix notebook metadata: `python notebooks/fix_notebook_metadata.py`
 - Test pruning: `python scripts/inference_with_pruning.py --strategy entropy --pruning_level 0.5 --prompt "Your text"`
+- Fine-tune pruned model: `python scripts/finetune_pruned_model.py --model_path PATH --dataset DATASET --output_path OUTPUT --enable_head_lr`
+- Test multi-model support: `python scripts/test_multi_model_support.py --models gpt2,opt,pythia,bloom`
 
 ## Code Style Guidelines
 - Imports: standard library → third-party → local modules
@@ -16,11 +18,12 @@
 - Organization: Keep functions single-purpose and modular
 
 ## Project Structure
-- Models in `models/`, controller logic in `controller/`, utilities in `utils/`
+- Models in `models/`, with model loaders for different architectures in `models/loaders/`
+- Controller logic in `controller/`, utilities in `utils/`
 - Main training logic in `train.py`, inference in `main.py`
 - Notebooks in `notebooks/` demonstrate various model behaviors and visualizations
-- Scripts in `scripts/` provide benchmarking and specialized tools
-- Documentation in `docs/` includes methodology and technical details
+- Scripts in `scripts/` provide benchmarking, fine-tuning, and specialized tools
+- Documentation in `docs/` includes methodology, fine-tuning guides, and technical details
 
 ## Branch Management
 1. Always create feature or bug branches from main:
