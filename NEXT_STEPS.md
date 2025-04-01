@@ -21,7 +21,8 @@ This document outlines prioritized tasks and future directions for the Sentinel-
 - [x] Create comprehensive benchmarking suite across model sizes
 - [x] Evaluate inference speed improvements from dynamic pruning
 - [x] Measure memory usage reduction compared to baseline models
-- [ ] Test on downstream tasks (classification, summarization, etc.)
+- [x] Test learning capabilities after pruning (sentiment, poetry, etc.)
+- [ ] Test on more complex downstream tasks (summarization, translation, etc.)
 
 ### 4. Architecture Refinements
 - [ ] Experiment with different controller architectures (RNN vs. Feedforward)
@@ -58,6 +59,7 @@ This document outlines prioritized tasks and future directions for the Sentinel-
 ## Long-Term Research Directions
 
 ### 1. Continual Learning
+- [x] Demonstrate adaptive learning after pruning (foundational capability)
 - [ ] Develop mechanisms for lifelong learning without catastrophic forgetting
 - [ ] Create adaptive architecture for multi-task learning
 - [ ] Implement progressive knowledge transfer across tasks
