@@ -13,12 +13,12 @@ Welcome to **Sentinel-AI**, a modular research framework for transformers that c
 
 ```mermaid
 flowchart TD
-    classDef standard fill:#f9f9f9,stroke:#333,stroke-width:1px
-    classDef highlight fill:#d1f0ff,stroke:#0078b8,stroke-width:2px
-    classDef adapter fill:#e6f7e6,stroke:#2e8b57,stroke-width:1px
-    classDef controller fill:#fff4e6,stroke:#ff8c00,stroke-width:1px
-    classDef attention fill:#f5e6ff,stroke:#9370db,stroke-width:1px
-    classDef embedding fill:#f9f9f9,stroke:#666,stroke-width:1px
+    classDef standard fill:#333,stroke:#333,stroke-width:1px,color:#fff
+    classDef highlight fill:#0078b8,stroke:#0078b8,stroke-width:2px,color:#fff
+    classDef adapter fill:#2e8b57,stroke:#2e8b57,stroke-width:1px,color:#fff
+    classDef controller fill:#ff8c00,stroke:#ff8c00,stroke-width:1px,color:#fff
+    classDef attention fill:#9370db,stroke:#9370db,stroke-width:1px,color:#fff
+    classDef embedding fill:#666,stroke:#666,stroke-width:1px,color:#fff
     
     %% Main Architecture Components
     title["SENTINEL-AI ARCHITECTURE"]
@@ -94,11 +94,11 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-    classDef standard fill:#f9f9f9,stroke:#333,stroke-width:1px
-    classDef agency fill:#e6f7e6,stroke:#2e8b57,stroke-width:1px
-    classDef state fill:#f5e6ff,stroke:#9370db,stroke-width:1px
-    classDef computation fill:#d1f0ff,stroke:#0078b8,stroke-width:1px
-    classDef gate fill:#fff4e6,stroke:#ff8c00,stroke-width:1px
+    classDef standard fill:#333,stroke:#333,stroke-width:1px,color:#fff
+    classDef agency fill:#2e8b57,stroke:#2e8b57,stroke-width:1px,color:#fff
+    classDef state fill:#9370db,stroke:#9370db,stroke-width:1px,color:#fff
+    classDef computation fill:#0078b8,stroke:#0078b8,stroke-width:1px,color:#fff
+    classDef gate fill:#ff8c00,stroke:#ff8c00,stroke-width:1px,color:#fff
     
     %% Main Components
     title["ATTENTION HEAD WITH AGENCY"]
@@ -160,10 +160,10 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-    classDef standard fill:#f9f9f9,stroke:#333,stroke-width:1px
-    classDef interface fill:#d1f0ff,stroke:#0078b8,stroke-width:2px
-    classDef adapter fill:#fff4e6,stroke:#ff8c00,stroke-width:1px
-    classDef original fill:#e6f7e6,stroke:#2e8b57,stroke-width:1px
+    classDef standard fill:#333,stroke:#333,stroke-width:1px,color:#fff
+    classDef interface fill:#0078b8,stroke:#0078b8,stroke-width:2px,color:#fff
+    classDef adapter fill:#ff8c00,stroke:#ff8c00,stroke-width:1px,color:#fff
+    classDef original fill:#2e8b57,stroke:#2e8b57,stroke-width:1px,color:#fff
     
     %% Main Components
     title["HYBRID ADAPTER PATTERN"]
@@ -202,11 +202,11 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-    classDef standard fill:#f9f9f9,stroke:#333,stroke-width:1px
-    classDef embedding fill:#d1f0ff,stroke:#0078b8,stroke-width:1px
-    classDef decoder fill:#f5e6ff,stroke:#9370db,stroke-width:1px
-    classDef skip fill:#fff4e6,stroke:#ff8c00,stroke-width:1px
-    classDef encoder fill:#e6f7e6,stroke:#2e8b57,stroke-width:1px
+    classDef standard fill:#333,stroke:#333,stroke-width:1px,color:#fff
+    classDef embedding fill:#0078b8,stroke:#0078b8,stroke-width:1px,color:#fff
+    classDef decoder fill:#9370db,stroke:#9370db,stroke-width:1px,color:#fff
+    classDef skip fill:#ff8c00,stroke:#ff8c00,stroke-width:1px,color:#fff
+    classDef encoder fill:#2e8b57,stroke:#2e8b57,stroke-width:1px,color:#fff
     
     %% Main Components
     title["U-NET INSPIRED ARCHITECTURE"]
@@ -472,11 +472,11 @@ Then open any notebook in `/notebooks/` or run `scripts/train_colab.py`.
 
 ```mermaid
 flowchart TD
-    classDef standard fill:#f9f9f9,stroke:#333,stroke-width:1px
-    classDef metrics fill:#e6f7e6,stroke:#2e8b57,stroke-width:1px
-    classDef reward fill:#fff4e6,stroke:#ff8c00,stroke-width:1px
-    classDef policy fill:#d1f0ff,stroke:#0078b8,stroke-width:1px
-    classDef optimization fill:#f5e6ff,stroke:#9370db,stroke-width:1px
+    classDef standard fill:#333,stroke:#333,stroke-width:1px,color:#fff
+    classDef metrics fill:#2e8b57,stroke:#2e8b57,stroke-width:1px,color:#fff
+    classDef reward fill:#ff8c00,stroke:#ff8c00,stroke-width:1px,color:#fff
+    classDef policy fill:#0078b8,stroke:#0078b8,stroke-width:1px,color:#fff
+    classDef optimization fill:#9370db,stroke:#9370db,stroke-width:1px,color:#fff
     
     %% Main Components
     title["REINFORCEMENT LEARNING CONTROLLER"]
@@ -510,11 +510,11 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-    classDef standard fill:#f9f9f9,stroke:#333,stroke-width:1px
-    classDef layer fill:#d1f0ff,stroke:#0078b8,stroke-width:1px
-    classDef attention fill:#f5e6ff,stroke:#9370db,stroke-width:1px
-    classDef ffn fill:#e6f7e6,stroke:#2e8b57,stroke-width:1px
-    classDef head fill:#fff4e6,stroke:#ff8c00,stroke-width:1px
+    classDef standard fill:#333,stroke:#333,stroke-width:1px,color:#fff
+    classDef layer fill:#0078b8,stroke:#0078b8,stroke-width:1px,color:#fff
+    classDef attention fill:#9370db,stroke:#9370db,stroke-width:1px,color:#fff
+    classDef ffn fill:#2e8b57,stroke:#2e8b57,stroke-width:1px,color:#fff
+    classDef head fill:#ff8c00,stroke:#ff8c00,stroke-width:1px,color:#fff
     
     %% Main Components
     title["ADAPTIVE TRANSFORMER BLOCK"]
