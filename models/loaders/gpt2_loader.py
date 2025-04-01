@@ -1,8 +1,13 @@
 import torch
 import torch.nn as nn
+import os
 from models.adaptive_transformer import AdaptiveCausalLmWrapper
+from models.unet_transformer import load_unet_enhanced_model
 
-def load_adaptive_model_gpt(model_name, baseline_model, config, device, quiet=False):
+# Environment variable to control whether to use optimized model
+USE_OPTIMIZED_MODEL = os.environ.get("USE_OPTIMIZED_MODEL", "1") == "1"
+
+def load_adaptive_model_gpt(model_name, baseline_model, config, device, quiet=False, optimized=None):
     """
     Load an adaptive transformer model initialized from a baseline GPT model.
     
@@ -12,7 +17,20 @@ def load_adaptive_model_gpt(model_name, baseline_model, config, device, quiet=Fa
         config: Configuration for the model
         device: Device to load the model on ('cpu' or 'cuda')
         quiet: If True, suppresses verbose loading messages
+        optimized: Whether to use the optimized UNet model (if None, uses environment variable)
     """
+    # Determine whether to use optimized implementation
+    use_optimized = optimized if optimized is not None else USE_OPTIMIZED_MODEL
+    
+    if use_optimized:
+        if not quiet:
+            print("Using optimized UNet transformer with baseline integration")
+        return load_unet_enhanced_model(
+            baseline_model=baseline_model,
+            device=device,
+            use_baseline_integration=True,
+            debug=(not quiet)
+        )
     if not quiet:
         print("\n==== DEBUG INFO ====")
         print(f"Model name: {model_name}")
