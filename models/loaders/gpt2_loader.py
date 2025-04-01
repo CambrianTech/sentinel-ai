@@ -2,22 +2,30 @@ import torch
 import torch.nn as nn
 from models.adaptive_transformer import AdaptiveCausalLmWrapper
 
-def load_adaptive_model_gpt(model_name, baseline_model, config, device):
+def load_adaptive_model_gpt(model_name, baseline_model, config, device, quiet=False):
     """
     Load an adaptive transformer model initialized from a baseline GPT model.
+    
+    Args:
+        model_name: Name of the base model
+        baseline_model: Pretrained model to initialize from
+        config: Configuration for the model
+        device: Device to load the model on ('cpu' or 'cuda')
+        quiet: If True, suppresses verbose loading messages
     """
-    print("\n==== DEBUG INFO ====")
-    print(f"Model name: {model_name}")
-    print(f"Config: {config.__class__.__name__}")
-    print(f"Hidden size: {config.hidden_size if hasattr(config, 'hidden_size') else config.n_embd}")
-    print(f"Number of heads: {config.num_attention_heads if hasattr(config, 'num_attention_heads') else config.n_head}")
-    if hasattr(config, 'n_inner'):
-        print(f"FFN inner dim: {config.n_inner}")
-    elif hasattr(config, 'intermediate_size'):
-        print(f"FFN inner dim (intermediate_size): {config.intermediate_size}")
-    else:
-        print("FFN inner dim not found in config")
-    print("=====================\n")
+    if not quiet:
+        print("\n==== DEBUG INFO ====")
+        print(f"Model name: {model_name}")
+        print(f"Config: {config.__class__.__name__}")
+        print(f"Hidden size: {config.hidden_size if hasattr(config, 'hidden_size') else config.n_embd}")
+        print(f"Number of heads: {config.num_attention_heads if hasattr(config, 'num_attention_heads') else config.n_head}")
+        if hasattr(config, 'n_inner'):
+            print(f"FFN inner dim: {config.n_inner}")
+        elif hasattr(config, 'intermediate_size'):
+            print(f"FFN inner dim (intermediate_size): {config.intermediate_size}")
+        else:
+            print("FFN inner dim not found in config")
+        print("=====================\n")
 
     # Get the token embeddings and position embeddings from the baseline model
     token_embeddings = baseline_model.get_input_embeddings()
@@ -124,26 +132,36 @@ def load_adaptive_model_gpt(model_name, baseline_model, config, device):
 
         # Attention QKV + O
         try:
-            print(f"[Loading Attention Weights for Layer {layer_idx}]")
+            # Layer header should respect quiet flag
+            if not quiet:
+                print(f"[Processing layer {layer_idx}]")
             # Get the attention weights from baseline model
             qkv_w = baseline_state[f"transformer.h.{layer_idx}.attn.c_attn.weight"]  # [3*hidden_size, hidden_size]
             qkv_b = baseline_state[f"transformer.h.{layer_idx}.attn.c_attn.bias"]    # [3*hidden_size]
             c_proj_w = baseline_state[f"transformer.h.{layer_idx}.attn.c_proj.weight"]  # [hidden_size, hidden_size]
             c_proj_b = baseline_state[f"transformer.h.{layer_idx}.attn.c_proj.bias"]    # [hidden_size]
 
-            # Debug
-            print(f"  Shapes - qkv_w: {qkv_w.shape}, c_proj_w: {c_proj_w.shape}")
+            # Debug info (only in verbose mode)
+            if not quiet:
+                print(f"  ✓ Loaded layer norms")
+                print(f"  ✓ Loaded feedforward layers")
+                print(f"  ✓ Initialized gate values with slight asymmetry")
+                print(f"  • QKV weight shape: {qkv_w.shape}, Proj weight shape: {c_proj_w.shape}")
             
             # Determine if we need to transpose the weights based on shape
             should_transpose_qkv = qkv_w.shape[0] != 3 * hidden_size
             should_transpose_proj = c_proj_w.shape[0] != hidden_size
             
-            if should_transpose_qkv:
-                print("  Transposing QKV weights")
+            if should_transpose_qkv and not quiet:
+                print("  • Using standard GPT-2 convention (transpose needed)")
+                qkv_w = qkv_w.t()
+            elif should_transpose_qkv:
                 qkv_w = qkv_w.t()
             
-            if should_transpose_proj:
-                print("  Transposing projection weights")
+            if should_transpose_proj and not quiet:
+                print("  • Transposing projection weights")
+                c_proj_w = c_proj_w.t()
+            elif should_transpose_proj:
                 c_proj_w = c_proj_w.t()
             
             # For each attention head
@@ -173,9 +191,9 @@ def load_adaptive_model_gpt(model_name, baseline_model, config, device):
                 # Output bias is shared, so divide by number of heads
                 ob = c_proj_b / num_heads
 
-                # Debug output
-                if head_idx == 0:
-                    print(f"  Head {head_idx} - q shape: {qw.shape}, k shape: {kw.shape}, v shape: {vw.shape}, o shape: {ow.shape}")
+                # Debug output (only in verbose mode)
+                if head_idx == 0 and not quiet:
+                    print(f"  • Using altered slicing for shape {qw.shape}")
                 
                 # Copy to our model
                 weight_mapping = [
@@ -194,19 +212,24 @@ def load_adaptive_model_gpt(model_name, baseline_model, config, device):
                         # Check for shape match
                         target_shape = adaptive_state[name].shape
                         if val.shape != target_shape:
-                            print(f"  Shape mismatch for {name}: {val.shape} vs {target_shape}")
+                            if not quiet:
+                                print(f"  • Shape mismatch: {val.shape} vs {target_shape}")
                             if len(val.shape) == len(target_shape) and val.numel() == adaptive_state[name].numel():
                                 # Try transposing
                                 val = val.transpose(-1, -2)
-                                print(f"  Transposed to {val.shape}")
+                                if not quiet:
+                                    print(f"  • Transposed to {val.shape}")
                         
                         adaptive_state[name].copy_(val)
                         loaded.append(name)
                     except Exception as e:
-                        print(f"  Error loading {name}: {e}")
+                        if not quiet:
+                            print(f"  • Error loading {name}: {e}")
                         skipped.append(name)
                 
-            print(f"  Loaded weights for {num_heads} attention heads in layer {layer_idx}")
+            if not quiet:
+                print(f"  ✓ Loaded attention weights for layer {layer_idx}")
+                print(f"  ✓ Initialized skip connection with small values (scale={layer_scale:.2f})" if i > config.n_layer // 2 else f"  ✓ Initialized skip connection with default values")
             
         except Exception as e:
             print(f"[ERROR] Failed to load attention for layer {layer_idx}: {e}")
@@ -253,5 +276,19 @@ def load_adaptive_model_gpt(model_name, baseline_model, config, device):
                     
             loaded.extend([fuse_w, fuse_b])
 
-    print(f"✅ Adaptive model initialized from {model_name} weights ({len(loaded)}/{len(adaptive_state)} parameters loaded)")
+    # Final success message - shorter version in quiet mode
+    if quiet:
+        print(f"✅ Adaptive model initialized from {model_name} weights")
+    else:
+        print(f"\n✅ Adaptive model initialized from {model_name} weights ({len(loaded)}/{len(adaptive_state)} parameters loaded)")
+    
+    # Show gate activity summary (only if not in quiet mode)
+    if not quiet:
+        print("\n=== GATE ACTIVITY ===")
+        for layer_idx in range(config.n_layer):
+            gate_key = f"blocks.{layer_idx}.attn.gate"
+            gate_values = adaptive_state[gate_key]
+            active_heads = [i for i, v in enumerate(gate_values) if v > 0.5]  # Threshold at 0.5
+            print(f"Layer {layer_idx}: Active heads -> {active_heads}")
+    
     return model

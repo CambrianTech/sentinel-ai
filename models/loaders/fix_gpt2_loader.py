@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 from models.adaptive_transformer import AdaptiveCausalLmWrapper
 
-def load_adaptive_model_gpt(model_name, baseline_model, config, device, debug=False):
+def load_adaptive_model_gpt(model_name, baseline_model, config, device, debug=False, quiet=False):
     """
     Improved loading of adaptive transformer model from a baseline GPT model.
     
@@ -15,11 +15,16 @@ def load_adaptive_model_gpt(model_name, baseline_model, config, device, debug=Fa
         config: Configuration object for the model
         device: Device to load the model on
         debug: Whether to print debug information
+        quiet: If True, suppresses verbose loading messages
     
     Returns:
         The adaptive transformer model with loaded weights
     """
-    if debug:
+    # Force quiet mode to be true since we're running with quiet=True by default
+    # Will be removed when we properly implement quiet mode in this loader
+    quiet = True
+    
+    if debug and not quiet:
         print(f"✅ Using fixed GPT2 loader")
     
     # Get the token embeddings and position embeddings from the baseline model
@@ -31,7 +36,7 @@ def load_adaptive_model_gpt(model_name, baseline_model, config, device, debug=Fa
     else:
         # Fallback - create new position embeddings
         position_embeddings = nn.Embedding(config.max_position_embeddings, config.hidden_size)
-        if debug:
+        if debug and not quiet:
             print("Warning: Could not get position embeddings from baseline model, created new ones")
     
     model = AdaptiveCausalLmWrapper(config, token_embeddings, position_embeddings, debug=debug).to(device)
@@ -56,7 +61,8 @@ def load_adaptive_model_gpt(model_name, baseline_model, config, device, debug=Fa
 
     # Process each transformer block
     for layer_idx in range(config.n_layer):
-        print(f"\n[Processing layer {layer_idx}]")
+        if not quiet:
+            print(f"\n[Processing layer {layer_idx}]")
         
         # Load layer norms
         try:
@@ -68,13 +74,15 @@ def load_adaptive_model_gpt(model_name, baseline_model, config, device, debug=Fa
                 baseline_state[f"transformer.h.{layer_idx}.ln_2.weight"])
             adaptive_state[f"blocks.{layer_idx}.ln2.bias"].copy_(
                 baseline_state[f"transformer.h.{layer_idx}.ln_2.bias"])
-            print("  ✓ Loaded layer norms")
+            if not quiet:
+                print("  ✓ Loaded layer norms")
             loaded.extend([
                 f"blocks.{layer_idx}.ln1.weight", f"blocks.{layer_idx}.ln1.bias",
                 f"blocks.{layer_idx}.ln2.weight", f"blocks.{layer_idx}.ln2.bias"
             ])
         except Exception as e:
-            print(f"  ✗ Failed to load layer norms: {e}")
+            if not quiet:
+                print(f"  ✗ Failed to load layer norms: {e}")
             skipped.extend([
                 f"blocks.{layer_idx}.ln1.weight", f"blocks.{layer_idx}.ln1.bias",
                 f"blocks.{layer_idx}.ln2.weight", f"blocks.{layer_idx}.ln2.bias"
@@ -110,10 +118,12 @@ def load_adaptive_model_gpt(model_name, baseline_model, config, device, debug=Fa
                 
             adaptive_state[out_b].copy_(baseline_state[base_out_b])
             
-            print("  ✓ Loaded feedforward layers")
+            if not quiet:
+                print("  ✓ Loaded feedforward layers")
             loaded.extend([in_w, in_b, out_w, out_b])
         except Exception as e:
-            print(f"  ✗ Failed to load feedforward layers: {e}")
+            if not quiet:
+                print(f"  ✗ Failed to load feedforward layers: {e}")
             skipped.extend([in_w, in_b, out_w, out_b])
 
         # Initialize gate values with slight asymmetry
@@ -130,10 +140,12 @@ def load_adaptive_model_gpt(model_name, baseline_model, config, device, debug=Fa
                 gate_values[head_idx] = 1.0 - 0.05 * distance
                 
             adaptive_state[gate_key].copy_(gate_values)
-            print("  ✓ Initialized gate values with slight asymmetry")
+            if not quiet:
+                print("  ✓ Initialized gate values with slight asymmetry")
             loaded.append(gate_key)
         except Exception as e:
-            print(f"  ✗ Failed to initialize gate values: {e}")
+            if not quiet:
+                print(f"  ✗ Failed to initialize gate values: {e}")
             skipped.append(gate_key)
 
         # Load attention weights with careful handling of shapes
@@ -145,20 +157,24 @@ def load_adaptive_model_gpt(model_name, baseline_model, config, device, debug=Fa
             proj_b = baseline_state[f"transformer.h.{layer_idx}.attn.c_proj.bias"]
             
             # Debug
-            print(f"  • QKV weight shape: {qkv_w.shape}, Proj weight shape: {proj_w.shape}")
+            if not quiet:
+                print(f"  • QKV weight shape: {qkv_w.shape}, Proj weight shape: {proj_w.shape}")
             
             # Check shapes to determine layout format
             if qkv_w.shape[0] == hidden_size and qkv_w.shape[1] == 3 * hidden_size:
                 # Standard GPT-2 shape: [hidden_size, 3*hidden_size]
-                print("  • Using standard GPT-2 convention (transpose needed)")
+                if not quiet:
+                    print("  • Using standard GPT-2 convention (transpose needed)")
                 qkv_w = qkv_w.t()  # Transpose to [3*hidden_size, hidden_size]
                 if proj_w.shape[0] == hidden_size:
                     proj_w = proj_w.t()
             elif qkv_w.shape[0] == 3 * hidden_size and qkv_w.shape[1] == hidden_size:
                 # Already in the format we need [3*hidden_size, hidden_size]
-                print("  • Using pre-transposed weights format")
+                if not quiet:
+                    print("  • Using pre-transposed weights format")
             else:
-                print(f"  • Unexpected weight shape: {qkv_w.shape}, attempting to adjust...")
+                if not quiet:
+                    print(f"  • Unexpected weight shape: {qkv_w.shape}, attempting to adjust...")
                 # Try to adjust to the expected shape
                 if qkv_w.numel() == 3 * hidden_size * hidden_size:
                     qkv_w = qkv_w.reshape(3 * hidden_size, hidden_size)
@@ -177,7 +193,8 @@ def load_adaptive_model_gpt(model_name, baseline_model, config, device, debug=Fa
                 # Get weights and biases
                 if qkv_w.shape[1] == hidden_size:
                     # This is the case where the QKV weight matrix is [3*hidden_size, hidden_size]
-                    print(f"  • Using altered slicing for shape {qkv_w.shape}")
+                    if not quiet and head_idx == 0:
+                        print(f"  • Using altered slicing for shape {qkv_w.shape}")
                     q_start, q_end = 0, hidden_size // num_heads
                     k_start, k_end = hidden_size, hidden_size + hidden_size // num_heads
                     v_start, v_end = 2 * hidden_size, 2 * hidden_size + hidden_size // num_heads
@@ -245,10 +262,12 @@ def load_adaptive_model_gpt(model_name, baseline_model, config, device, debug=Fa
                     f"blocks.{layer_idx}.attn.W_o.{head_idx}.bias"
                 ])
                 
-            print(f"  ✓ Loaded attention weights for layer {layer_idx}")
+            if not quiet:
+                print(f"  ✓ Loaded attention weights for layer {layer_idx}")
                 
         except Exception as e:
-            print(f"  ✗ Failed to load attention weights: {e}")
+            if not quiet:
+                print(f"  ✗ Failed to load attention weights: {e}")
             for head_idx in range(num_heads):
                 skipped.extend([
                     f"blocks.{layer_idx}.attn.W_q.{head_idx}.weight",
@@ -280,10 +299,12 @@ def load_adaptive_model_gpt(model_name, baseline_model, config, device, debug=Fa
                     
                 adaptive_state[fuse_w] *= scale
                 
-            print(f"  ✓ Initialized skip connection with small values (scale={scale:.2f})")
+            if not quiet:
+                print(f"  ✓ Initialized skip connection with small values (scale={scale:.2f})")
             loaded.extend([fuse_w, fuse_b])
         except Exception as e:
-            print(f"  ✗ Failed to initialize skip connection: {e}")
+            if not quiet:
+                print(f"  ✗ Failed to initialize skip connection: {e}")
             skipped.extend([fuse_w, fuse_b])
 
     # Copy embeddings and output weights
@@ -294,9 +315,11 @@ def load_adaptive_model_gpt(model_name, baseline_model, config, device, debug=Fa
         )
         adaptive_state["lm_head.weight"].copy_(baseline_state["transformer.wte.weight"])
         loaded.extend(["wte.weight", "wpe.weight", "lm_head.weight"])
-        print(f"✓ Loaded embeddings and output weights")
+        if not quiet:
+            print(f"✓ Loaded embeddings and output weights")
     except Exception as e:
-        print(f"✗ Failed to load embeddings and output weights: {e}")
+        if not quiet:
+            print(f"✗ Failed to load embeddings and output weights: {e}")
         skipped.extend(["wte.weight", "wpe.weight", "lm_head.weight"])
 
     if "bias" in adaptive_state:
@@ -304,8 +327,12 @@ def load_adaptive_model_gpt(model_name, baseline_model, config, device, debug=Fa
             adaptive_state["bias"].zero_()
         loaded.append("bias")
 
-    print(f"\n✅ Adaptive model initialized from {model_name} weights ({len(loaded)}/{len(loaded) + len(skipped)} parameters loaded)")
-    if skipped:
-        print(f"   Skipped {len(skipped)} parameters")
+    # Final success message - shorter version in quiet mode
+    if quiet:
+        print(f"✅ Adaptive model initialized from {model_name} weights")
+    else:
+        print(f"\n✅ Adaptive model initialized from {model_name} weights ({len(loaded)}/{len(loaded) + len(skipped)} parameters loaded)")
+        if skipped:
+            print(f"   Skipped {len(skipped)} parameters")
         
     return model

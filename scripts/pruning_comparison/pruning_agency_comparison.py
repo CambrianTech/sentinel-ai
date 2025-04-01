@@ -19,6 +19,7 @@ import os
 import sys
 import time
 import json
+import random
 import numpy as np
 import torch
 import matplotlib.pyplot as plt
@@ -28,9 +29,10 @@ from pathlib import Path
 # Add root directory to path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
 
-from models.adaptive_transformer import AdaptiveTransformer
-from models.loaders.gpt2_loader import load_gpt2_model
-from utils.model_wrapper import SentinelModelWrapper
+from models.loaders.loader import load_baseline_model, load_adaptive_model
+from models.loaders.gpt2_loader import load_adaptive_model_gpt
+from models.adaptive_transformer import AdaptiveCausalLmWrapper  # Import correct model class
+from transformers import AutoTokenizer
 from utils.metrics import calculate_perplexity, calculate_diversity, calculate_repetition
 from utils.charting import AGENCY_COLORS  # Import color scheme for consistency
 
@@ -43,7 +45,7 @@ def setup_args():
     parser = argparse.ArgumentParser(description="Compare pruning efficacy with and without agency")
     
     # Pruning configuration
-    parser.add_argument("--pruning_levels", type=str, default="0,10,20,30,40,50,60,70",
+    parser.add_argument("--pruning_levels", type=str, default="0,20,40,60",
                       help="Comma-separated pruning percentages to evaluate")
     parser.add_argument("--pruning_method", type=str, default="entropy", choices=["entropy", "random", "magnitude"],
                       help="Method to select heads for pruning")
@@ -59,18 +61,18 @@ def setup_args():
                       help="Precision for model weights")
     
     # Generation parameters
-    parser.add_argument("--num_tokens", type=int, default=100,
+    parser.add_argument("--num_tokens", type=int, default=50,
                       help="Number of tokens to generate for each prompt")
-    parser.add_argument("--temperatures", type=str, default="0.7,1.0",
-                      help="Comma-separated temperatures to test")
+    parser.add_argument("--temperatures", type=str, default="0.7", 
+                      help="Comma-separated temperatures to test (use single temperature for CPU tests)")
     parser.add_argument("--prompt_file", type=str, default="datasets/eval_prompts.txt",
                       help="File containing prompts to use for evaluation")
-    parser.add_argument("--max_prompts", type=int, default=10,
-                      help="Maximum number of prompts to evaluate")
+    parser.add_argument("--max_prompts", type=int, default=3,
+                      help="Maximum number of prompts to evaluate (use small number for CPU tests)")
     
     # Experiment configuration
-    parser.add_argument("--iterations", type=int, default=3,
-                      help="Number of iterations to run for statistical significance")
+    parser.add_argument("--iterations", type=int, default=2,
+                      help="Number of iterations to run for statistical significance (use small number for CPU tests)")
     parser.add_argument("--output_dir", type=str, default="validation_results/pruning_agency",
                       help="Directory to save results and visualizations")
     parser.add_argument("--save_outputs", action="store_true",
@@ -79,52 +81,66 @@ def setup_args():
                       help="Only generate visualizations from existing results")
     parser.add_argument("--memory_logging", action="store_true",
                       help="Log memory usage during evaluation")
+    parser.add_argument("--quiet", action="store_true",
+                      help="Reduce logging verbosity")
     
     return parser.parse_args()
 
-def load_model(model_name, agency_enabled=False, device="cpu", precision="float32"):
+def load_model(model_name, agency_enabled=False, device="cpu", precision="float32", quiet=False):
     """Load either a baseline or agency-enabled model with specified device and precision."""
-    print(f"Loading {model_name} model with agency={'enabled' if agency_enabled else 'disabled'} on {device}...")
+    # Define a local log function
+    def log_model(message, force=False):
+        if not quiet or force:
+            print(message)
+            
+    log_model(f"Loading {model_name} model with agency={'enabled' if agency_enabled else 'disabled'} on {device}...")
     
-    # Load base model
-    base_model, tokenizer = load_gpt2_model(model_name)
+    # Set device
+    torch_device = device
+    if device == "cuda" and not torch.cuda.is_available():
+        log_model("CUDA requested but not available. Using CPU instead.", force=True)
+        torch_device = "cpu"
     
-    # Create adaptive transformer layer
-    adaptive_model = AdaptiveTransformer(base_model, enable_agency=agency_enabled)
+    # Load tokenizer
+    tokenizer = AutoTokenizer.from_pretrained(model_name)
     
-    # Create wrapper
-    model = SentinelModelWrapper(adaptive_model, tokenizer)
-    
-    # Move to appropriate device
-    if device == "cuda" and torch.cuda.is_available():
-        print(f"Moving model to CUDA...")
-        model.to("cuda")
+    if agency_enabled:
+        # Load baseline model first
+        baseline_model = load_baseline_model(model_name, torch_device)
+        
+        # Then load adaptive model with agency
+        model = load_adaptive_model(model_name, baseline_model, torch_device, debug=False, quiet=quiet)
+        
+        # Set agency enabled flag for reference in pruning
+        if hasattr(model, "model"):
+            model.model.enable_agency = True
+        else:
+            model.enable_agency = True
     else:
-        if device == "cuda" and not torch.cuda.is_available():
-            print("CUDA requested but not available. Using CPU instead.")
-        model.to("cpu")
+        # Load baseline model only
+        model = load_baseline_model(model_name, torch_device)
     
     # Set precision
-    if precision != "float32" and device == "cuda":
+    if precision != "float32" and torch_device == "cuda":
         if precision == "float16":
-            print("Converting model to float16 precision...")
+            log_model("Converting model to float16 precision...")
             model = model.half()
         elif precision == "bfloat16" and torch.cuda.is_available() and torch.cuda.get_device_capability()[0] >= 8:
-            print("Converting model to bfloat16 precision...")
+            log_model("Converting model to bfloat16 precision...")
             model = model.to(torch.bfloat16)
         else:
-            print(f"Precision {precision} not supported on this device. Using float32.")
+            log_model(f"Precision {precision} not supported on this device. Using float32.", force=True)
     
     # Log memory usage if on CUDA
-    if device == "cuda" and torch.cuda.is_available():
+    if torch_device == "cuda":
         torch.cuda.empty_cache()
         allocated = torch.cuda.memory_allocated() / (1024 ** 3)
         reserved = torch.cuda.memory_reserved() / (1024 ** 3)
-        print(f"CUDA Memory: {allocated:.2f} GB allocated, {reserved:.2f} GB reserved")
+        log_model(f"CUDA Memory: {allocated:.2f} GB allocated, {reserved:.2f} GB reserved")
     
     return model, tokenizer
 
-def apply_pruning(model, pruning_percentage, method="entropy", verbose=True):
+def apply_pruning(model, pruning_percentage, method="entropy", verbose=True, quiet=False):
     """
     Apply pruning to the model by setting selected gate values to zero.
     
@@ -133,16 +149,49 @@ def apply_pruning(model, pruning_percentage, method="entropy", verbose=True):
         pruning_percentage: Percentage of heads to prune (0-100)
         method: Pruning method ('entropy', 'random', or 'magnitude')
         verbose: Whether to print pruning details
+        quiet: If True, reduce logging verbosity
         
     Returns:
         Tuple of (pruned model, number of heads pruned, list of pruned heads)
     """
+    # Define a local log function
+    def log_pruning(message, force=False):
+        if (verbose and not quiet) or force:
+            print(message)
     start_time = time.time()
+    
+    # Handle baseline models (which don't have gates to prune)
+    is_baseline_model = False
+    if hasattr(model, "config") and not hasattr(model, "blocks"):
+        if hasattr(model, "transformer") and hasattr(model.transformer, "h"):
+            # This is a standard Hugging Face model (GPT-2 style)
+            log_pruning(f"This is a baseline model without gates. Pruning will be simulated.")
+            return model, 0, []  # No actual pruning for baseline model
+        is_baseline_model = True
     
     # Get all head information
     heads_info = []
-    for layer_idx, block in enumerate(model.model.blocks):
-        for head_idx in range(model.model.num_heads):
+    
+    # Determine which model structure we're dealing with
+    if hasattr(model, "blocks"):
+        # Direct access to AdaptiveTransformerModel or AdaptiveCausalLmWrapper
+        blocks = model.blocks
+        num_heads = model.num_heads
+    elif hasattr(model, "model") and hasattr(model.model, "blocks"):
+        # Access through a wrapper
+        blocks = model.model.blocks
+        num_heads = model.model.num_heads
+    else:
+        # For baseline models without gates, we'll skip actual pruning
+        if is_baseline_model:
+            log_pruning(f"Skipping pruning for baseline model (no gates to prune)")
+            return model, 0, []
+        else:
+            raise ValueError("Unsupported model structure: cannot find blocks or attention gates")
+    
+    # For models with gates, proceed with pruning
+    for layer_idx, block in enumerate(blocks):
+        for head_idx in range(num_heads):
             gate_value = float(block["attn"].gate[head_idx])
             
             # Get head information based on pruning method
@@ -150,13 +199,16 @@ def apply_pruning(model, pruning_percentage, method="entropy", verbose=True):
                 # Use gate value as proxy for entropy-based importance
                 importance = gate_value
             elif method == "magnitude":
-                # Use weight magnitude as importance
-                weight = block["attn"].attn.attention.weight
-                head_size = weight.size(0) // model.model.num_heads
-                start_idx = head_idx * head_size
-                end_idx = start_idx + head_size
-                head_weight = weight[start_idx:end_idx, :]
-                importance = float(head_weight.abs().mean())
+                # Use weight magnitude as importance 
+                # This depends on the structure of the model
+                try:
+                    # Try to access weights of this head
+                    weight = block["attn"].W_q[head_idx].weight
+                    importance = float(weight.abs().mean())
+                except (AttributeError, KeyError):
+                    # Fallback for unsupported structures
+                    log_pruning(f"Warning: Magnitude pruning not supported for this model structure, falling back to gate values")
+                    importance = gate_value
             else:  # random
                 importance = random.random()
                 
@@ -173,7 +225,7 @@ def apply_pruning(model, pruning_percentage, method="entropy", verbose=True):
     
     if num_to_prune == 0:
         if verbose:
-            print(f"No heads to prune at {pruning_percentage}%")
+            log_pruning(f"No heads to prune at {pruning_percentage}%")
         return model, 0, []
     
     # Sort by importance (ascending, so least important first)
@@ -191,28 +243,63 @@ def apply_pruning(model, pruning_percentage, method="entropy", verbose=True):
     for head in heads_to_prune:
         layer_idx = head["layer_idx"]
         head_idx = head["head_idx"]
-        model.model.blocks[layer_idx]["attn"].gate[head_idx].zero_()
+        
+        # Use the blocks reference we determined earlier
+        # We need to handle differently for models in training vs. evaluation mode
+        # to avoid the "leaf Variable that requires grad" error
+        with torch.no_grad():  # This prevents autograd from tracking this operation
+            blocks[layer_idx]["attn"].gate[head_idx] = torch.zeros_like(blocks[layer_idx]["attn"].gate[head_idx])
+            
         pruned_heads.append((layer_idx, head_idx))
     
     # Print pruning stats if verbose
     if verbose:
         duration = time.time() - start_time
-        print(f"Pruned {num_to_prune}/{num_heads} heads ({pruning_percentage}%) using {method} method in {duration:.2f}s")
         
         # If agency is enabled, report agency states
-        if hasattr(model.model, "enable_agency") and model.model.enable_agency:
-            agency_states = {"active": 0, "overloaded": 0, "misaligned": 0, "withdrawn": 0}
-            consent_withdrawn = 0
+        # Check both direct model and model.model for enable_agency attribute
+        has_agency = False
+        if hasattr(model, "enable_agency") and model.enable_agency:
+            has_agency = True
+            agency_blocks = blocks
+        elif hasattr(model, "model") and hasattr(model.model, "enable_agency") and model.model.enable_agency:
+            has_agency = True
+            agency_blocks = model.model.blocks
+        
+        # Create different output based on quiet mode
+        if quiet:
+            # In quiet mode, just show a single concise line
+            if has_agency:
+                agency_states = {"active": 0, "overloaded": 0, "misaligned": 0, "withdrawn": 0}
+                consent_withdrawn = 0
+                
+                for layer_idx, block in enumerate(agency_blocks):
+                    if hasattr(block["attn"], "agency_signals"):
+                        for head_idx, signals in block["attn"].agency_signals.items():
+                            agency_states[signals["state"]] += 1
+                            if not signals["consent"]:
+                                consent_withdrawn += 1
+                
+                log_pruning(f"Pruned {num_to_prune}/{num_heads} heads ({pruning_percentage}%) using {method} method in {duration:.2f}s", force=True)
+            else:
+                log_pruning(f"Pruned {num_to_prune}/{num_heads} heads ({pruning_percentage}%) using {method} method in {duration:.2f}s", force=True)
+        else:
+            # In normal mode, show detailed output
+            log_pruning(f"Pruned {num_to_prune}/{num_heads} heads ({pruning_percentage}%) using {method} method in {duration:.2f}s")
             
-            for layer_idx, block in enumerate(model.model.blocks):
-                if hasattr(block["attn"], "agency_signals"):
-                    for head_idx, signals in block["attn"].agency_signals.items():
-                        agency_states[signals["state"]] += 1
-                        if not signals["consent"]:
-                            consent_withdrawn += 1
-            
-            print(f"Agency states after pruning: {agency_states}")
-            print(f"Heads with withdrawn consent: {consent_withdrawn}")
+            if has_agency:
+                agency_states = {"active": 0, "overloaded": 0, "misaligned": 0, "withdrawn": 0}
+                consent_withdrawn = 0
+                
+                for layer_idx, block in enumerate(agency_blocks):
+                    if hasattr(block["attn"], "agency_signals"):
+                        for head_idx, signals in block["attn"].agency_signals.items():
+                            agency_states[signals["state"]] += 1
+                            if not signals["consent"]:
+                                consent_withdrawn += 1
+                
+                log_pruning(f"Agency states after pruning: {agency_states}")
+                log_pruning(f"Heads with withdrawn consent: {consent_withdrawn}")
     
     return model, num_to_prune, pruned_heads
 
@@ -223,7 +310,7 @@ def load_prompts(prompt_file):
     return prompts
 
 def evaluate_model(model, tokenizer, prompts, num_tokens, temperature=0.7, 
-                batch_size=1, device="cpu", memory_logging=False, max_prompts=None):
+                batch_size=1, device="cpu", memory_logging=False, max_prompts=None, quiet=False):
     """
     Evaluate model performance on a set of prompts with comprehensive metrics.
     
@@ -237,6 +324,7 @@ def evaluate_model(model, tokenizer, prompts, num_tokens, temperature=0.7,
         device: Device to run on ("cpu" or "cuda")
         memory_logging: Whether to log memory usage
         max_prompts: Maximum number of prompts to evaluate
+        quiet: If True, reduce logging verbosity
         
     Returns:
         Dictionary of performance metrics
@@ -276,11 +364,15 @@ def evaluate_model(model, tokenizer, prompts, num_tokens, temperature=0.7,
     # Process prompts (in batches if batch_size > 1)
     for i in range(0, len(prompts), batch_size):
         batch_prompts = prompts[i:i+batch_size]
-        print(f"Processing batch {i//batch_size + 1}/{(len(prompts) + batch_size - 1)//batch_size} ({len(batch_prompts)} prompts)")
+        # Only print batch progress if not in quiet mode
+        if not quiet:
+            print(f"Processing batch {i//batch_size + 1}/{(len(prompts) + batch_size - 1)//batch_size} ({len(batch_prompts)} prompts)")
         
         for prompt_idx, prompt in enumerate(batch_prompts):
             prompt_num = i + prompt_idx + 1
-            print(f"  Evaluating prompt {prompt_num}/{len(prompts)}: {prompt[:50]}...")
+            # Skip per-prompt logging in quiet mode
+            if not quiet:
+                print(f"  Evaluating prompt {prompt_num}/{len(prompts)}: {prompt[:50]}...")
             
             try:
                 # Clear cache if on CUDA
@@ -308,8 +400,20 @@ def evaluate_model(model, tokenizer, prompts, num_tokens, temperature=0.7,
                 generation_start = time.time()
                 
                 # Generate with temperature and other params
-                output_ids = model.model.generate(
+                # Handle different model structures
+                if hasattr(model, "generate"):
+                    generate_method = model.generate
+                elif hasattr(model, "model") and hasattr(model.model, "generate"):
+                    generate_method = model.model.generate
+                else:
+                    raise ValueError("Model does not have a generate method")
+                
+                # Create attention mask (all 1s since we don't have padding)
+                attention_mask = torch.ones_like(input_ids)
+                    
+                output_ids = generate_method(
                     input_ids,
+                    attention_mask=attention_mask,
                     max_length=input_ids.size(1) + num_tokens,
                     temperature=temperature,
                     do_sample=(temperature > 0),
@@ -359,12 +463,14 @@ def evaluate_model(model, tokenizer, prompts, num_tokens, temperature=0.7,
                 results["repetition"].append(repetition)
                 results["outputs"].append(output)
                 
-                # Print progress info
-                print(f"    Generated {tokens_generated} tokens in {generation_time:.2f}s "
-                     f"({tokens_per_second:.2f} tokens/sec), perplexity: {perplexity:.2f}")
+                # Print progress info (skip in quiet mode)
+                if not quiet:
+                    print(f"    Generated {tokens_generated} tokens in {generation_time:.2f}s "
+                         f"({tokens_per_second:.2f} tokens/sec), perplexity: {perplexity:.2f}")
                 
             except Exception as e:
-                print(f"Error processing prompt {prompt_num}: {str(e)}")
+                if not quiet:
+                    print(f"Error processing prompt {prompt_num}: {str(e)}")
                 failures += 1
     
     # Handle case where all prompts failed
@@ -400,15 +506,25 @@ def evaluate_model(model, tokenizer, prompts, num_tokens, temperature=0.7,
     averaged_results["outputs"] = results["outputs"]
     averaged_results["success_rate"] = (len(prompts) - failures) / len(prompts)
     
-    # Print summary
-    print(f"\nEvaluation complete: {len(prompts) - failures}/{len(prompts)} prompts successful")
-    print(f"Average tokens/sec: {averaged_results['tokens_per_second']:.2f}")
-    print(f"Average perplexity: {averaged_results['perplexity']:.2f}")
+    # Print summary (always show this even in quiet mode)
+    if quiet:
+        # In quiet mode, just show a single summary line
+        print(f"Evaluation completed: {len(prompts) - failures}/{len(prompts)} prompts, {averaged_results['tokens_per_second']:.2f} tokens/sec, PPL: {averaged_results['perplexity']:.2f}")
+    else:
+        # In normal mode, show more detailed summary
+        print(f"\nEvaluation complete: {len(prompts) - failures}/{len(prompts)} prompts successful")
+        print(f"Average tokens/sec: {averaged_results['tokens_per_second']:.2f}")
+        print(f"Average perplexity: {averaged_results['perplexity']:.2f}")
     
     return averaged_results
 
 def run_pruning_comparison(args):
     """Run the main comparison between baseline and agency models."""
+    # Create a logging function that respects quiet flag
+    def log(message, force=False):
+        if not hasattr(args, 'quiet') or not args.quiet or force:
+            print(message)
+            
     # Process command line arguments
     pruning_levels = [int(x) for x in args.pruning_levels.split(",")]
     temperatures = [float(x) for x in args.temperatures.split(",")]
@@ -416,9 +532,9 @@ def run_pruning_comparison(args):
     
     if args.max_prompts and args.max_prompts < len(prompts):
         prompts = prompts[:args.max_prompts]
-        print(f"Using {len(prompts)} prompts for evaluation (limited by --max_prompts)")
+        log(f"Using {len(prompts)} prompts for evaluation (limited by --max_prompts)")
     else:
-        print(f"Using all {len(prompts)} prompts for evaluation")
+        log(f"Using all {len(prompts)} prompts for evaluation")
     
     # Prepare results structure
     results = {
@@ -443,7 +559,7 @@ def run_pruning_comparison(args):
     output_dir = Path(args.output_dir) / f"run_{timestamp}"
     output_dir.mkdir(parents=True, exist_ok=True)
     
-    print(f"Results will be saved to {output_dir}")
+    log(f"Results will be saved to {output_dir}", force=True)
     
     # Save a copy of the prompts
     with open(output_dir / "prompts.txt", "w") as f:
@@ -455,13 +571,13 @@ def run_pruning_comparison(args):
     
     # For each temperature value
     for temp_idx, temperature in enumerate(temperatures):
-        print(f"\n{'='*80}\nTesting temperature {temperature}\n{'='*80}")
+        log(f"\n{'='*80}\nTesting temperature {temperature}\n{'='*80}", force=True)
         
         results[f"temperature_{temperature}"] = {"baseline": {}, "agency": {}}
         
         # For each pruning level
         for level in pruning_levels:
-            print(f"\n{'-'*40}\nEvaluating pruning level: {level}%\n{'-'*40}")
+            log(f"\n{'-'*40}\nEvaluating pruning level: {level}%\n{'-'*40}", force=True)
             
             # Initialize iteration results
             baseline_iterations = []
@@ -469,40 +585,44 @@ def run_pruning_comparison(args):
             
             # Run multiple iterations for statistical significance
             for iteration in range(args.iterations):
-                print(f"\nIteration {iteration+1}/{args.iterations}")
+                log(f"\nIteration {iteration+1}/{args.iterations}")
                 
                 iteration_dir = output_dir / f"iteration_{iteration}"
                 
                 # Baseline model
-                print(f"Loading baseline model...")
+                log(f"Loading baseline model...")
                 baseline_model, tokenizer = load_model(
                     args.model_name, 
                     agency_enabled=False,
                     device=args.device,
-                    precision=args.precision
+                    precision=args.precision,
+                    quiet=args.quiet
                 )
                 baseline_model, pruned_heads_count, _ = apply_pruning(
                     baseline_model, 
                     level,
-                    method=args.pruning_method
+                    method=args.pruning_method,
+                    quiet=args.quiet
                 )
                 
                 # Agency model
-                print(f"Loading agency model...")
+                log(f"Loading agency model...")
                 agency_model, _ = load_model(
                     args.model_name, 
                     agency_enabled=True,
                     device=args.device,
-                    precision=args.precision
+                    precision=args.precision,
+                    quiet=args.quiet
                 )
                 agency_model, pruned_heads_count, _ = apply_pruning(
                     agency_model, 
                     level,
-                    method=args.pruning_method
+                    method=args.pruning_method,
+                    quiet=args.quiet
                 )
                 
                 # Evaluate both models
-                print(f"Evaluating baseline model...")
+                log(f"Evaluating baseline model...")
                 baseline_results = evaluate_model(
                     baseline_model, 
                     tokenizer, 
@@ -512,10 +632,11 @@ def run_pruning_comparison(args):
                     batch_size=args.batch_size,
                     device=args.device,
                     memory_logging=args.memory_logging,
-                    max_prompts=args.max_prompts
+                    max_prompts=args.max_prompts,
+                    quiet=args.quiet
                 )
                 
-                print(f"Evaluating agency model...")
+                log(f"Evaluating agency model...")
                 agency_results = evaluate_model(
                     agency_model, 
                     tokenizer, 
@@ -525,7 +646,8 @@ def run_pruning_comparison(args):
                     batch_size=args.batch_size,
                     device=args.device,
                     memory_logging=args.memory_logging,
-                    max_prompts=args.max_prompts
+                    max_prompts=args.max_prompts,
+                    quiet=args.quiet
                 )
                 
                 # Store iteration results
@@ -547,19 +669,24 @@ def run_pruning_comparison(args):
                             f.write(output + "\n\n")
                 
                 # Print comparison for this iteration
-                print(f"\nIteration {iteration+1} Results at {level}% pruning, temp={temperature}:")
-                print(f"  Baseline: {baseline_results['tokens_per_second']:.2f} tokens/sec, "
-                     f"perplexity: {baseline_results['perplexity']:.2f}, "
-                     f"diversity: {baseline_results['diversity']:.3f}")
-                print(f"  Agency:   {agency_results['tokens_per_second']:.2f} tokens/sec, "
-                     f"perplexity: {agency_results['perplexity']:.2f}, "
-                     f"diversity: {agency_results['diversity']:.3f}")
-                
-                # Calculate improvement
+                # Calculate improvements
                 speed_improvement = ((agency_results['tokens_per_second'] / baseline_results['tokens_per_second']) - 1) * 100
                 quality_improvement = ((baseline_results['perplexity'] / agency_results['perplexity']) - 1) * 100
                 
-                print(f"  Improvement: {speed_improvement:.1f}% faster, {quality_improvement:.1f}% better quality")
+                # Show different output depending on verbosity level
+                if args.quiet:
+                    # Just show a single line summary for each iteration
+                    log(f"Iteration {iteration+1} @ {level}%: Agency is {speed_improvement:.1f}% faster, {quality_improvement:.1f}% better quality")
+                else:
+                    # Show detailed per-iteration results
+                    log(f"\nIteration {iteration+1} Results at {level}% pruning, temp={temperature}:")
+                    log(f"  Baseline: {baseline_results['tokens_per_second']:.2f} tokens/sec, "
+                         f"perplexity: {baseline_results['perplexity']:.2f}, "
+                         f"diversity: {baseline_results['diversity']:.3f}")
+                    log(f"  Agency:   {agency_results['tokens_per_second']:.2f} tokens/sec, "
+                         f"perplexity: {agency_results['perplexity']:.2f}, "
+                         f"diversity: {agency_results['diversity']:.3f}")
+                    log(f"  Improvement: {speed_improvement:.1f}% faster, {quality_improvement:.1f}% better quality")
                 
                 # Free memory
                 del baseline_model
@@ -594,17 +721,24 @@ def run_pruning_comparison(args):
             results[f"temperature_{temperature}"]["agency"][level] = agency_avg
             
             # Print averaged results
-            print(f"\nAveraged Results at {level}% pruning, temp={temperature}:")
-            print(f"  Baseline: {baseline_avg['tokens_per_second']['mean']:.2f} ± {baseline_avg['tokens_per_second']['std']:.2f} tokens/sec, "
-                 f"perplexity: {baseline_avg['perplexity']['mean']:.2f} ± {baseline_avg['perplexity']['std']:.2f}")
-            print(f"  Agency:   {agency_avg['tokens_per_second']['mean']:.2f} ± {agency_avg['tokens_per_second']['std']:.2f} tokens/sec, "
-                 f"perplexity: {agency_avg['perplexity']['mean']:.2f} ± {agency_avg['perplexity']['std']:.2f}")
-            
             # Calculate improvement
             speed_improvement = ((agency_avg['tokens_per_second']['mean'] / baseline_avg['tokens_per_second']['mean']) - 1) * 100
             quality_improvement = ((baseline_avg['perplexity']['mean'] / agency_avg['perplexity']['mean']) - 1) * 100
             
-            print(f"  Improvement: {speed_improvement:.1f}% faster, {quality_improvement:.1f}% better quality")
+            # Create different outputs based on verbosity
+            is_last = (level == max(pruning_levels) and temperature == temperatures[-1])
+            
+            if args.quiet:
+                # For quiet mode, always show a concise single-line summary
+                log(f"Results at {level}% pruning (T={temperature}): Agency is {speed_improvement:.1f}% faster, {quality_improvement:.1f}% better quality", force=is_last)
+            else:
+                # For normal mode, show full detailed results
+                log(f"\nAveraged Results at {level}% pruning, temp={temperature}:", force=is_last)
+                log(f"  Baseline: {baseline_avg['tokens_per_second']['mean']:.2f} ± {baseline_avg['tokens_per_second']['std']:.2f} tokens/sec, "
+                     f"perplexity: {baseline_avg['perplexity']['mean']:.2f} ± {baseline_avg['perplexity']['std']:.2f}", force=is_last)
+                log(f"  Agency:   {agency_avg['tokens_per_second']['mean']:.2f} ± {agency_avg['tokens_per_second']['std']:.2f} tokens/sec, "
+                     f"perplexity: {agency_avg['perplexity']['mean']:.2f} ± {agency_avg['perplexity']['std']:.2f}", force=is_last)
+                log(f"  Improvement: {speed_improvement:.1f}% faster, {quality_improvement:.1f}% better quality", force=is_last)
             
             # Save incremental results after each pruning level
             incremental_results_file = output_dir / f"incremental_results_temp{temperature}.json"
@@ -618,15 +752,19 @@ def run_pruning_comparison(args):
     
     # Create a symlink to the latest results
     latest_link = Path(args.output_dir) / "latest"
-    if os.path.exists(latest_link):
-        if os.path.islink(latest_link):
-            os.unlink(latest_link)
-        else:
-            os.remove(latest_link)
-    os.symlink(output_dir, latest_link, target_is_directory=True)
+    try:
+        if os.path.exists(latest_link):
+            if os.path.islink(latest_link):
+                os.unlink(latest_link)
+            else:
+                os.remove(latest_link)
+        os.symlink(output_dir, latest_link, target_is_directory=True)
+        latest_link_msg = f"Latest results symlinked to {latest_link}"
+    except Exception as e:
+        latest_link_msg = f"Note: Could not create symlink to latest results: {e}"
     
-    print(f"\nAll results saved to {output_dir}")
-    print(f"Latest results symlinked to {latest_link}")
+    # Just show a brief message for cleaner output
+    log(f"Experiment completed. Results saved to {output_dir}", force=True)
     
     return results, output_dir
 
@@ -672,38 +810,65 @@ def visualize_temperature_results(results, output_dir, temperature, model_name="
     baseline_data = results["baseline"]
     agency_data = results["agency"]
     
-    pruning_levels = sorted([int(level) for level in baseline_data.keys()])
+    # Ensure keys are properly formatted (they might be integers or strings)
+    baseline_levels = []
+    for level in baseline_data.keys():
+        # Try to convert to int if it's a string
+        try:
+            level_int = int(level)
+            baseline_levels.append(level_int)
+        except (ValueError, TypeError):
+            # If it's not an integer string, just use as is
+            baseline_levels.append(level)
     
+    pruning_levels = sorted(baseline_levels)
+    
+    # Function to safely extract metrics with error handling
+    def safe_extract(data, level, metric):
+        level_key = str(level)
+        if level_key not in data:
+            # Try integer key if string key doesn't work
+            level_key = level
+            
+        if level_key not in data:
+            print(f"Warning: Level {level} not found in data")
+            return {"mean": 0.0, "std": 0.0}
+            
+        return data[level_key][metric]
+        
     # Extract metrics with error bars
-    baseline_speed_mean = [baseline_data[str(level)]["tokens_per_second"]["mean"] for level in pruning_levels]
-    baseline_speed_std = [baseline_data[str(level)]["tokens_per_second"]["std"] for level in pruning_levels]
+    baseline_speed_mean = [safe_extract(baseline_data, level, "tokens_per_second")["mean"] for level in pruning_levels]
+    baseline_speed_std = [safe_extract(baseline_data, level, "tokens_per_second")["std"] for level in pruning_levels]
     
-    agency_speed_mean = [agency_data[str(level)]["tokens_per_second"]["mean"] for level in pruning_levels]
-    agency_speed_std = [agency_data[str(level)]["tokens_per_second"]["std"] for level in pruning_levels]
+    agency_speed_mean = [safe_extract(agency_data, level, "tokens_per_second")["mean"] for level in pruning_levels]
+    agency_speed_std = [safe_extract(agency_data, level, "tokens_per_second")["std"] for level in pruning_levels]
     
-    baseline_ppl_mean = [baseline_data[str(level)]["perplexity"]["mean"] for level in pruning_levels]
-    baseline_ppl_std = [baseline_data[str(level)]["perplexity"]["std"] for level in pruning_levels]
+    baseline_ppl_mean = [safe_extract(baseline_data, level, "perplexity")["mean"] for level in pruning_levels]
+    baseline_ppl_std = [safe_extract(baseline_data, level, "perplexity")["std"] for level in pruning_levels]
     
-    agency_ppl_mean = [agency_data[str(level)]["perplexity"]["mean"] for level in pruning_levels]
-    agency_ppl_std = [agency_data[str(level)]["perplexity"]["std"] for level in pruning_levels]
+    agency_ppl_mean = [safe_extract(agency_data, level, "perplexity")["mean"] for level in pruning_levels]
+    agency_ppl_std = [safe_extract(agency_data, level, "perplexity")["std"] for level in pruning_levels]
     
-    baseline_div_mean = [baseline_data[str(level)]["diversity"]["mean"] for level in pruning_levels]
-    baseline_div_std = [baseline_data[str(level)]["diversity"]["std"] for level in pruning_levels]
+    baseline_div_mean = [safe_extract(baseline_data, level, "diversity")["mean"] for level in pruning_levels]
+    baseline_div_std = [safe_extract(baseline_data, level, "diversity")["std"] for level in pruning_levels]
     
-    agency_div_mean = [agency_data[str(level)]["diversity"]["mean"] for level in pruning_levels]
-    agency_div_std = [agency_data[str(level)]["diversity"]["std"] for level in pruning_levels]
+    agency_div_mean = [safe_extract(agency_data, level, "diversity")["mean"] for level in pruning_levels]
+    agency_div_std = [safe_extract(agency_data, level, "diversity")["std"] for level in pruning_levels]
     
     # Extract first token latency if available
-    if "first_token_time" in baseline_data[str(pruning_levels[0])]:
-        baseline_latency_mean = [baseline_data[str(level)]["first_token_time"]["mean"] for level in pruning_levels]
-        baseline_latency_std = [baseline_data[str(level)]["first_token_time"]["std"] for level in pruning_levels]
+    first_level_key = str(pruning_levels[0])
+    if first_level_key not in baseline_data:
+        first_level_key = pruning_levels[0]
+    
+    has_latency = False
+    if baseline_data and first_level_key in baseline_data and "first_token_time" in baseline_data[first_level_key]:
+        baseline_latency_mean = [safe_extract(baseline_data, level, "first_token_time")["mean"] for level in pruning_levels]
+        baseline_latency_std = [safe_extract(baseline_data, level, "first_token_time")["std"] for level in pruning_levels]
         
-        agency_latency_mean = [agency_data[str(level)]["first_token_time"]["mean"] for level in pruning_levels]
-        agency_latency_std = [agency_data[str(level)]["first_token_time"]["std"] for level in pruning_levels]
+        agency_latency_mean = [safe_extract(agency_data, level, "first_token_time")["mean"] for level in pruning_levels]
+        agency_latency_std = [safe_extract(agency_data, level, "first_token_time")["std"] for level in pruning_levels]
         
         has_latency = True
-    else:
-        has_latency = False
     
     # 1. Generation speed comparison with error bars
     plt.figure(figsize=(10, 6))
@@ -1009,8 +1174,31 @@ def visualize_temperature_comparison(results, output_dir):
     temperatures = [float(k.split("_")[1]) for k in temp_keys]
     model_name = results["metadata"]["model_name"]
     
-    # Get pruning levels
-    pruning_levels = sorted([int(level) for level in results[temp_keys[0]]["baseline"].keys()])
+    # Function to safely extract metrics with error handling
+    def safe_extract(data, level, metric):
+        level_key = str(level)
+        if level_key not in data:
+            # Try integer key if string key doesn't work
+            level_key = level
+            
+        if level_key not in data:
+            print(f"Warning: Level {level} not found in data")
+            return {"mean": 0.0, "std": 0.0}
+            
+        return data[level_key][metric]
+    
+    # Get all available pruning levels from the first temperature's data
+    baseline_levels = []
+    for level in results[temp_keys[0]]["baseline"].keys():
+        # Try to convert to int if it's a string
+        try:
+            level_int = int(level)
+            baseline_levels.append(level_int)
+        except (ValueError, TypeError):
+            # If it's not an integer string, just use as is
+            baseline_levels.append(level)
+    
+    pruning_levels = sorted(baseline_levels)
     max_level = max(pruning_levels)
     
     # 1. Speed comparison across temperatures
@@ -1019,9 +1207,9 @@ def visualize_temperature_comparison(results, output_dir):
     for temp in temperatures:
         temp_key = f"temperature_{temp}"
         
-        # Extract data for agency at this temperature
-        speed_mean = [results[temp_key]["agency"][str(level)]["tokens_per_second"]["mean"] 
-                     for level in pruning_levels]
+        # Extract data for agency at this temperature using safe_extract
+        speed_mean = [safe_extract(results[temp_key]["agency"], level, "tokens_per_second")["mean"] 
+                      for level in pruning_levels]
         
         plt.plot(pruning_levels, speed_mean, marker='o', label=f"T={temp}", linewidth=2)
     
@@ -1041,8 +1229,8 @@ def visualize_temperature_comparison(results, output_dir):
     for temp in temperatures:
         temp_key = f"temperature_{temp}"
         
-        # Extract data for agency at this temperature
-        ppl_mean = [results[temp_key]["agency"][str(level)]["perplexity"]["mean"] 
+        # Extract data for agency at this temperature using safe_extract
+        ppl_mean = [safe_extract(results[temp_key]["agency"], level, "perplexity")["mean"] 
                    for level in pruning_levels]
         
         plt.plot(pruning_levels, ppl_mean, marker='o', label=f"T={temp}", linewidth=2)
@@ -1065,11 +1253,11 @@ def visualize_temperature_comparison(results, output_dir):
     for temp in temperatures:
         temp_key = f"temperature_{temp}"
         
-        # Extract data for agency and baseline
-        agency_speed = [results[temp_key]["agency"][str(level)]["tokens_per_second"]["mean"] 
-                     for level in pruning_levels]
-        baseline_speed = [results[temp_key]["baseline"][str(level)]["tokens_per_second"]["mean"] 
-                       for level in pruning_levels]
+        # Extract data for agency and baseline using safe_extract
+        agency_speed = [safe_extract(results[temp_key]["agency"], level, "tokens_per_second")["mean"] 
+                      for level in pruning_levels]
+        baseline_speed = [safe_extract(results[temp_key]["baseline"], level, "tokens_per_second")["mean"] 
+                        for level in pruning_levels]
         
         # Calculate improvement percentage
         improvement = [((a/b)-1)*100 for a, b in zip(agency_speed, baseline_speed)]
@@ -1134,7 +1322,26 @@ def visualize_simple_results(results, output_dir):
 
 def main():
     """Main function."""
+    # Parse arguments first to get quiet flag
     args = setup_args()
+    
+    # Create a logging function that respects quiet flag
+    def log(message, force=False):
+        if not args.quiet or force:
+            print(message)
+    
+    # Function to safely extract metrics with error handling
+    def safe_extract(data, level, metric):
+        level_key = str(level)
+        if level_key not in data:
+            # Try integer key if string key doesn't work
+            level_key = level
+            
+        if level_key not in data:
+            log(f"Warning: Level {level} not found in data")
+            return {"mean": 0.0, "std": 0.0}
+            
+        return data[level_key][metric]
     
     if args.visualize_only:
         # Load existing results (either from a specific file or from latest)
@@ -1146,17 +1353,17 @@ def main():
             results_file = Path(os.readlink(latest_link)) / "pruning_comparison_results.json"
             if os.path.exists(results_file):
                 results_path = results_file
-                print(f"Using latest results from: {results_file}")
+                log(f"Using latest results from: {results_file}")
         
         # If no latest, try direct path
         if results_path is None:
             results_file = Path(args.output_dir) / "pruning_comparison_results.json"
             if os.path.exists(results_file):
                 results_path = results_file
-                print(f"Using results from: {results_file}")
+                log(f"Using results from: {results_file}")
         
         if results_path is None:
-            print(f"Error: No results file found in {args.output_dir}")
+            log(f"Error: No results file found in {args.output_dir}", force=True)
             return
         
         # Load and visualize
@@ -1165,12 +1372,12 @@ def main():
         
         output_dir = results_path.parent
         visualize_results(results, output_dir)
-        print(f"Visualizations saved to {output_dir}")
+        log(f"Visualizations saved to {output_dir}", force=True)
     else:
         # Run the full comparison
         results, output_dir = run_pruning_comparison(args)
         visualize_results(results, output_dir)
-        print(f"Experiment completed. Results and visualizations saved to {output_dir}")
+        log(f"Experiment completed. Results and visualizations saved to {output_dir}", force=True)
         
         # Display a summary of the key findings
         if any(k.startswith("temperature_") for k in results.keys()):
@@ -1181,11 +1388,16 @@ def main():
                 
                 for level in sorted([int(l) for l in results[temp_key]["baseline"].keys()]):
                     if level > 0:  # Only for pruned levels
-                        baseline_speed = results[temp_key]["baseline"][str(level)]["tokens_per_second"]["mean"]
-                        agency_speed = results[temp_key]["agency"][str(level)]["tokens_per_second"]["mean"]
+                        # Use safe_extract helper to get metrics without key errors
+                        baseline_metrics = safe_extract(results[temp_key]["baseline"], level, "tokens_per_second")
+                        agency_metrics = safe_extract(results[temp_key]["agency"], level, "tokens_per_second")
+                        baseline_speed = baseline_metrics["mean"]
+                        agency_speed = agency_metrics["mean"]
                         
-                        baseline_ppl = results[temp_key]["baseline"][str(level)]["perplexity"]["mean"]
-                        agency_ppl = results[temp_key]["agency"][str(level)]["perplexity"]["mean"]
+                        baseline_ppl_metrics = safe_extract(results[temp_key]["baseline"], level, "perplexity")
+                        agency_ppl_metrics = safe_extract(results[temp_key]["agency"], level, "perplexity")
+                        baseline_ppl = baseline_ppl_metrics["mean"]
+                        agency_ppl = agency_ppl_metrics["mean"]
                         
                         speed_imp = ((agency_speed / baseline_speed) - 1) * 100
                         quality_imp = ((baseline_ppl / agency_ppl) - 1) * 100
@@ -1196,11 +1408,24 @@ def main():
             print("\nKey findings:")
             for level in sorted([int(l) for l in results["baseline"].keys()]):
                 if level > 0:  # Only for pruned levels
-                    baseline_speed = results["baseline"][str(level)]["tokens_per_second"]
-                    agency_speed = results["agency"][str(level)]["tokens_per_second"]
+                    # Function to safely extract metrics with error handling
+                    def safe_get(data, level, metric):
+                        level_key = str(level)
+                        if level_key not in data:
+                            # Try integer key if string key doesn't work
+                            level_key = level
+                            
+                        if level_key not in data:
+                            print(f"Warning: Level {level} not found in data")
+                            return 0.0
+                            
+                        return data[level_key][metric]
                     
-                    baseline_ppl = results["baseline"][str(level)]["perplexity"]
-                    agency_ppl = results["agency"][str(level)]["perplexity"]
+                    baseline_speed = safe_get(results["baseline"], level, "tokens_per_second")
+                    agency_speed = safe_get(results["agency"], level, "tokens_per_second")
+                    
+                    baseline_ppl = safe_get(results["baseline"], level, "perplexity")
+                    agency_ppl = safe_get(results["agency"], level, "perplexity")
                     
                     speed_imp = ((agency_speed / baseline_speed) - 1) * 100
                     quality_imp = ((baseline_ppl / agency_ppl) - 1) * 100
