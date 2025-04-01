@@ -45,3 +45,8 @@ datasets/**/cache/
 # Model outputs
 outputs/
 generated/
+
+# Benchmark results, but keep specific examples
+/pruning_results/*
+!/pruning_results/examples/
+/pruning_speed_results.png
