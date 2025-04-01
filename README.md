@@ -9,9 +9,11 @@ Welcome to **Sentinel-AI**, a modular research framework for transformers that c
 
 > This system evolves from compact models into large, expressive ones by **dynamically growing** its structure in response to data complexity — ideal for edge devices, progressive scaling, and long-term continual learning.
 
--<p align="center">
+<p align="center">
   <img src="./docs/assets/architecture_full_diagram.png" width="1000"/>
 </p>
+
+For a more detailed architecture diagram including U-Net skip connections, see the [updated architecture diagram](./docs/updated_architecture_diagram.md).
 
 ### Why Sentinel-AI?
 
@@ -109,7 +111,21 @@ Train on `distilgpt2`, `gpt2`, or other Hugging Face models. The ANN controller 
 ### Inference
 
 ```bash
-python main.py
+# Basic text generation
+python main.py --prompt "Your prompt here"
+
+# Use baseline model (no adaptive features)
+python main.py --baseline --prompt "Your prompt here"
+
+# Enable U-Net skip connections
+python main.py --enable_unet --prompt "Your prompt here"
+
+# Analyze gate activity in detail
+python main.py --analyze
+
+# Interactive mode for experimentation
+python main.py --interactive
+
 # Or specify a different model
 MODEL_NAME=gpt2 python main.py
 ```
@@ -156,12 +172,23 @@ Then open any notebook in `/notebooks/` or run `scripts/train_colab.py`.
                 └──────────────────────┘     │
                           │                  │
                           ▼                  │
-               ┌──────────────────────┐      │
-               │ Attention & FFN      │      │
-               └──────────────────────┘      │
-                          ▲                  │
+   ┌─────────┐   ┌──────────────────────┐    │
+   │ Encoder │───┤ Attention & FFN      │    │
+   └─────────┘   └──────────────────────┘    │
+                          │                  │
+                          ▼                  │
+   ┌─────────┐   ┌──────────────────────┐    │
+   │ U-Net   │───┤ Skip Connections     │    │
+   │  Skip   │   └──────────────────────┘    │
+   └─────────┘              │                │
+                            ▼                │
                 ┌──────────────────────┐     │
                 │  ANN Controller       ─────┘
+                └──────────────────────┘
+                            │
+                            ▼
+                ┌──────────────────────┐
+                │ Dynamic Architecture │
                 └──────────────────────┘
 ```
 
@@ -201,6 +228,8 @@ Choose from notebook UI or set manually in `dataset_loader.py`.
 - Enable lifelong task adaptation
 - Plug in LoRA, Adapters, or QLoRA support
 - Enable federated adaptive learning across edge devices
+
+For a detailed roadmap of planned improvements and research directions, see the [Next Steps](./NEXT_STEPS.md) document.
 
 ---
 

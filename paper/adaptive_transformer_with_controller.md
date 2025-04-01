@@ -113,10 +113,27 @@ Baseline comparisons are conducted with standard GPT-2 and DistilGPT2.
 - Perplexity (PPL)
 - Active attention head count
 - Parameter efficiency
+- Text generation quality metrics (repetition, coherence)
 
-### 5.3 Preliminary Results
+### 5.3 Implementation Challenges and Solutions
+
+Our implementation revealed several critical challenges and their solutions:
+
+1. **Attention Head Normalization**: We discovered that summing the outputs from attention heads without proper normalization leads to exploding activations. We implemented a division by `num_heads` to ensure proper scaling, matching the implicit normalization in standard transformers.
+
+2. **Logit Distribution Matching**: Analysis revealed a significant mismatch between the logit distributions of baseline models and our adaptive version. We addressed this by applying a proper scaling factor to match the expected distribution range.
+
+3. **Activation Stability**: To prevent hidden state explosion, we introduced normalization of attention outputs at the head level before applying gate values, stabilizing the forward pass through deep networks.
+
+4. **Repetition Management**: We increased the repetition penalty parameter for the adaptive model to address repetitive generation patterns while maintaining coherent outputs.
+
+5. **U-Net Skip Connection Calibration**: Skip connections were carefully scaled based on layer depth to maintain stability, with deeper layers receiving progressively smaller skip weights.
+
+### 5.4 Preliminary Results
 
 Initial experiments demonstrate the adaptive model matches or surpasses the baseline models' perplexities while significantly reducing active head count (by ~30-40%), indicating effective pruning without loss in representational power.
+
+The model successfully generates coherent text after implementing the adjustments described above, with text quality comparable to the baseline model but with fewer active attention heads.
 
 ---
 
@@ -124,18 +141,35 @@ Initial experiments demonstrate the adaptive model matches or surpasses the base
 
 Our repository structure facilitates ease of experimentation, allowing straightforward loading of pretrained models and datasets, training via notebooks or Colab scripts, and comprehensive logging and checkpointing.
 
-Repository structure:
+### 6.1 Repository Structure
 
 ```
-adaptive-transformer/
-├── datasets/
-├── models/
-├── controller/
-├── utils/
-├── scripts/
-├── notebooks/
-└── paper/
+sentinel-ai/
+├── models/                # Core model architecture and loaders
+│   └── loaders/           # Adapters for different pretrained models
+├── controller/            # Dynamic controller implementation
+│   ├── metrics/           # Metrics collection for head activity
+│   └── visualizations/    # Visualization tools for gates and attention
+├── datasets/              # Dataset loading and processing
+├── utils/                 # Training utilities and checkpoint management
+├── scripts/               # Helper scripts for training and evaluation
+├── notebooks/             # Interactive Jupyter notebooks for exploration
+└── paper/                 # Research documentation
 ```
+
+### 6.2 Interactive Features
+
+The implementation includes several interactive features to aid in experimentation:
+
+1. **Gate Activity Analysis**: In-depth analysis of gate values across layers and heads, with visualization capabilities.
+
+2. **U-Net Toggle**: Dynamic enabling/disabling of skip connections to observe their impact on generation quality.
+
+3. **Manual Gate Adjustment**: Ability to manually adjust specific gate values for experimentation.
+
+4. **Baseline Comparison**: Side-by-side comparison of the adaptive model against the baseline for evaluating improvements.
+
+5. **Visualization Tools**: Heatmaps and charts for visualizing attention patterns, gate activity, and pruning impact.
 
 ---
 
