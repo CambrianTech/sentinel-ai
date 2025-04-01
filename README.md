@@ -70,6 +70,7 @@ Sentinel-AI is a research framework for adaptive transformer models that restruc
 - **Controller-Driven Optimization** — Entropy/gradient-based ANN controller adjusts gate values
 - **U-Net Style Growth** — Skip connections stabilize regrowth and knowledge reuse
 - **Per-Head Learning Rates** — Dynamic learning rate adjustments during pruning and regrowth
+- **Progressive Growth** — Start with heavily pruned models and grow strategically during training
 - **Colab-Ready** — Trains on T4 and other low-end GPUs with minimal memory
 - **Compatible with Pretrained Transformers** — Easily load and adapt `GPT2`, `DistilGPT2`, etc.
 
