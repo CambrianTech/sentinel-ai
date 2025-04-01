@@ -47,8 +47,14 @@ def test_model(model_name, device="cpu", verbose=True):
         
         # Step 3: Test inference
         print(f"Testing inference...")
-        from transformers import AutoTokenizer
-        tokenizer = AutoTokenizer.from_pretrained(model_name)
+        # Special handling for Llama models to avoid tokenizer issues
+        if "llama" in model_name.lower():
+            from transformers import LlamaTokenizer
+            print("Using LlamaTokenizer for Llama model")
+            tokenizer = LlamaTokenizer.from_pretrained(model_name)
+        else:
+            from transformers import AutoTokenizer
+            tokenizer = AutoTokenizer.from_pretrained(model_name)
         
         # Create sample input
         prompt = "The transformer model architecture revolutionized"
@@ -109,8 +115,12 @@ def main():
         # BLOOM family
         "bigscience/bloom-560m",
         
-        # Llama family (limited by API access)
+        # Llama family
+        "TinyLlama/TinyLlama-1.1B-Chat-v1.0",
+        "TinyLlama/TinyLlama-1.1B-Chat-v0.6",
+        "TinyLlama/TinyLlama-1.1B-step-50K-105b",
         # "meta-llama/Llama-2-7b-hf",  # Requires token
+        # "openlm-research/open_llama_3b",  # Requires additional dependencies
     ]
     
     # Run tests
