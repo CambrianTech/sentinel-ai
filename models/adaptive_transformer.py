@@ -1,6 +1,7 @@
 import torch
 from torch import nn
 import math
+import time
 from transformers.generation.utils import GenerationMixin
 from transformers.modeling_outputs import CausalLMOutput
 
@@ -227,7 +228,7 @@ class GatedMultiHeadSelfAttention(nn.Module):
             "step": step,
             "gate_value": float(self.gate[head_idx]),
             "state": self.agency_signals[head_idx]["state"],
-            "timestamp": torch.cuda.Event() if torch.cuda.is_available() else None
+            "timestamp": time.time()  # Use standard timestamp for better readability
         }
         self.consent_violations.append(violation)
         
