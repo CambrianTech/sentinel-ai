@@ -69,6 +69,9 @@ class ControllerManager:
         
         # Track gate activity for monitoring
         self.gate_history = []
+        
+        # Verbosity control
+        self.quiet = self.config.get("quiet", False)
     
     def step(self, metrics_dict=None, dataloader=None, loss_fn=None, head_lr_manager=None, agency_state=None):
         """
@@ -440,11 +443,12 @@ class ControllerManager:
             self.min_controller_lr
         )
         
-        # Log the learning rate update
-        if self.controller_lr <= self.min_controller_lr:
-            print(f"🔄 Controller learning rate reached minimum value: {self.controller_lr:.6f}")
-        else:
-            print(f"🔄 Controller learning rate updated: {self.controller_lr:.6f}")
+        # Log the learning rate update if not in quiet mode
+        if not self.quiet:
+            if self.controller_lr <= self.min_controller_lr:
+                print(f"🔄 Controller learning rate reached minimum value: {self.controller_lr:.6f}")
+            else:
+                print(f"🔄 Controller learning rate updated: {self.controller_lr:.6f}")
             
     def _check_gate_activity_plateau(self, gate_values):
         """
@@ -474,6 +478,8 @@ class ControllerManager:
         if gate_change < self.min_gate_change:
             self.plateau_counter += 1
             if self.plateau_counter >= self.patience:
+                # Always print early stopping messages, even in quiet mode
+                # as this is a significant event in the training process
                 print(f"⚠️ Gate activity plateau detected! Early stopping controller updates.")
                 print(f"   Average gate value: {avg_gate:.4f}, Change: {gate_change:.4f}")
                 return True

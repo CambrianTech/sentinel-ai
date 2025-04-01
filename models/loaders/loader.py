@@ -30,7 +30,7 @@ def load_baseline_model(model_name, device):
         raise
 
 
-def load_adaptive_model(model_name, baseline_model, device, debug=False):
+def load_adaptive_model(model_name, baseline_model, device, debug=False, quiet=False):
     """
     Create an adaptive transformer model initialized from a baseline model.
     
@@ -39,6 +39,7 @@ def load_adaptive_model(model_name, baseline_model, device, debug=False):
         baseline_model: Loaded baseline model to initialize from
         device: Torch device to load the model onto
         debug: Whether to print debug information
+        quiet: If True, suppresses verbose loading messages
     
     Returns:
         Initialized adaptive model
@@ -47,11 +48,11 @@ def load_adaptive_model(model_name, baseline_model, device, debug=False):
     
     # Determine model architecture from config and dispatch to appropriate loader
     if hasattr(config, "model_type") and config.model_type.lower() in ["gpt2", "distilgpt2", "gpt_neo", "gptj"]:
-        return load_adaptive_model_gpt(model_name, baseline_model, config, device, debug=debug)
+        return load_adaptive_model_gpt(model_name, baseline_model, config, device, quiet=quiet)
     else:
         # Get architecture from first architecture in config.architectures if exists
         model_type = getattr(config, "architectures", [""])[0].lower()
         if "gpt" in model_type:
-            return load_adaptive_model_gpt(model_name, baseline_model, config, device, debug=debug)
+            return load_adaptive_model_gpt(model_name, baseline_model, config, device, quiet=quiet)
         
         raise NotImplementedError(f"Adaptive loader not implemented for architecture: {getattr(config, 'model_type', model_type)}")

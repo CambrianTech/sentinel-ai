@@ -359,6 +359,10 @@ Examples:
                         help="Random seed for reproducibility. Set for consistent generation results.")
     parser.add_argument("--debug", action="store_true",
                         help="Enable debug output")
+    parser.add_argument("--quiet", action="store_true", default=True,
+                        help="Reduce verbose loading output (enabled by default)")
+    parser.add_argument("--verbose", action="store_true",
+                        help="Show detailed loading and gate activity output (disables --quiet)")
 
     return parser.parse_args()
 
@@ -386,7 +390,12 @@ def main():
     else:
         print("⚙️  Creating adaptive transformer model")
         debug_mode = args.debug or os.environ.get("DEBUG", "0") == "1"
-        model = load_adaptive_model(args.model_name, baseline_model, device, debug=debug_mode)
+        # If verbose flag is set, it overrides quiet mode
+        if args.verbose:
+            quiet_mode = False
+        else:
+            quiet_mode = args.quiet or os.environ.get("QUIET", "0") == "1"
+        model = load_adaptive_model(args.model_name, baseline_model, device, debug=debug_mode, quiet=quiet_mode)
         
         # Initialize the controller
         controller = ControllerManager(model)
@@ -411,8 +420,8 @@ def main():
             print("🔄 Enabling U-Net skip connections")
             controller.enable_unet_connections(True)
     
-    # Display gate activity for adaptive model
-    if hasattr(model, "blocks") and not args.interactive:
+    # Display gate activity for adaptive model (only if not in quiet mode or if verbose is enabled)
+    if hasattr(model, "blocks") and not args.interactive and (args.verbose or not quiet_mode):
         print("\n=== GATE ACTIVITY ===")
         for layer_idx, block in enumerate(model.blocks):
             attn_module = block["attn"]

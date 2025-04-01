@@ -74,7 +74,12 @@ def train(args):
     # Create adaptive model
     print("⚙️ Creating adaptive transformer model")
     debug_mode = args.debug
-    model = load_adaptive_model(args.model_name, baseline_model, device, debug=debug_mode)
+    # If verbose flag is set, it overrides quiet mode
+    if args.verbose:
+        quiet_mode = False
+    else:
+        quiet_mode = args.quiet or os.environ.get("QUIET", "0") == "1"
+    model = load_adaptive_model(args.model_name, baseline_model, device, debug=debug_mode, quiet=quiet_mode)
     
     # Load dataset
     print(f"📚 Loading dataset: {args.dataset}")
@@ -166,7 +171,9 @@ def train(args):
         # Early stopping configuration
         "enable_early_stopping": args.enable_early_stopping,
         "early_stopping_patience": args.early_stopping_patience,
-        "min_gate_change": args.min_gate_change
+        "min_gate_change": args.min_gate_change,
+        # Verbosity control - if verbose flag is set, override quiet mode
+        "quiet": quiet_mode
     }
     controller = ControllerManager(model, controller_config)
     
@@ -184,16 +191,18 @@ def train(args):
         total_epochs=args.epochs,
         steps_per_epoch=len(train_loader),
         log_interval=args.log_interval,
-        eval_interval=args.eval_interval
+        eval_interval=args.eval_interval,
+        quiet=quiet_mode
     )
     
     # Initialize the head learning rate manager if enabled
     head_lr_manager = None
     if args.enable_head_lr:
-        print(f"🔄 Initializing per-head learning rate manager")
-        print(f"   - Boost factor: {args.head_lr_boost}")
-        print(f"   - Warmup steps: {args.head_lr_warmup}")
-        print(f"   - Cooldown steps: {args.head_lr_cooldown}")
+        if not quiet_mode:
+            print(f"🔄 Initializing per-head learning rate manager")
+            print(f"   - Boost factor: {args.head_lr_boost}")
+            print(f"   - Warmup steps: {args.head_lr_warmup}")
+            print(f"   - Cooldown steps: {args.head_lr_cooldown}")
         
         head_lr_manager = HeadLRManager(
             model=model,
@@ -209,6 +218,7 @@ def train(args):
     start_epoch = 0
     global_step = 0
     if args.resume and os.path.exists(args.resume):
+        # Always show checkpoint loading, even in quiet mode
         print(f"📂 Resuming from checkpoint: {args.resume}")
         model, optimizer, lr_scheduler, start_epoch, global_step = load_checkpoint(
             model, optimizer, head_lr_multipliers, args.resume, device
@@ -218,13 +228,15 @@ def train(args):
         if os.path.exists(os.path.join(os.path.dirname(args.resume), "controller.pt")):
             controller_path = os.path.join(os.path.dirname(args.resume), "controller.pt")
             controller.load_state_dict(torch.load(controller_path, map_location=device))
-            print(f"📂 Loaded controller state from {controller_path}")
+            if not quiet_mode:
+                print(f"📂 Loaded controller state from {controller_path}")
             
         # Load head learning rate manager state if available
         if args.enable_head_lr and os.path.exists(os.path.join(os.path.dirname(args.resume), "head_lr.pt")):
             head_lr_path = os.path.join(os.path.dirname(args.resume), "head_lr.pt")
             head_lr_manager.load_state_dict(torch.load(head_lr_path, map_location=device))
-            print(f"📂 Loaded head learning rate state from {head_lr_path}")
+            if not quiet_mode:
+                print(f"📂 Loaded head learning rate state from {head_lr_path}")
     
     # Training loop
     print(f"🏋️ Starting training for {args.epochs} epochs")
@@ -233,7 +245,8 @@ def train(args):
         
         # Enable U-Net connections if we've reached the configured epoch
         if epoch == unet_start_epoch:
-            print(f"🔄 Enabling U-Net skip connections at epoch {epoch}")
+            if not args.quiet:
+                print(f"🔄 Enabling U-Net skip connections at epoch {epoch}")
             controller.enable_unet_connections(True)
         
         for step, batch in enumerate(train_loader):
@@ -270,7 +283,7 @@ def train(args):
                 optimizer.zero_grad()
                 
                 # Log accumulated step
-                if args.gradient_accumulation_steps > 1 and args.debug:
+                if args.gradient_accumulation_steps > 1 and args.debug and not quiet_mode:
                     print(f"  Accumulated gradients for {args.gradient_accumulation_steps} steps, optimizer update performed")
             
             # Update global step counter - only count actual optimizer updates
@@ -322,7 +335,7 @@ def train(args):
                             metrics["avg_head_lr_multiplier"] = lr_info.get("avg_multiplier", 1.0)
                             
                             # Print verbose info if changes were made and debug mode is on
-                            if args.debug and lr_info.get("changes_made", False):
+                            if args.debug and lr_info.get("changes_made", False) and not quiet_mode:
                                 print(f"  📊 Head LR adjustments: avg={metrics['avg_head_lr_multiplier']:.2f}x, max={metrics['max_head_lr_multiplier']:.2f}x")
                 
                 metrics_logger.log_metrics(metrics, global_step)
@@ -364,10 +377,11 @@ def train(args):
                         torch.save(head_lr_manager.save_state_dict(), head_lr_path)
                     
                     # Include info about gradient accumulation in checkpoint message
-                    if args.gradient_accumulation_steps > 1:
-                        print(f"💾 Saved checkpoint to {checkpoint_path} (effective batch size: {args.batch_size * args.gradient_accumulation_steps})")
-                    else:
-                        print(f"💾 Saved checkpoint to {checkpoint_path}")
+                    if not quiet_mode:
+                        if args.gradient_accumulation_steps > 1:
+                            print(f"💾 Saved checkpoint to {checkpoint_path} (effective batch size: {args.batch_size * args.gradient_accumulation_steps})")
+                        else:
+                            print(f"💾 Saved checkpoint to {checkpoint_path}")
         
         # End of epoch - save checkpoint
         if args.save_every_epoch:
@@ -396,7 +410,8 @@ def train(args):
                 )
                 torch.save(head_lr_manager.save_state_dict(), head_lr_path)
                 
-            print(f"💾 Saved epoch checkpoint to {checkpoint_path}")
+            if not quiet_mode:
+                print(f"💾 Saved epoch checkpoint to {checkpoint_path}")
     
     # Save final model
     final_path = os.path.join(args.output_dir, "final_model.pt")
@@ -563,6 +578,10 @@ def parse_args():
                         help="Device to use (default: auto-detect)")
     parser.add_argument("--debug", action="store_true",
                         help="Enable debug output")
+    parser.add_argument("--quiet", action="store_true", default=True,
+                        help="Reduce verbose loading and training output (enabled by default)")
+    parser.add_argument("--verbose", action="store_true",
+                        help="Show detailed loading and training output (disables --quiet)")
     
     return parser.parse_args()
 
