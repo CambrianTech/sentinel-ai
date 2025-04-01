@@ -45,3 +45,16 @@ datasets/**/cache/
 # Model outputs
 outputs/
 generated/
+validation_results/
+dist/
+pruning_results/
+
+# Visualization files
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.pdf
+
+# Temporary files
+message.txt
