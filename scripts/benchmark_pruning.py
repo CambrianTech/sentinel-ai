@@ -39,7 +39,7 @@ from torch.cuda.amp import autocast
 from datetime import datetime
 
 # Add project root to path for imports
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from models.loaders.loader import load_baseline_model, load_adaptive_model
 from datasets.dataset_loader import load_dataset
