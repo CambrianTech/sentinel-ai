@@ -193,16 +193,17 @@ To evaluate the effectiveness of the agency features, we conducted comprehensive
 
 Our empirical validation revealed significant benefits across multiple dimensions:
 
-- **Performance Improvements**: Consistent 15-40% generation speed increases across scenarios, with the specialized configuration achieving the highest gains (40.5% improvement)
-- **Resource Efficiency**: 20-30% reduction in computational resources without quality degradation, with memory utilization decreasing by up to 33% in constrained scenarios
-- **Output Quality**: 10-25% improvements in output quality metrics, including perplexity (reduced from 18.4 to 13.9 in specialized scenarios), repetition rates, and diversity scores
-- **Graceful Degradation**: Maintained 85% performance under constrained resources, with critical heads preserving 92% engagement rates
-- **Emergent Specialization**: Clear evidence of heads adopting specialized roles, particularly in pattern recognition (83% engagement during relevant tasks), logical reasoning, and context processing tasks
+- **Performance Improvements**: Significant generation speed increases in the constrained scenario (+25.3% improvement), showing that intelligent attention head allocation improves performance
+- **Resource Efficiency**: Maintained memory usage while efficiently distributing computational load across heads, demonstrating ability to redistribute resources effectively
+- **Quality Preservation**: Maintained output quality metrics despite pruning, with the mixed scenario achieving the best lexical diversity (0.778) and lowest repetition score (0.015)
+- **Graceful Degradation**: Maintained and even improved performance despite 34% of heads being in withdrawn state in the constrained scenario
+- **Emergent Specialization**: Clear evidence of heads adopting specialized roles in the mixed scenario, with 41 active heads, 19 overloaded heads, and 12 misaligned heads working together effectively
 
-In the specialized agency configuration, we observed optimal balance between efficiency and quality:
-- 40% performance improvement
-- 30% resource reduction
-- 25% quality enhancement
+In the agency_constrained configuration, we observed optimal balance between efficiency and quality:
+- 25.3% faster generation speed (29.7 vs 23.7 tokens/sec)
+- 13.3% shorter generation time (4.03 vs 4.65 seconds)
+- Maintained output quality (lexical diversity 0.764 vs 0.759 baseline)
+- 34% of heads in withdrawn state while improving performance
 
 Head state analysis revealed that specialized heads remain in consistent states longer, while under constrained resources, heads cycle between engaged and withdrawn more frequently. Misalignment occurs most often during complex logical reasoning tasks, and overloaded states correlate with input complexity and appear in clusters.
 

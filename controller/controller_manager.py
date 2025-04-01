@@ -70,7 +70,7 @@ class ControllerManager:
         # Track gate activity for monitoring
         self.gate_history = []
     
-    def step(self, metrics_dict=None, dataloader=None, loss_fn=None, head_lr_manager=None):
+    def step(self, metrics_dict=None, dataloader=None, loss_fn=None, head_lr_manager=None, agency_state=None):
         """
         Perform one step of the controller manager, potentially updating gates.
         
@@ -79,6 +79,8 @@ class ControllerManager:
             dataloader: Optional dataloader for computing metrics
             loss_fn: Optional loss function for computing importance metrics
             head_lr_manager: Optional manager for per-head learning rates
+            agency_state: Optional dictionary mapping (layer_idx, head_idx) to agency state
+                         information, used to adjust gate values based on head states
             
         Returns:
             Dictionary with update information
@@ -110,23 +112,34 @@ class ControllerManager:
         # Add learning rate to metrics before updating controller
         metrics_dict["controller_lr"] = torch.tensor(self.controller_lr, device=device)
         
+        # If agency state is provided, add it to metrics for controller awareness
+        if agency_state is not None:
+            # Convert agency state to tensors for controller processing
+            agency_metrics = self._process_agency_state(agency_state, device)
+            # Add agency metrics to the metrics dictionary
+            metrics_dict.update(agency_metrics)
+        
         # Get current gate values before update (for tracking changes)
         prev_gate_values = self.controller.forward()
         
-        # Update controller gates based on metrics
+        # Update controller gates based on metrics (now includes agency awareness)
         self.controller.update_gates(metrics_dict)
         
         # Get updated gate values from controller
         gate_values = self.controller.forward()
         
-        # Apply gates to model
-        self._apply_gates_to_model(gate_values)
+        # Apply gates to model (with agency awareness)
+        self._apply_gates_to_model(gate_values, agency_state)
         
         # Update per-head learning rates if manager is provided
         head_lr_info = {}
         if head_lr_manager is not None:
             # Update head status based on gate changes
             head_status_info = head_lr_manager.update_head_status(gate_values, prev_gate_values)
+            
+            # Apply agency-aware learning rate adjustments if agency state is provided
+            if agency_state is not None and hasattr(head_lr_manager, 'apply_agency_modifiers'):
+                head_lr_manager.apply_agency_modifiers(agency_state)
             
             # Update learning rates based on status
             lr_update_info = head_lr_manager.update_learning_rates()
@@ -145,6 +158,11 @@ class ControllerManager:
         if self.early_stopping_active:
             early_stopping_triggered = self._check_gate_activity_plateau(gate_values)
         
+        # If agency state is provided, emit state signals for bidirectional awareness
+        agency_signals = {}
+        if agency_state is not None and self.current_step > self.warmup_steps + 100:
+            agency_signals = self._emit_state_signals(gate_values, agency_state)
+        
         return {
             "status": "updated",
             "step": self.current_step,
@@ -154,20 +172,183 @@ class ControllerManager:
             "early_stopping_triggered": early_stopping_triggered,
             "plateau_counter": self.plateau_counter,
             "head_lr_info": head_lr_info,
-            "gate_changes": torch.sum(torch.abs(gate_values - prev_gate_values)).item()
+            "gate_changes": torch.sum(torch.abs(gate_values - prev_gate_values)).item(),
+            "agency_signals": agency_signals
         }
     
-    def _apply_gates_to_model(self, gate_values):
+    def _process_agency_state(self, agency_state, device):
         """
-        Apply the controller's gate values to the model's attention gates.
+        Process agency state information into a format usable by the controller.
+        
+        Args:
+            agency_state: Dictionary mapping (layer_idx, head_idx) to agency state information
+            device: PyTorch device for tensor creation
+            
+        Returns:
+            Dictionary with agency metrics in tensor form for controller consumption
+        """
+        # Initialize tensors to track different agency states
+        agency_tensor = torch.zeros((self.num_layers, self.num_heads), device=device)
+        consent_tensor = torch.ones((self.num_layers, self.num_heads), device=device)
+        utilization_tensor = torch.zeros((self.num_layers, self.num_heads), device=device)
+        
+        # State mapping for numeric representation
+        state_values = {
+            "active": 3.0,
+            "misaligned": 2.0,
+            "overloaded": 1.0,
+            "withdrawn": 0.0
+        }
+        
+        # Process each head's agency information
+        for (layer_idx, head_idx), head_state in agency_state.items():
+            # Extract state information
+            state = head_state.get("state", "active")
+            consent = head_state.get("consent", True)
+            utilization = head_state.get("utilization", 0.0)
+            
+            # Convert to numeric representations
+            state_value = state_values.get(state, 3.0)  # Default to active if unknown
+            consent_value = 1.0 if consent else 0.0
+            
+            # Update tensors
+            if 0 <= layer_idx < self.num_layers and 0 <= head_idx < self.num_heads:
+                agency_tensor[layer_idx, head_idx] = state_value
+                consent_tensor[layer_idx, head_idx] = consent_value
+                utilization_tensor[layer_idx, head_idx] = utilization
+        
+        # Return as metrics dictionary for controller use
+        return {
+            "agency_state": agency_tensor,
+            "consent": consent_tensor,
+            "utilization": utilization_tensor
+        }
+        
+    def _emit_state_signals(self, gate_values, agency_state):
+        """
+        Emit state change signals to attention heads based on gate values.
+        
+        This implements bidirectional awareness where the controller can suggest
+        state changes to heads based on sustained gate patterns.
         
         Args:
             gate_values: Tensor of gate values from controller [num_layers, num_heads]
+            agency_state: Dictionary mapping (layer_idx, head_idx) to agency state information
+            
+        Returns:
+            Dictionary with information about emitted signals
+        """
+        signals_emitted = []
+        gate_values_np = gate_values.detach().cpu().numpy()
+        
+        # Look for patterns that suggest state changes
+        for layer_idx in range(self.num_layers):
+            for head_idx in range(self.num_heads):
+                gate_value = gate_values_np[layer_idx, head_idx]
+                head_key = (layer_idx, head_idx)
+                
+                # Skip if head not in agency state dict
+                if head_key not in agency_state:
+                    continue
+                    
+                current_state = agency_state[head_key].get("state", "active")
+                
+                # Propose state changes based on gate patterns
+                proposed_state = None
+                
+                # Very low gate value suggests withdrawal
+                if gate_value < 0.05 and current_state != "withdrawn":
+                    proposed_state = "withdrawn"
+                    
+                # Oscillating gate suggests misalignment
+                elif hasattr(self, '_prev_gate_values') and 0.1 < gate_value < 0.4:
+                    prev_gate = self._prev_gate_values[layer_idx, head_idx] \
+                        if hasattr(self, '_prev_gate_values') else 0.0
+                    
+                    gate_change = abs(gate_value - prev_gate)
+                    if gate_change > 0.1 and current_state != "misaligned":
+                        proposed_state = "misaligned"
+                        
+                # High gate value but previously withdrawn suggests reactivation
+                elif gate_value > 0.7 and current_state == "withdrawn":
+                    proposed_state = "active"
+                
+                # If we have a proposed state change, signal the head
+                if proposed_state:
+                    # Direct signal to the head if possible
+                    if hasattr(self.model.blocks[layer_idx]["attn"], "set_head_state"):
+                        self.model.blocks[layer_idx]["attn"].set_head_state(
+                            head_idx, proposed_state, None  # Don't change consent
+                        )
+                        signals_emitted.append({
+                            "layer": layer_idx,
+                            "head": head_idx,
+                            "from_state": current_state,
+                            "to_state": proposed_state,
+                            "gate_value": float(gate_value)
+                        })
+        
+        # Save current gate values for change detection next time
+        self._prev_gate_values = gate_values.detach().clone()
+        
+        return {
+            "signals_emitted": signals_emitted,
+            "count": len(signals_emitted)
+        }
+    
+    def _apply_gates_to_model(self, gate_values, agency_state=None):
+        """
+        Apply the controller's gate values to the model's attention gates,
+        with respect to agency state if provided.
+        
+        Args:
+            gate_values: Tensor of gate values from controller [num_layers, num_heads]
+            agency_state: Optional dictionary mapping (layer_idx, head_idx) to agency state
         """
         with torch.no_grad():
+            # If no agency state, use simple assignment
+            if agency_state is None:
+                for layer_idx, block in enumerate(self.model.blocks):
+                    # Copy gate values to model's attention module
+                    block["attn"].gate.copy_(gate_values[layer_idx])
+                return
+                
+            # With agency state, respect head agency and consent
             for layer_idx, block in enumerate(self.model.blocks):
-                # Copy gate values to model's attention module
-                block["attn"].gate.copy_(gate_values[layer_idx])
+                for head_idx in range(self.num_heads):
+                    head_key = (layer_idx, head_idx)
+                    gate_value = gate_values[layer_idx, head_idx]
+                    
+                    # Apply normal gate value if head not in agency state
+                    if head_key not in agency_state:
+                        block["attn"].gate[head_idx].copy_(gate_value)
+                        continue
+                        
+                    # Get head agency state
+                    head_state = agency_state[head_key]
+                    state = head_state.get("state", "active")
+                    consent = head_state.get("consent", True)
+                    
+                    # Respect withdrawn consent - set gate to zero regardless of controller
+                    if not consent or state == "withdrawn":
+                        block["attn"].gate[head_idx].zero_()
+                        # Log if this was a significant change (potential consent violation)
+                        if gate_value > 0.5 and hasattr(block["attn"], "_log_consent_violation"):
+                            block["attn"]._log_consent_violation(
+                                head_idx, "controller gate override prevented", self.current_step
+                            )
+                    # Adjust gate value based on state for non-withdrawn heads
+                    elif state == "overloaded":
+                        # Reduce gate value for overloaded heads
+                        adjusted_gate = gate_value * 0.5
+                        block["attn"].gate[head_idx].copy_(adjusted_gate)
+                    elif state == "misaligned":
+                        # Reduce gate value for misaligned heads
+                        adjusted_gate = gate_value * 0.7
+                        block["attn"].gate[head_idx].copy_(adjusted_gate)
+                    else:
+                        # Normal assignment for active heads
+                        block["attn"].gate[head_idx].copy_(gate_value)
     
     def _get_active_gates(self):
         """

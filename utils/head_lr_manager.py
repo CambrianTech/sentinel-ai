@@ -18,6 +18,9 @@ class HeadLRManager:
     When architectural changes occur (pruning or regrowth), this class identifies
     the affected heads and adjusts their learning rates according to a predefined
     schedule, allowing them to adapt more quickly to their new role.
+    
+    Enhanced with agency awareness to respect head states and modify learning
+    rates based on agency signals.
     """
     
     def __init__(
@@ -63,6 +66,17 @@ class HeadLRManager:
         
         # Current multipliers for each head
         self.lr_multipliers = np.ones((self.num_layers, self.num_heads), dtype=np.float32)
+        
+        # Agency LR modifiers - lookup table for different states
+        self.agency_lr_modifiers = {
+            "active": 1.0,     # Normal learning rate
+            "overloaded": 0.5, # Reduced learning rate for overloaded heads
+            "misaligned": 0.7, # Moderately reduced for misaligned heads
+            "withdrawn": 0.0   # No learning for withdrawn heads (respects consent)
+        }
+        
+        # Track agency-based modifications
+        self.agency_modified_heads = set()
     
     def _build_head_parameter_mapping(self):
         """
@@ -155,6 +169,52 @@ class HeadLRManager:
             "cooling_down": np.sum(self.head_status > 0)
         }
     
+    def apply_agency_modifiers(self, agency_state):
+        """
+        Apply learning rate modifiers based on agency state.
+        
+        This adjusts learning rates according to head states:
+        - Overloaded heads get reduced learning rate (0.5x)
+        - Misaligned heads get moderately reduced learning rate (0.7x)
+        - Withdrawn heads get zero learning rate (respecting consent)
+        
+        Args:
+            agency_state: Dictionary mapping (layer_idx, head_idx) to agency state info
+            
+        Returns:
+            Dictionary with information about modifications
+        """
+        self.agency_modified_heads.clear()
+        
+        # Process each head with agency state
+        for (layer_idx, head_idx), head_state in agency_state.items():
+            if not (0 <= layer_idx < self.num_layers and 0 <= head_idx < self.num_heads):
+                continue
+                
+            # Get head state and modifier
+            state = head_state.get("state", "active")
+            consent = head_state.get("consent", True)
+            
+            # If head has withdrawn consent, force zero learning rate
+            if not consent or state == "withdrawn":
+                modifier = 0.0
+            else:
+                # Otherwise use the state-based modifier
+                modifier = self.agency_lr_modifiers.get(state, 1.0)
+            
+            # Store for future reference
+            if modifier != 1.0:
+                self.agency_modified_heads.add((layer_idx, head_idx))
+        
+        # Return info about modifications (actual application happens in update_learning_rates)
+        return {
+            "modified_heads": len(self.agency_modified_heads),
+            "states": {state: count for state, count in 
+                      [(state, sum(1 for (l, h) in self.agency_modified_heads 
+                                 if (l, h) in agency_state and agency_state[(l, h)].get("state") == state))
+                       for state in self.agency_lr_modifiers.keys()]}
+        }
+    
     def update_learning_rates(self):
         """
         Update learning rates for all heads based on their current status.
@@ -163,6 +223,7 @@ class HeadLRManager:
         - Boosting LR for newly activated heads (with warmup)
         - Gradually reducing the boosted LR over time
         - Returning to base LR after cooldown period
+        - Applying agency-based modifiers (if available)
         
         Returns:
             Dictionary with info about learning rate changes
@@ -177,16 +238,16 @@ class HeadLRManager:
             for head_idx in range(self.num_heads):
                 status = self.head_status[layer_idx, head_idx]
                 
-                # Skip stable or pruned heads
-                if status <= 0:
+                # Skip stable or pruned heads unless agency-modified
+                if status <= 0 and (layer_idx, head_idx) not in self.agency_modified_heads:
                     continue
                 
                 # Calculate multiplier based on time since activation
-                if status <= self.warmup_steps:
+                if status <= self.warmup_steps and status > 0:
                     # Warmup phase: linearly increase from 1.0 to boost_factor
                     progress = status / self.warmup_steps
                     multiplier = 1.0 + (self.boost_factor - 1.0) * progress
-                else:
+                elif status > self.warmup_steps:
                     # Cooldown phase: exponentially decay back to 1.0
                     steps_after_warmup = status - self.warmup_steps
                     decay_progress = steps_after_warmup / (self.cooldown_steps - self.warmup_steps)
@@ -194,12 +255,36 @@ class HeadLRManager:
                         1.0,
                         self.boost_factor * (self.decay_factor ** steps_after_warmup)
                     )
+                else:
+                    # Default for stable or pruned heads
+                    multiplier = 1.0
+                
+                # Apply agency modifier if this head is modified
+                head_key = (layer_idx, head_idx)
+                if head_key in self.agency_modified_heads:
+                    # Get head state from the model if possible
+                    if hasattr(self.model.blocks[layer_idx]["attn"], "agency_signals"):
+                        agency_signals = self.model.blocks[layer_idx]["attn"].agency_signals
+                        if head_idx in agency_signals:
+                            state = agency_signals[head_idx].get("state", "active")
+                            consent = agency_signals[head_idx].get("consent", True)
+                            
+                            # Apply corresponding modifier
+                            if not consent or state == "withdrawn":
+                                agency_modifier = 0.0
+                            else:
+                                agency_modifier = self.agency_lr_modifiers.get(state, 1.0)
+                                
+                            # Apply agency modifier (overrides other modifiers for withdrawn)
+                            if agency_modifier == 0.0:
+                                multiplier = 0.0
+                            else:
+                                multiplier *= agency_modifier
                 
                 # Apply the multiplier
                 self.lr_multipliers[layer_idx, head_idx] = multiplier
                 
                 # Apply to optimizer parameter groups
-                head_key = (layer_idx, head_idx)
                 if head_key in self.head_to_param_mapping:
                     for group_idx in self.head_to_param_mapping[head_key]:
                         if group_idx < len(self.optimizer.param_groups):
@@ -210,7 +295,8 @@ class HeadLRManager:
             "changes_made": changes_made,
             "max_multiplier": np.max(self.lr_multipliers),
             "min_multiplier": np.min(self.lr_multipliers),
-            "avg_multiplier": np.mean(self.lr_multipliers)
+            "avg_multiplier": np.mean(self.lr_multipliers),
+            "agency_modified_count": len(self.agency_modified_heads)
         }
     
     def get_lr_multipliers(self):
@@ -236,7 +322,9 @@ class HeadLRManager:
             "boost_factor": self.boost_factor,
             "decay_factor": self.decay_factor,
             "warmup_steps": self.warmup_steps,
-            "cooldown_steps": self.cooldown_steps
+            "cooldown_steps": self.cooldown_steps,
+            "agency_lr_modifiers": self.agency_lr_modifiers.copy(),
+            "agency_modified_heads": list(self.agency_modified_heads)
         }
     
     def load_state_dict(self, state_dict):
@@ -253,6 +341,13 @@ class HeadLRManager:
         self.decay_factor = state_dict.get("decay_factor", self.decay_factor)
         self.warmup_steps = state_dict.get("warmup_steps", self.warmup_steps)
         self.cooldown_steps = state_dict.get("cooldown_steps", self.cooldown_steps)
+        
+        # Load agency-related state
+        if "agency_lr_modifiers" in state_dict:
+            self.agency_lr_modifiers = state_dict["agency_lr_modifiers"].copy()
+            
+        if "agency_modified_heads" in state_dict:
+            self.agency_modified_heads = set(state_dict["agency_modified_heads"])
         
         # Update optimizer with loaded multipliers
         self.update_learning_rates()
