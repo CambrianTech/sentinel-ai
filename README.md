@@ -69,6 +69,7 @@ Sentinel-AI is a research framework for adaptive transformer models that restruc
 - **Dynamic Adaptivity** — Grows and prunes transformer heads in real-time
 - **Controller-Driven Optimization** — Entropy/gradient-based ANN controller adjusts gate values
 - **U-Net Style Growth** — Skip connections stabilize regrowth and knowledge reuse
+- **Per-Head Learning Rates** — Dynamic learning rate adjustments during pruning and regrowth
 - **Colab-Ready** — Trains on T4 and other low-end GPUs with minimal memory
 - **Compatible with Pretrained Transformers** — Easily load and adapt `GPT2`, `DistilGPT2`, etc.
 
@@ -195,6 +196,7 @@ Then open any notebook in `/notebooks/` or run `scripts/train_colab.py`.
 📎 Also see:
 - [`AdaptiveTransformer_Proof_of_Adaptivity.ipynb`](./notebooks/AdaptiveTransformer_Proof_of_Adaptivity.ipynb)
 - [`ControllerDynamics.ipynb`](./notebooks/ControllerDynamics.ipynb)
+- [`Per-Head Learning Rates`](./docs/per_head_learning_rates.md)
 
 ---
 

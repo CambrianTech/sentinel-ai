@@ -21,6 +21,7 @@ This directory contains utility functions and helper classes that support the Se
 
 - **`dynamic_architecture.py`**: Functions for managing dynamic model architectures
 - **`head_metrics.py`**: Tools for computing attention head metrics
+- **`head_lr_manager.py`**: Per-head learning rate adjustment during pruning and regrowth
 
 ### Metrics and Analysis
 
@@ -80,3 +81,28 @@ ppl = compute_perplexity(model, eval_dataloader)
 # Compute attention head entropy
 entropy = compute_attention_entropy(attention_weights)
 ```
+
+### Per-Head Learning Rate Management
+
+```python
+from utils.head_lr_manager import HeadLRManager
+
+# Initialize the manager
+head_lr_manager = HeadLRManager(
+    model=model,
+    optimizer=optimizer,
+    base_lr=0.0001,
+    boost_factor=5.0,  # Newly activated heads get 5x learning rate
+    decay_factor=0.9,  # Exponential decay factor
+    warmup_steps=200,  # Steps to reach full boost
+    cooldown_steps=1000  # Steps before returning to base lr
+)
+
+# Update head status based on gate changes
+head_status_info = head_lr_manager.update_head_status(current_gates, previous_gates)
+
+# Apply learning rate adjustments
+lr_update_info = head_lr_manager.update_learning_rates()
+```
+
+For more details, see the [Per-Head Learning Rates documentation](../docs/per_head_learning_rates.md).
