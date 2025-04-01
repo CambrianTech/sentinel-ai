@@ -79,11 +79,11 @@ device = "cuda"  # @param ["cuda", "cpu"]
 precision = "float16"  # @param ["float32", "float16"]
 
 # @markdown ### Test Configuration
-pruning_levels = "0,30,50,70"  # @param {type:"string"}
-iterations = 2  # @param {type:"slider", min:1, max:5, step:1}
-num_tokens = 50  # @param {type:"slider", min:10, max:200, step:10}
+pruning_levels = "0,10,20,30,40,50,60,70,80"  # @param {type:"string"}
+iterations = 3  # @param {type:"slider", min:1, max:5, step:1}
+num_tokens = 100  # @param {type:"slider", min:10, max:200, step:10}
 temperature = 0.7  # @param {type:"slider", min:0.1, max:1.0, step:0.1}
-max_prompts = 2  # @param {type:"slider", min:1, max:5, step:1}
+max_prompts = 3  # @param {type:"slider", min:1, max:5, step:1}
 verbose = False  # @param {type:"boolean"}
 use_warmup = True  # @param {type:"boolean"}
 
@@ -105,7 +105,12 @@ def load_prompts():
         "Explain how transformer neural networks function in simple terms.",
         "What are the key ethical implications of large language models?",
         "Describe the concept of attention in neural networks and why it's important.",
-        "Write a function to calculate the Fibonacci sequence in Python."
+        "Write a function to calculate the Fibonacci sequence in Python.",
+        "Compare and contrast supervised and unsupervised learning approaches in machine learning.",
+        "Explain the concept of gradient descent and its role in training neural networks.",
+        "Describe how transformers handle long-range dependencies compared to RNNs.",
+        "What are some practical applications of natural language processing in business?",
+        "Explain the concept of embeddings in the context of language models."
     ]
     return test_prompts
 
