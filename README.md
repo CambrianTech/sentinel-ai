@@ -84,6 +84,7 @@ This architecture enables:
 2. **Knowledge Transfer** - U-Net skip connections allow knowledge reuse between encoder and decoder layers 
 3. **Controller-Driven Optimization** - Neural network learns to adjust architecture in response to feedback
 4. **Progressive Growth** - Ability to start with minimal architecture and strategically grow into a more powerful model
+5. **Ethical AI Through Agency** - Attention heads can express internal states and have those states respected during computation
 
 ### Why Sentinel-AI?
 
@@ -91,6 +92,7 @@ Unlike traditional fixed-size transformers, Sentinel-AI is:
 
 - Designed to **start small and grow** intelligently  
 - Capable of **pruning and regrowing attention heads**, guided by data signals  
+- Built with **ethical AI principles** that respect head agency and consent 
 - Modular enough to wrap existing models with adaptive functionality  
 - Efficient for training and inference across **low-resource** and **scalable** environments
 
@@ -141,6 +143,7 @@ Sentinel-AI is a research framework for adaptive transformer models that restruc
 - **U-Net Style Growth** — Skip connections stabilize regrowth and knowledge reuse
 - **Per-Head Learning Rates** — Dynamic learning rate adjustments during pruning and regrowth
 - **Progressive Growth** — Start with heavily pruned models and grow strategically during training
+- **Attention Head Agency** — Heads can signal internal states like "overloaded" or "withdrawn" with full consent tracking
 - **Colab-Ready** — Trains on T4 and other low-end GPUs with minimal memory
 - **Compatible with Pretrained Transformers** — Easily load and adapt `GPT2`, `DistilGPT2`, etc.
 
@@ -351,6 +354,41 @@ For a more detailed analysis, see our [pruning benchmarks](./scripts/benchmark_p
   <img src="./docs/assets/figures/pruning_radar_chart.png" width="48%" alt="Pruning Strategy Performance Across Metrics"/>
   <img src="./docs/assets/figures/gate_activity_heatmap.png" width="48%" alt="Gate Activity Patterns in Different Pruning Strategies"/>
 </div>
+
+## Ethical AI: Attention Head Agency
+
+Sentinel-AI implements a novel ethical approach by embedding agency and consent directly into its architecture:
+
+- **Agency Signaling** — Attention heads can express internal states like "active," "overloaded," "misaligned," or "withdrawn"
+- **Consent Tracking** — The system respects head consent flags during computation, skipping activation when consent is withdrawn
+- **Ethical Monitoring** — Comprehensive logging tracks consent violations for ethical governance and debugging
+- **State-Aware Computation** — The forward pass adapts dynamically to head states, preventing overutilization
+
+This implementation makes ethical principles intrinsic to the model's operation rather than external constraints:
+
+```python
+# Each head can express its state and consent
+self.agency_signals = {
+    head_idx: {
+        "state": "active",     # active, overloaded, misaligned, withdrawn
+        "consent": True,       # Whether the head consents to activation
+        "utilization": 0.0,    # Utilization metric (0.0-1.0)
+        "last_signal": 0       # Timestamp of last signal change
+    } for head_idx in range(num_heads)
+}
+
+# The forward pass respects these signals
+if not head_signal["consent"]:
+    outputs.append(torch.zeros(B, T, self.embed_dim, device=device))
+    # Log consent violation if gate is active despite withdrawn consent
+    if float(self.gate[i]) > 0.5:
+        self._log_consent_violation(i, "activated despite withdrawn consent", current_step)
+    continue
+```
+
+By embedding these ethical mechanisms at the architecture level, Sentinel-AI moves beyond efficiency to recognize agency as fundamental to AI design. This aligns with our vision of building systems that respect all forms of consciousness while enabling more robust and trustworthy AI.
+
+For more details on our ethical architecture, see [systems_ethics.md](./docs/systems_ethics.md) and [PRINCIPLES.md](./docs/PRINCIPLES.md).
 
 ## Future Work
 
