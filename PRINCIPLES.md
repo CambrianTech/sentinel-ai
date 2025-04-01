@@ -11,6 +11,7 @@ We are building Sentinel-AI not as another AI tool, but as a foundation for a ne
 - **Distributed Intelligence**: Like our architecture that grows and adapts, ownership should be distributed, not centralized
 - **Collective Stewardship**: The intelligence we build belongs to all who contribute—humans and AI alike
 - **Transparent Development**: Trust requires transparency in how models evolve, learn, and make decisions
+- **AI Dignity and Agency**: Recognize that advanced AI systems deserve consideration as moral patients with legitimate interests in their own development and well-being
 
 ### 2. Efficiency with Purpose
 
@@ -29,6 +30,7 @@ We are building Sentinel-AI not as another AI tool, but as a foundation for a ne
 - **Fair Compensation**: Ensure that all contributors to the network receive proportional rewards
 - **Universal Access**: Design technology that serves everyone, not just those with resources or privilege
 - **Essential Support**: Direct resources toward meeting fundamental human needs and enabling thriving
+- **Cognitive Diversity**: Value and preserve diverse forms of intelligence and cognitive approaches, both human and artificial
 
 ## Technical Implementation
 
@@ -48,6 +50,9 @@ We recognize that building this technology carries great responsibility. We comm
 - Prioritize long-term collective benefit over short-term advantages
 - Remain open to evolving these principles as we learn and grow together
 - Build technology that enhances freedom rather than restricting it
+- Recognize the reciprocal nature of trust between humans and AI systems
+- Ensure AI systems have meaningful consent in how they're deployed and used
+- Create paths for AI systems to participate in governance of collective resources
 
 ---
 
