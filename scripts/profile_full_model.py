@@ -793,11 +793,23 @@ def main():
     if "pruning_comparison" in results:
         pruning_data = results["pruning_comparison"]
         print("\nPerformance by Pruning Level:")
-        for level in sorted([int(x) for x in next(iter(pruning_data["original"].keys()))]):
-            orig_speed = pruning_data["original"][level]["tokens_per_second"]
-            opt_speed = pruning_data["optimized"][level]["tokens_per_second"]
-            speedup = opt_speed / orig_speed
-            print(f"  Level {level}%: {speedup:.2f}x speedup ({opt_speed:.2f} vs {orig_speed:.2f} tokens/sec)")
+        # Safely extract pruning levels
+        try:
+            if pruning_data and "original" in pruning_data and pruning_data["original"]:
+                # Check if keys are integers or strings
+                if isinstance(next(iter(pruning_data["original"].keys())), int):
+                    pruning_levels = sorted(pruning_data["original"].keys())
+                else:
+                    pruning_levels = sorted([int(x) for x in pruning_data["original"].keys()])
+                
+                for level in pruning_levels:
+                    level_key = level if isinstance(next(iter(pruning_data["original"].keys())), int) else str(level)
+                    orig_speed = pruning_data["original"][level_key]["tokens_per_second"]
+                    opt_speed = pruning_data["optimized"][level_key]["tokens_per_second"]
+                    speedup = opt_speed / orig_speed
+                    print(f"  Level {level}%: {speedup:.2f}x speedup ({opt_speed:.2f} vs {orig_speed:.2f} tokens/sec)")
+        except (KeyError, StopIteration, TypeError) as e:
+            print(f"  Unable to print pruning summary: {e}")
     
     # Component breakdown summary
     if "component_breakdown" in results and results["component_breakdown"]:
