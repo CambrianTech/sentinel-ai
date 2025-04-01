@@ -29,9 +29,18 @@ def load_adaptive_model_bloom(model_name, baseline_model, config, device, debug=
     
     # BLOOM doesn't use positional embeddings, it uses ALiBi attention
     # We'll create new position embeddings for our model
-    position_embeddings = nn.Embedding(config.max_position_embeddings, config.hidden_size)
+    # Set a reasonable default for max positions if it doesn't exist in config
+    max_positions = 2048  # Default value
+    if hasattr(config, 'max_position_embeddings'):
+        max_positions = config.max_position_embeddings
+    else:
+        # If we can infer from n_positions
+        if hasattr(config, 'n_positions'):
+            max_positions = config.n_positions
+            
+    position_embeddings = nn.Embedding(max_positions, config.hidden_size)
     if debug and not quiet:
-        print("Created new position embeddings (BLOOM doesn't use explicit position embeddings)")
+        print(f"Created new position embeddings with size {max_positions} (BLOOM uses ALiBi attention)")
     
     model = AdaptiveCausalLmWrapper(config, token_embeddings, position_embeddings, debug=debug).to(device)
     model.eval()

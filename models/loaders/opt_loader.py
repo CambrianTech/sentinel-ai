@@ -27,14 +27,33 @@ def load_adaptive_model_opt(model_name, baseline_model, config, device, debug=Fa
     # Get the token embeddings and position embeddings from the baseline model
     token_embeddings = baseline_model.get_input_embeddings()
     
-    # Get position embeddings correctly
-    if hasattr(baseline_model, 'model') and hasattr(baseline_model.model, 'decoder') and hasattr(baseline_model.model.decoder, 'embed_positions'):
-        position_embeddings = baseline_model.model.decoder.embed_positions
-    else:
-        # Fallback - create new position embeddings
-        position_embeddings = nn.Embedding(config.max_position_embeddings, config.hidden_size)
-        if debug and not quiet:
-            print("Warning: Could not get position embeddings from baseline model, created new ones")
+    # Get a compatible position embedding layer
+    # For OPT, we'll create a fresh embedding layer with the right dimensions
+    # to avoid shape mismatch issues
+    
+    # Determine the correct size for position embeddings
+    max_positions = 2048  # Default fallback
+    if hasattr(config, 'max_position_embeddings'):
+        max_positions = config.max_position_embeddings
+    
+    # Create new embedding layer with right dimensions
+    position_embeddings = nn.Embedding(max_positions, config.hidden_size)
+    
+    # Initialize from baseline if possible
+    has_original = False
+    if (hasattr(baseline_model, 'model') and 
+        hasattr(baseline_model.model, 'decoder') and 
+        hasattr(baseline_model.model.decoder, 'embed_positions') and
+        hasattr(baseline_model.model.decoder.embed_positions, 'weight')):
+        has_original = True
+        
+    if not quiet:
+        if has_original:
+            print(f"Will initialize position embeddings from model (up to {max_positions} positions)")
+        else:
+            print(f"Created new position embeddings with size {max_positions}")
+            
+    # These weights will be properly initialized in the weight loading step
     
     model = AdaptiveCausalLmWrapper(config, token_embeddings, position_embeddings, debug=debug).to(device)
     model.eval()
@@ -270,8 +289,16 @@ def load_adaptive_model_opt(model_name, baseline_model, config, device, debug=Fa
         
         # Copy position embeddings if they're a parameter (not a buffer)
         if "model.decoder.embed_positions.weight" in baseline_state:
-            adaptive_state["wpe.weight"][:baseline_state["model.decoder.embed_positions.weight"].shape[0]].copy_(
-                baseline_state["model.decoder.embed_positions.weight"]
+            # Make sure not to exceed destination size
+            src_size = baseline_state["model.decoder.embed_positions.weight"].shape[0]
+            dst_size = adaptive_state["wpe.weight"].shape[0]
+            copy_size = min(src_size, dst_size)
+            
+            if not quiet:
+                print(f"  Position embeddings: copying {copy_size} positions (src={src_size}, dst={dst_size})")
+                
+            adaptive_state["wpe.weight"][:copy_size].copy_(
+                baseline_state["model.decoder.embed_positions.weight"][:copy_size]
             )
         
         # OPT shares the output weights with input embeddings

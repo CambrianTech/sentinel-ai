@@ -6,6 +6,14 @@
 - Validate notebook: `python notebooks/validate_notebook.py notebook_path`
 - Fix notebook metadata: `python notebooks/fix_notebook_metadata.py`
 - Test pruning: `python scripts/inference_with_pruning.py --strategy entropy --pruning_level 0.5 --prompt "Your text"`
+- Test model support: `python test_model_support.py --device {cpu,cuda} --verbose`
+
+## Multi-Model Support
+- Test GPT-2: `python main.py --model_name distilgpt2 --prompt "Your prompt here"`
+- Test OPT: `python main.py --model_name facebook/opt-125m --prompt "Your prompt here"`
+- Test Pythia: `python main.py --model_name EleutherAI/pythia-70m --prompt "Your prompt here"`
+- Test BLOOM: `python main.py --model_name bigscience/bloom-560m --prompt "Your prompt here"`
+- Generate samples: `python generate_samples.py`
 - Fine-tune pruned model: `python scripts/finetune_pruned_model.py --model_path PATH --dataset DATASET --output_path OUTPUT --enable_head_lr`
 - Test multi-model support: `python scripts/test_multi_model_support.py --models gpt2,opt,pythia,bloom`
 
