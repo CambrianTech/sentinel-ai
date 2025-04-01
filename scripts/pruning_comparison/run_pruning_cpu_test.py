@@ -75,7 +75,8 @@ def main():
             "--num_tokens=10",        # Generate very few tokens
             "--max_prompts=1",        # Use only 1 prompt
             "--iterations=1",         # Single iteration
-            "--save_outputs"          # Save the generated text
+            "--save_outputs",         # Save the generated text
+            "--quiet"                 # Reduce logging verbosity
         ]
         print("Running in DEBUG mode with minimal parameters")
     else:
@@ -89,7 +90,8 @@ def main():
             "--max_prompts=2",          # Use only 2 prompts
             "--iterations=1",           # Single iteration
             "--save_outputs",           # Save the generated text
-            "--output_dir=validation_results/pruning_agency"
+            "--output_dir=validation_results/pruning_agency",
+            "--quiet"                     # Reduce logging verbosity
         ]
     
     # Print and execute command

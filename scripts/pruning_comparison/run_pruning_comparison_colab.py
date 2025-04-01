@@ -153,6 +153,7 @@ batch_size = 1  # @param {type:"integer"}
 iterations = 3  # @param {type:"slider", min:1, max:10, step:1}
 save_outputs = True  # @param {type:"boolean"}
 memory_logging = True  # @param {type:"boolean"}
+quiet = True  # @param {type:"boolean"}
 
 # Create output directory
 output_dir = "validation_results/pruning_agency"
@@ -179,6 +180,9 @@ if save_outputs:
     
 if memory_logging:
     cmd.append("--memory_logging")
+    
+if quiet:
+    cmd.append("--quiet")
     
 # Print information about the experiment
 print("\n==== Pruning Comparison Experiment ====")
@@ -287,7 +291,8 @@ class AdaptiveCausalLmWrapper(AdaptiveTransformerModel, GenerationMixin):
         "--num_tokens=20",        # Fewer tokens
         "--max_prompts=2",        # Fewer prompts
         "--iterations=1",         # Single iteration
-        f"--output_dir={output_dir}"
+        f"--output_dir={output_dir}",
+        "--quiet"                 # Always use quiet mode for retries
     ]
     
     !{" ".join(minimal_cmd)}
