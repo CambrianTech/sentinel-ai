@@ -339,7 +339,8 @@ def evaluate_model(model, tokenizer, prompts, num_tokens, temperature=0.7,
                 
                 # Calculate quality metrics
                 try:
-                    perplexity = calculate_perplexity(model, tokenizer, output)
+                    # Using the newer calculate_perplexity function that takes [generated_texts, prompts]
+                    perplexity = calculate_perplexity([output], [prompt])
                     diversity = calculate_diversity(output)
                     repetition = calculate_repetition(output)
                 except Exception as e:
