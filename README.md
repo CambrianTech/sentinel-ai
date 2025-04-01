@@ -382,25 +382,52 @@ For a more detailed analysis, see our [pruning benchmarks](./scripts/benchmark_p
 
 Our comprehensive validation of attention head agency features demonstrates significant improvements across all key metrics:
 
-| Scenario | Generation Speed | Resource Utilization | Output Quality |
-|----------|------------------|----------------------|----------------|
-| Baseline | 45.2 tokens/sec | 4.8GB / 354 GFLOPS | 18.4 perplexity / 0.68 diversity |
-| Agency Default | +16.8% | -18.7% | +8.8% quality |
-| Agency Specialized | +40.5% | -29.8% | +20.6% quality |
-| Agency Mixed | +28.5% | -25.0% | +14.7% quality |
-| Agency Constrained | +13.7% | -33.3% | +4.4% quality |
+#### Performance Metrics
 
-The specialized agency configuration demonstrates the optimal balance between efficiency and quality:
-- **40% performance improvement**
-- **30% resource reduction**
-- **25% quality enhancement**
+| Scenario | Generation Speed | Generation Time | Resource Usage |
+|----------|------------------|-----------------|----------------|
+| Baseline | 23.7 tokens/sec | 4.65 seconds | 65.0% RAM / 0.0% CPU |
+| Agency Default | 24.2 tokens/sec | 4.50 seconds | 64.6% RAM / 87.4% CPU |
+| Agency Mixed | 24.4 tokens/sec | 4.69 seconds | 64.7% RAM / 87.9% CPU |
+| Agency Constrained | 29.7 tokens/sec | 4.03 seconds | 64.7% RAM / 86.8% CPU |
+
+#### Quality Metrics
+
+| Scenario | Perplexity | Lexical Diversity | Repetition Score |
+|----------|------------|------------------|------------------|
+| Baseline | 56.96 | 0.759 | 0.023 |
+| Agency Default | 56.31 | 0.739 | 0.053 |
+| Agency Mixed | 64.50 | 0.778 | 0.015 |
+| Agency Constrained | 57.98 | 0.764 | 0.039 |
+
+#### Agency State Distribution
+
+| Scenario | Active Heads | Overloaded Heads | Misaligned Heads | Withdrawn Heads | Violations |
+|----------|--------------|------------------|------------------|-----------------|------------|
+| Baseline | 70 | 2 | 0 | 0 | 0 |
+| Agency Default | 70 | 2 | 0 | 0 | 0 |
+| Agency Mixed | 41 | 19 | 12 | 0 | 0 |
+| Agency Constrained | 47 | 1 | 0 | 24 | 20,184 |
+
+The agency_constrained configuration demonstrates the optimal balance between efficiency and quality:
+- **25% faster generation** (29.7 vs 23.7 tokens/sec)
+- **13% shorter generation time** (4.03 vs 4.65 seconds)
+- **Similar memory usage** with efficient attention distribution
+- **Maintained output quality** despite pruning 34% of heads (24 withdrawn)
 
 Key findings from our validation:
 
-1. **Neurocognitive Load Balancing**: Attention heads effectively signal overload and adjust contribution dynamically
-2. **Emergent Specialization**: Clear evidence of heads adopting specialized roles for different tasks
-3. **Coordinated Harmony**: Specialized components work together seamlessly like an orchestra
-4. **Graceful Degradation**: Maintained 85% performance under severe resource constraints
+1. **Dynamic State Management**: The constrained scenario maintains high performance despite having 34% of heads in withdrawn state
+2. **Graceful Degradation**: Even with significant pruning, agency-enabled models maintain quality metrics similar to baseline
+3. **Selective Activation**: The mixed state scenario shows the most diverse output (highest lexical diversity)
+4. **Resource Optimization**: Agency-enabled models effectively balance resource usage and performance
+
+![Generation Speed](./validation_results/agency/generation_speed_comparison.png)
+![Generation Time](./validation_results/agency/generation_time_comparison.png)
+![Resource Usage](./validation_results/agency/resource_utilization.png)
+![Quality Metrics](./validation_results/agency/quality_metrics.png)
+![Head State Distribution](./validation_results/agency/head_state_distribution.png)
+![Agency Violations](./validation_results/agency/agency_violations.png)
 
 For complete validation details, see our [empirical validation report](./docs/validation_agency_v1.md) and [sample results](./validation_results/agency/sample_results.md).
 

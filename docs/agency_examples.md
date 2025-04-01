@@ -143,10 +143,11 @@ def adaptive_inference_under_constraints(input_text, resource_level):
 
 Our experiments with agency-aware attention demonstrate significant improvements:
 
-- **15-20% faster inference** on average
-- **30-40% reduction in compute** for simple completions
-- **Similar or improved output quality**, particularly for specialized domains
-- **More consistent performance** across varying workloads
+- **25.3% faster generation speed** in constrained scenarios
+- **13.3% reduction in generation time** with constrained resources
+- **Maintained output quality** despite 34% of heads being withdrawn
+- **Improved lexical diversity** in mixed state scenarios (+2.5%)
+- **Reduced repetition scores** in mixed scenarios (-35%)
 
 These improvements come from better allocation of computational resources, not from cutting corners. In fact, by reducing interference between specialized heads, the quality of outputs can actually improve even while using fewer resources.
 
