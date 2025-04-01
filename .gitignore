@@ -50,5 +50,10 @@ generated/
 /pruning_results/*
 !/pruning_results/examples/
 /pruning_speed_results.png
+
+# Configuration files with runtime data
+/config/specialization_patterns.json
+
+# Temporary and development files
 message.txt
 MANIFESTO.md
