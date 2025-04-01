@@ -216,8 +216,16 @@ def apply_pruning(model, pruning_percentage, method="entropy", verbose=True, qui
     
     # For models with gates, proceed with pruning
     for layer_idx, block in enumerate(blocks):
+        # Access attn module correctly - handle both subscriptable and attribute style
+        if hasattr(block, "attn"):
+            attn_module = block.attn
+        elif hasattr(block, "attention"):
+            attn_module = block.attention
+        else:
+            raise ValueError(f"Block at layer {layer_idx} doesn't have an attention module")
+            
         for head_idx in range(num_heads):
-            gate_value = float(block["attn"].gate[head_idx])
+            gate_value = float(attn_module.gate[head_idx])
             
             # Get head information based on pruning method
             if method == "entropy":
@@ -228,7 +236,7 @@ def apply_pruning(model, pruning_percentage, method="entropy", verbose=True, qui
                 # This depends on the structure of the model
                 try:
                     # Try to access weights of this head
-                    weight = block["attn"].W_q[head_idx].weight
+                    weight = attn_module.W_q[head_idx].weight
                     importance = float(weight.abs().mean())
                 except (AttributeError, KeyError):
                     # Fallback for unsupported structures
@@ -269,11 +277,18 @@ def apply_pruning(model, pruning_percentage, method="entropy", verbose=True, qui
         layer_idx = head["layer_idx"]
         head_idx = head["head_idx"]
         
-        # Use the blocks reference we determined earlier
+        # Get attention module - handle both attribute and subscript style access
+        if hasattr(blocks[layer_idx], "attn"):
+            attn_module = blocks[layer_idx].attn
+        elif hasattr(blocks[layer_idx], "attention"):
+            attn_module = blocks[layer_idx].attention
+        else:
+            continue  # Skip if no attention module
+        
         # We need to handle differently for models in training vs. evaluation mode
         # to avoid the "leaf Variable that requires grad" error
         with torch.no_grad():  # This prevents autograd from tracking this operation
-            blocks[layer_idx]["attn"].gate[head_idx] = torch.zeros_like(blocks[layer_idx]["attn"].gate[head_idx])
+            attn_module.gate[head_idx] = torch.zeros_like(attn_module.gate[head_idx])
             
         pruned_heads.append((layer_idx, head_idx))
     
@@ -299,8 +314,16 @@ def apply_pruning(model, pruning_percentage, method="entropy", verbose=True, qui
                 consent_withdrawn = 0
                 
                 for layer_idx, block in enumerate(agency_blocks):
-                    if hasattr(block["attn"], "agency_signals"):
-                        for head_idx, signals in block["attn"].agency_signals.items():
+                    # Get attention module - handle both attribute and subscript style access
+                    if hasattr(block, "attn"):
+                        attn_module = block.attn
+                    elif hasattr(block, "attention"):
+                        attn_module = block.attention
+                    else:
+                        continue  # Skip if no attention module found
+                        
+                    if hasattr(attn_module, "agency_signals"):
+                        for head_idx, signals in attn_module.agency_signals.items():
                             agency_states[signals["state"]] += 1
                             if not signals["consent"]:
                                 consent_withdrawn += 1
@@ -317,8 +340,16 @@ def apply_pruning(model, pruning_percentage, method="entropy", verbose=True, qui
                 consent_withdrawn = 0
                 
                 for layer_idx, block in enumerate(agency_blocks):
-                    if hasattr(block["attn"], "agency_signals"):
-                        for head_idx, signals in block["attn"].agency_signals.items():
+                    # Get attention module - handle both attribute and subscript style access
+                    if hasattr(block, "attn"):
+                        attn_module = block.attn
+                    elif hasattr(block, "attention"):
+                        attn_module = block.attention
+                    else:
+                        continue  # Skip if no attention module found
+                        
+                    if hasattr(attn_module, "agency_signals"):
+                        for head_idx, signals in attn_module.agency_signals.items():
                             agency_states[signals["state"]] += 1
                             if not signals["consent"]:
                                 consent_withdrawn += 1
