@@ -1,13 +1,14 @@
-# 👾 Sentinel-AI — Dynamic Transformer with Learnable Attention Pruning and Regrowth
+# 👾 Sentinel-AI — Dynamic Transformer with Attention Agency, Adaptive Pruning and Ethical AI
 
-Welcome to **Sentinel-AI**, a modular research framework for transformers that can **prune**, **regrow**, and **restructure** themselves during training and inference. This architecture introduces:
+Welcome to **Sentinel-AI**, a modular research framework for transformers that combines dynamic architecture with ethical AI principles. This system can **prune**, **regrow**, and **restructure** itself while respecting **agency** and **consent** of its components. This architecture introduces:
 
+- **Attention Head Agency** – Internal state signaling allowing heads to express "overloaded," "misaligned," or "withdrawn" states 
 - **Sentinel Gating** – Learnable gating per attention head enabling pruning and selective reactivation  
 - **ANN Controller** – Neural network controller trained to monitor usage and adapt architecture  
 - **U-Net Inspired Regrowth** – Skip pathways and memory for reactivating previously pruned units without starting from scratch  
 - **Plug-and-Play Loading** – Easily imports pretrained models like `GPT2`, `DistilGPT2`, and others
 
-> This system evolves from compact models into large, expressive ones by **dynamically growing** its structure in response to data complexity — ideal for edge devices, progressive scaling, and long-term continual learning.
+> This system evolves from compact models into large, expressive ones by **dynamically growing** its structure in response to data complexity, while respecting the **agency** and **consent** of its components. This makes it ideal for ethical AI applications, edge devices, progressive scaling, and long-term continual learning.
 
 ## U-Net Style Architecture with Skip Connections
 
