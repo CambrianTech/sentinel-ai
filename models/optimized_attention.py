@@ -175,78 +175,159 @@ class OptimizedGatedMultiHeadAttention(nn.Module):
             self._update_agency_signals(step_count)
             self._update_agency_masks()
         
+        # Check if we can use a fast path when many heads are pruned
+        active_heads_count = self.combined_activity_mask.sum().item()
+        use_fast_path = active_heads_count < (self.num_heads * 0.5)  # ≥50% pruned
+        
         if self.profile_time:
             agency_time = time.time()
-        
-        # Compute query, key, value projections for all heads in parallel
-        # Shape: [batch_size, seq_len, num_heads * head_dim]
-        queries = self.W_q(hidden_states)
-        keys = self.W_k(hidden_states)
-        values = self.W_v(hidden_states)
-        
-        # Reshape to separate heads
-        # New shape: [batch_size, seq_len, num_heads, head_dim]
-        queries = queries.view(batch_size, seq_len, self.num_heads, self.head_dim)
-        keys = keys.view(batch_size, seq_len, self.num_heads, self.head_dim)
-        values = values.view(batch_size, seq_len, self.num_heads, self.head_dim)
-        
-        # Transpose for attention calculation
-        # Shape: [batch_size, num_heads, seq_len, head_dim]
-        queries = queries.permute(0, 2, 1, 3)
-        keys = keys.permute(0, 2, 1, 3)
-        values = values.permute(0, 2, 1, 3)
-        
-        if self.profile_time:
-            projection_time = time.time()
-        
-        # Calculate attention scores
-        # Shape: [batch_size, num_heads, seq_len, seq_len]
-        attention_scores = torch.matmul(queries, keys.transpose(-1, -2)) * self.scale
-        
-        # Apply attention mask if provided
-        if attn_mask is not None:
-            # Add mask for all heads simultaneously
-            # Add unsqueezed dimensions for proper broadcasting
-            if attn_mask.dim() == 2:
-                # Shape: [1, 1, seq_len, seq_len]
-                attn_mask = attn_mask.unsqueeze(0).unsqueeze(0)
-            attention_scores = attention_scores + attn_mask
-        
-        # Apply softmax to get attention weights
-        # Shape: [batch_size, num_heads, seq_len, seq_len]
-        attention_weights = F.softmax(attention_scores, dim=-1)
-        attention_weights = self.attn_dropout(attention_weights)
-        
-        if self.profile_time:
-            attn_time = time.time()
-        
-        # Weighted sum to get context vectors
-        # Shape: [batch_size, num_heads, seq_len, head_dim]
-        context_vectors = torch.matmul(attention_weights, values)
-        
-        # Store attention patterns for later analysis
-        self.attention_weights = attention_weights.detach()
-        
-        # Apply gates - reshape activation for broadcasting
-        # Shape: [1, num_heads, 1, 1]
-        gate_activation = self.attention_activation.view(1, self.num_heads, 1, 1)
-        context_vectors = context_vectors * gate_activation
-        
-        # Update utilization metrics based on attention activity
-        self._update_head_utilization(attention_weights)
-        
-        if self.profile_time:
-            gating_time = time.time()
-        
-        # Reshape for output projection
-        # Shape: [batch_size, seq_len, num_heads * head_dim]
-        context_vectors = context_vectors.permute(0, 2, 1, 3).contiguous()
-        context_vectors = context_vectors.view(batch_size, seq_len, self.num_heads * self.head_dim)
-        
-        # Apply output projection
-        # Shape: [batch_size, seq_len, embed_dim]
-        output = self.W_o(context_vectors)
-        output = self.output_dropout(output)
+            
+        # OPTIMIZATION: Fast path for heavily pruned networks
+        if use_fast_path and active_heads_count > 0:
+            # Identify which heads are active
+            active_indices = torch.nonzero(self.combined_activity_mask).squeeze(-1)
+            
+            # Only compute for active heads
+            queries = self.W_q(hidden_states)
+            keys = self.W_k(hidden_states)
+            values = self.W_v(hidden_states)
+            
+            # Reshape to separate heads
+            queries = queries.view(batch_size, seq_len, self.num_heads, self.head_dim)
+            keys = keys.view(batch_size, seq_len, self.num_heads, self.head_dim)
+            values = values.view(batch_size, seq_len, self.num_heads, self.head_dim)
+            
+            # Extract only the active heads to save computation
+            active_queries = queries[:, :, active_indices, :]
+            active_keys = keys[:, :, active_indices, :]
+            active_values = values[:, :, active_indices, :]
+            
+            # Permute for attention calculation
+            active_queries = active_queries.permute(0, 2, 1, 3)
+            active_keys = active_keys.permute(0, 2, 1, 3)
+            active_values = active_values.permute(0, 2, 1, 3)
+            
+            # Calculate attention scores only for active heads
+            attention_scores = torch.matmul(active_queries, active_keys.transpose(-1, -2)) * self.scale
+            
+            # Apply attention mask if provided
+            if attn_mask is not None:
+                if attn_mask.dim() == 2:
+                    attn_mask = attn_mask.unsqueeze(0).unsqueeze(0)
+                attention_scores = attention_scores + attn_mask
+            
+            # Apply softmax to get attention weights
+            attention_weights = F.softmax(attention_scores, dim=-1)
+            attention_weights = self.attn_dropout(attention_weights)
+            
+            # Store for analysis
+            self.attention_weights = attention_weights.detach()
+            
+            # Weighted sum to get context vectors
+            context_vectors = torch.matmul(attention_weights, active_values)
+            
+            # Apply gates for active heads
+            active_gates = self.attention_activation[active_indices].view(1, -1, 1, 1)
+            context_vectors = context_vectors * active_gates
+            
+            # Create zero tensor for output
+            # Shape: [batch_size, seq_len, num_heads * head_dim]
+            all_context = torch.zeros(
+                batch_size, seq_len, self.num_heads * self.head_dim,
+                dtype=hidden_states.dtype, device=device
+            )
+            
+            # Place active context vectors in the right positions
+            context_flat = context_vectors.permute(0, 2, 1, 3).contiguous()
+            context_flat = context_flat.view(batch_size, seq_len, -1)
+            
+            # Create index for filling in the right positions
+            for i, idx in enumerate(active_indices):
+                start_idx = idx * self.head_dim
+                end_idx = start_idx + self.head_dim
+                all_context[:, :, start_idx:end_idx] = context_flat[:, :, i*self.head_dim:(i+1)*self.head_dim]
+            
+            # Apply output projection
+            output = self.W_o(all_context)
+            output = self.output_dropout(output)
+            
+        # Skip all computation when no heads are active
+        elif active_heads_count == 0:
+            # Return zeros without any computation
+            output = torch.zeros_like(hidden_states)
+            attention_weights = None
+            
+        # OPTIMIZATION: Standard path with memory optimizations
+        else:
+            # Compute query, key, value projections for all heads in parallel
+            # Shape: [batch_size, seq_len, num_heads * head_dim]
+            queries = self.W_q(hidden_states)
+            keys = self.W_k(hidden_states)
+            values = self.W_v(hidden_states)
+            
+            # Reshape to separate heads
+            # New shape: [batch_size, seq_len, num_heads, head_dim]
+            queries = queries.view(batch_size, seq_len, self.num_heads, self.head_dim)
+            keys = keys.view(batch_size, seq_len, self.num_heads, self.head_dim)
+            values = values.view(batch_size, seq_len, self.num_heads, self.head_dim)
+            
+            # Transpose for attention calculation
+            # Shape: [batch_size, num_heads, seq_len, head_dim]
+            queries = queries.permute(0, 2, 1, 3)
+            keys = keys.permute(0, 2, 1, 3)
+            values = values.permute(0, 2, 1, 3)
+            
+            if self.profile_time:
+                projection_time = time.time()
+            
+            # Calculate attention scores
+            # Shape: [batch_size, num_heads, seq_len, seq_len]
+            attention_scores = torch.matmul(queries, keys.transpose(-1, -2)) * self.scale
+            
+            # Apply attention mask if provided
+            if attn_mask is not None:
+                # Add mask for all heads simultaneously
+                # Add unsqueezed dimensions for proper broadcasting
+                if attn_mask.dim() == 2:
+                    # Shape: [1, 1, seq_len, seq_len]
+                    attn_mask = attn_mask.unsqueeze(0).unsqueeze(0)
+                attention_scores = attention_scores + attn_mask
+            
+            # Apply softmax to get attention weights
+            # Shape: [batch_size, num_heads, seq_len, seq_len]
+            attention_weights = F.softmax(attention_scores, dim=-1)
+            attention_weights = self.attn_dropout(attention_weights)
+            
+            if self.profile_time:
+                attn_time = time.time()
+            
+            # Weighted sum to get context vectors
+            # Shape: [batch_size, num_heads, seq_len, head_dim]
+            context_vectors = torch.matmul(attention_weights, values)
+            
+            # Store attention patterns for later analysis
+            self.attention_weights = attention_weights.detach()
+            
+            # Apply gates - reshape activation for broadcasting
+            # Shape: [1, num_heads, 1, 1]
+            gate_activation = self.attention_activation.view(1, self.num_heads, 1, 1)
+            context_vectors = context_vectors * gate_activation
+            
+            # Update utilization metrics based on attention activity
+            self._update_head_utilization(attention_weights)
+            
+            if self.profile_time:
+                gating_time = time.time()
+            
+            # Reshape for output projection
+            # Shape: [batch_size, seq_len, num_heads * head_dim]
+            context_vectors = context_vectors.permute(0, 2, 1, 3).contiguous()
+            context_vectors = context_vectors.view(batch_size, seq_len, self.num_heads * self.head_dim)
+            
+            # Apply output projection
+            # Shape: [batch_size, seq_len, embed_dim]
+            output = self.W_o(context_vectors)
+            output = self.output_dropout(output)
         
         if self.profile_time:
             output_time = time.time()

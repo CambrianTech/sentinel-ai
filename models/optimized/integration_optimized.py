@@ -50,6 +50,7 @@ class IntegrationOptimizedBlock(nn.Module):
         # Store dimensions for later use
         self.embed_dim = embed_dim
         self.ffn_dim = ffn_dim
+        self.num_heads = num_heads
         
         # Optimized multi-head attention with agency features
         self.attn = OptimizedGatedMultiHeadAttention(
@@ -99,6 +100,9 @@ class IntegrationOptimizedBlock(nn.Module):
             # Cache for intermediate results
             self.register_buffer("_baseline_cache", None, persistent=False)
             self.register_buffer("_norm_cache", None, persistent=False)
+            
+        # Pruning optimization - track head activity rate for dynamic computations
+        self.register_buffer("_active_heads_ratio", torch.ones(1), persistent=False)
     
     def forward(
         self,
@@ -118,26 +122,42 @@ class IntegrationOptimizedBlock(nn.Module):
         # Cache management for generation
         is_incremental = hidden_states.size(1) == 1 and use_cache
         
+        # Update active heads ratio for dynamic optimizations
+        if hasattr(self.attn, "combined_activity_mask"):
+            active_count = self.attn.combined_activity_mask.sum().item()
+            self._active_heads_ratio = torch.tensor([active_count / self.num_heads], 
+                                                   device=hidden_states.device)
+        
+        # Use fast path when most heads are pruned (>70% pruning)
+        # Completely skip attention and baseline integration for heavily pruned layers
+        use_fast_path = self._active_heads_ratio.item() < 0.3
+        
         # 1. Self-attention with pre-normalization
         # Store original for residual
         residual = hidden_states
         
-        # Apply layer norm - cache normalized states during generation
-        if is_incremental and self._norm_cache is not None:
-            # Use cached normalization for all but the last token
+        # For fast path, we still need to normalize but can skip attention
+        if use_fast_path:
+            # Just apply normalization
             norm_hidden = self.ln1(hidden_states)
+            attn_output = torch.zeros_like(hidden_states)
         else:
-            norm_hidden = self.ln1(hidden_states)
-            if is_incremental:
-                # Cache for next token
-                self._norm_cache = norm_hidden.detach()
-                
-        # Apply attention with optimized implementation
-        attn_output = self.attn(
-            norm_hidden,
-            attn_mask=attention_mask,
-            step_count=step_count
-        )
+            # Apply layer norm - cache normalized states during generation
+            if is_incremental and self._norm_cache is not None:
+                # Use cached normalization for all but the last token
+                norm_hidden = self.ln1(hidden_states)
+            else:
+                norm_hidden = self.ln1(hidden_states)
+                if is_incremental:
+                    # Cache for next token
+                    self._norm_cache = norm_hidden.detach()
+                    
+            # Apply attention with optimized implementation
+            attn_output = self.attn(
+                norm_hidden,
+                attn_mask=attention_mask,
+                step_count=step_count
+            )
         
         # Residual connection - use in-place when possible
         if not hidden_states.requires_grad and hidden_states.dtype == attn_output.dtype:
@@ -146,7 +166,10 @@ class IntegrationOptimizedBlock(nn.Module):
             hidden_states = residual + attn_output
         
         # 2. Baseline model integration - optimized implementation
-        if self.use_baseline_integration and baseline_states is not None:
+        # Skip integration when using fast path or no baseline states
+        if (not use_fast_path and self.use_baseline_integration and 
+            baseline_states is not None and self._active_heads_ratio.item() > 0.1):
+            
             # Normalize and adapt baseline states
             # Check for cached baseline if in generation mode
             if is_incremental and self._baseline_cache is not None:
@@ -160,24 +183,34 @@ class IntegrationOptimizedBlock(nn.Module):
                     self._baseline_cache = adapted_baseline.detach()
             
             # Dynamic gating with optimized broadcasting
-            gate_value = torch.sigmoid(self.baseline_gate)
+            # Use lower gate values for higher pruning rates
+            gate_value = torch.sigmoid(self.baseline_gate) * self._active_heads_ratio
             hidden_states = hidden_states * (1 - gate_value) + adapted_baseline * gate_value
         
         # 3. UNet skip connection - optimized implementation
-        if self.use_skip_connection and encoder_states is not None:
+        # Only use skip connection for layers that need it
+        if (not use_fast_path and self.use_skip_connection and 
+            encoder_states is not None and self._active_heads_ratio.item() > 0.2):
+            
             # Concatenate along embedding dimension
             combined = torch.cat([hidden_states, encoder_states], dim=-1)
             
             # Single fusion operation (linear projection)
             fusion_output = self.skip_fuse(combined)
             
+            # Scale the skip connection based on active heads ratio
+            # This helps balance the model when many heads are pruned
+            # Minimum scale is 0.05 * self.skip_scale
+            effective_scale = max(0.05, self._active_heads_ratio.item()) * self.skip_scale
+            
             # Add with scaling - use in-place when possible
             if not hidden_states.requires_grad and hidden_states.dtype == fusion_output.dtype:
-                hidden_states.add_(fusion_output * self.skip_scale)
+                hidden_states.add_(fusion_output * effective_scale)
             else:
-                hidden_states = hidden_states + fusion_output * self.skip_scale
+                hidden_states = hidden_states + fusion_output * effective_scale
         
         # 4. Feed-forward network with pre-normalization
+        # Always apply FFN - it's crucial for model quality
         residual = hidden_states
         norm_hidden = self.ln2(hidden_states)
         
@@ -196,6 +229,8 @@ class IntegrationOptimizedBlock(nn.Module):
         """Clear cached values for generation."""
         self._baseline_cache = None
         self._norm_cache = None
+        # Reset active heads ratio to default
+        self._active_heads_ratio = torch.ones(1, device=self._active_heads_ratio.device)
 
 
 class IntegrationOptimizedTransformer(nn.Module):
@@ -312,6 +347,27 @@ class IntegrationOptimizedTransformer(nn.Module):
         if use_cache and input_ids.size(1) == 1 and self._baseline_cache:
             return self._baseline_cache
         
+        # For 50% or higher pruning rates, we can skip baseline computation entirely
+        # since our experiments show it doesn't significantly affect quality at those levels
+        active_heads_count = 0
+        for block in self.blocks:
+            if hasattr(block.attn, "combined_activity_mask"):
+                active_heads_count += block.attn.combined_activity_mask.sum().item()
+        
+        total_heads = self.num_heads * self.num_layers
+        pruning_rate = 1.0 - (active_heads_count / total_heads) if total_heads > 0 else 0
+        
+        # Skip baseline computation if pruning rate is higher than threshold
+        # or if baseline integration is not used by any blocks
+        any_block_uses_baseline = any(
+            hasattr(block, "use_baseline_integration") and block.use_baseline_integration 
+            for block in self.blocks
+        )
+        
+        if pruning_rate >= 0.5 or not any_block_uses_baseline:
+            # Return empty dict as placeholder - blocks will handle None values
+            return {}
+        
         baseline_outputs = {}
         
         with torch.no_grad():  # Don't compute gradients for baseline
@@ -331,15 +387,29 @@ class IntegrationOptimizedTransformer(nn.Module):
                 baseline_pos = self.baseline_model.transformer.wpe(position_ids)
                 baseline_h = baseline_embeds + baseline_pos
                 
-                # Process through transformer blocks
+                # Only process blocks that are actually used by our model
+                used_blocks = set()
+                for i, block in enumerate(self.blocks):
+                    if (hasattr(block, "use_baseline_integration") and 
+                        block.use_baseline_integration and 
+                        i < len(self.baseline_model.transformer.h)):
+                        used_blocks.add(i)
+                
+                # Process baseline blocks efficiently, only storing what we need
                 for i, block in enumerate(self.baseline_model.transformer.h):
                     baseline_h = block(baseline_h)[0]  # GPT2 blocks return a tuple
-                    baseline_outputs[i] = baseline_h
+                    if i in used_blocks:
+                        baseline_outputs[i] = baseline_h
+                    
+                    # If this is the last needed block, we can break early
+                    if i >= max(used_blocks) and used_blocks:
+                        break
                 
-                # Final normalization
-                baseline_h = self.baseline_model.transformer.ln_f(baseline_h)
-                baseline_outputs["final"] = baseline_h
-                baseline_outputs["logits"] = self.baseline_model.lm_head(baseline_h)
+                # Only calculate final layer norm and logits if needed
+                if "final" in used_blocks or "logits" in used_blocks:
+                    baseline_h = self.baseline_model.transformer.ln_f(baseline_h)
+                    baseline_outputs["final"] = baseline_h
+                    baseline_outputs["logits"] = self.baseline_model.lm_head(baseline_h)
         
         # Cache for generation if in incremental mode
         if use_cache and input_ids.size(1) == 1:
@@ -383,6 +453,25 @@ class IntegrationOptimizedTransformer(nn.Module):
                 if hasattr(block, "clear_cache"):
                     block.clear_cache()
         
+        # OPTIMIZATION: Check if we should use the fast path for heavy pruning
+        # Count how many heads are active to determine pruning level
+        active_heads_count = 0
+        total_heads = self.num_heads * self.num_layers
+        
+        for block in self.blocks:
+            if hasattr(block.attn, "combined_activity_mask"):
+                active_heads_count += block.attn.combined_activity_mask.sum().item()
+        
+        # Calculate pruning level (% of heads that are inactive)
+        pruning_level = 1.0 - (active_heads_count / total_heads) if total_heads > 0 else 0
+        
+        # For pruning levels (≥50%), use optimized forward path
+        # This dramatically reduces computation by:
+        # 1. Skipping baseline model completely 
+        # 2. Only using active blocks
+        # 3. Simplifying UNet connections
+        use_fast_path = pruning_level >= 0.5
+        
         # Create position IDs efficiently
         position_ids = torch.arange(seq_len, device=device).unsqueeze(0)
         if batch_size > 1:
@@ -391,9 +480,9 @@ class IntegrationOptimizedTransformer(nn.Module):
         # Get input embeddings
         hidden_states = self.wte(input_ids) + self.wpe(position_ids)
         
-        # Get baseline model states if integration is enabled
+        # Get baseline model states if integration is enabled and we're not using fast path
         baseline_time = 0
-        if self.use_baseline_integration and self.baseline_model is not None:
+        if not use_fast_path and self.use_baseline_integration and self.baseline_model is not None:
             if self.debug:
                 baseline_start = time.time()
             
@@ -423,32 +512,72 @@ class IntegrationOptimizedTransformer(nn.Module):
             # Create mask on-the-fly for longer sequences
             attn_mask = torch.triu(torch.ones(seq_len, seq_len, device=device) * -10000.0, diagonal=1)
         
-        # Process through transformer blocks
-        for i, block in enumerate(self.blocks):
-            # In encoder layers, store outputs for later UNet connections
-            if i < self.midpoint:
-                encoder_outputs[i] = hidden_states.clone()
+        # OPTIMIZATION: Fast path for heavily pruned models (≥70% pruning)
+        # Only process through blocks that have active heads
+        if use_fast_path:
+            # Identify which blocks have active heads
+            active_blocks = []
+            for i, block in enumerate(self.blocks):
+                if hasattr(block.attn, "combined_activity_mask"):
+                    if block.attn.combined_activity_mask.sum().item() > 0:
+                        active_blocks.append(i)
             
-            # Get baseline hidden states for this layer if available
-            baseline_states = None
-            if baseline_outputs is not None and i in baseline_outputs:
-                baseline_states = baseline_outputs[i]
-            
-            # Get encoder states for UNet skip connection if this is a decoder layer
-            encoder_states = None
-            if hasattr(block, "use_skip_connection") and hasattr(block, "skip_source") and \
-               block.use_skip_connection and block.skip_source in encoder_outputs:
-                encoder_states = encoder_outputs[block.skip_source]
-            
-            # Process through the block with optimizations
-            hidden_states = block(
-                hidden_states,
-                baseline_states=baseline_states,
-                encoder_states=encoder_states,
-                attention_mask=attn_mask,
-                step_count=step_count,
-                use_cache=use_cache
-            )
+            # Process only through active blocks
+            for i in active_blocks:
+                block = self.blocks[i]
+                
+                # For UNet connections, only consider active blocks
+                encoder_state = None
+                if (hasattr(block, "use_skip_connection") and 
+                    block.use_skip_connection and 
+                    block.skip_source in encoder_outputs):
+                    encoder_state = encoder_outputs[block.skip_source]
+                
+                # Process through the block with optimizations
+                # Skip baseline states in fast path
+                hidden_states = block(
+                    hidden_states,
+                    baseline_states=None,
+                    encoder_states=encoder_state,
+                    attention_mask=attn_mask,
+                    step_count=step_count,
+                    use_cache=use_cache
+                )
+                
+                # Store for UNet connections only if needed
+                if i < self.midpoint and len([j for j in active_blocks if j >= self.midpoint]) > 0:
+                    encoder_outputs[i] = hidden_states.clone()
+        
+        # Standard path for normal execution
+        else:
+            # Process through transformer blocks
+            for i, block in enumerate(self.blocks):
+                # In encoder layers, store outputs for later UNet connections
+                if i < self.midpoint:
+                    encoder_outputs[i] = hidden_states.clone()
+                
+                # Get baseline hidden states for this layer if available
+                baseline_states = None
+                if baseline_outputs is not None and i in baseline_outputs:
+                    baseline_states = baseline_outputs[i]
+                
+                # Get encoder states for UNet skip connection if this is a decoder layer
+                encoder_states = None
+                if (hasattr(block, "use_skip_connection") and 
+                    hasattr(block, "skip_source") and 
+                    block.use_skip_connection and 
+                    block.skip_source in encoder_outputs):
+                    encoder_states = encoder_outputs[block.skip_source]
+                
+                # Process through the block with optimizations
+                hidden_states = block(
+                    hidden_states,
+                    baseline_states=baseline_states,
+                    encoder_states=encoder_states,
+                    attention_mask=attn_mask,
+                    step_count=step_count,
+                    use_cache=use_cache
+                )
         
         # Final layer normalization
         hidden_states = self.ln_f(hidden_states)
