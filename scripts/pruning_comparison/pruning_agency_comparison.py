@@ -410,6 +410,15 @@ def evaluate_model(model, tokenizer, prompts, num_tokens, temperature=0.7,
                 
                 # Create attention mask (all 1s since we don't have padding)
                 attention_mask = torch.ones_like(input_ids)
+                
+                # Make sure inputs match model precision
+                model_dtype = next(model.parameters()).dtype
+                input_dtype = input_ids.dtype
+                if input_dtype != model_dtype:
+                    if not quiet:
+                        print(f"    Converting inputs from {input_dtype} to {model_dtype} to match model precision")
+                    input_ids = input_ids.to(model_dtype)
+                    attention_mask = attention_mask.to(model_dtype)
                     
                 output_ids = generate_method(
                     input_ids,
