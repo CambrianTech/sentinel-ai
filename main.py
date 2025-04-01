@@ -27,7 +27,8 @@ def generate_sample_output(model, tokenizer, prompt, device, max_length=50, temp
             temperature=temperature,
             top_k=top_k if top_k > 0 else None,
             top_p=top_p,
-            pad_token_id=tokenizer.eos_token_id
+            pad_token_id=tokenizer.eos_token_id,
+            no_repeat_ngram_size=3  # Prevent 3-gram repetition loops
         )
         
     # Inspect logits of known input

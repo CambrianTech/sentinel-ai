@@ -19,7 +19,19 @@ def load_adaptive_model_gpt(model_name, baseline_model, config, device):
         print("FFN inner dim not found in config")
     print("=====================\n")
 
-    model = AdaptiveCausalLmWrapper(config, baseline_model.get_input_embeddings(), baseline_model.get_input_embeddings()).to(device)
+    # Get the token embeddings and position embeddings from the baseline model
+    token_embeddings = baseline_model.get_input_embeddings()
+    
+    # Get position embeddings correctly
+    # For GPT2, the position embeddings are stored in transformer.wpe
+    if hasattr(baseline_model, 'transformer') and hasattr(baseline_model.transformer, 'wpe'):
+        position_embeddings = baseline_model.transformer.wpe
+    else:
+        # Fallback - create new position embeddings
+        position_embeddings = nn.Embedding(config.max_position_embeddings, config.hidden_size)
+        print("Warning: Could not get position embeddings from baseline model, created new ones")
+    
+    model = AdaptiveCausalLmWrapper(config, token_embeddings, position_embeddings).to(device)
     model.eval()
 
     baseline_state = baseline_model.state_dict()
@@ -88,10 +100,24 @@ def load_adaptive_model_gpt(model_name, baseline_model, config, device):
         except Exception:
             skipped.extend([in_w, in_b, out_w, out_b])
 
-        # Gate
+        # Gate - initialize with slightly different values across heads
+        # This breaks initial symmetry which helps during training
         try:
             gate_key = f"blocks.{layer_idx}.attn.gate"
-            adaptive_state[gate_key].fill_(1.0)
+            # Instead of all gates being 1.0, use a graduated approach
+            # Core heads (middle ones) get higher values than peripheral heads
+            num_heads = config.n_head if hasattr(config, "n_head") else config.num_attention_heads
+            gate_values = torch.ones_like(adaptive_state[gate_key])
+            
+            # Apply slight variations to initial gates to break symmetry
+            # Middle heads stay closer to 1.0, outer heads get slightly lower values
+            for head_idx in range(num_heads):
+                # Calculate distance from middle (0.0 to 1.0)
+                distance = abs(head_idx - (num_heads-1)/2) / ((num_heads-1)/2)
+                # Reduce gate value slightly based on distance (1.0 → 0.9)
+                gate_values[head_idx] = 1.0 - 0.1 * distance
+                
+            adaptive_state[gate_key].copy_(gate_values)
             loaded.append(gate_key)
         except Exception:
             skipped.append(gate_key)
@@ -154,8 +180,17 @@ def load_adaptive_model_gpt(model_name, baseline_model, config, device):
         fuse_b = f"blocks.{i}.skip_fuse.bias"
         if fuse_w in adaptive_state:
             with torch.no_grad():
-                adaptive_state[fuse_w].zero_()
+                # Initialize skip connection weights with very small values to start
+                # Standard practice for residual/skip connections - use small standard deviation
+                # Too large initialization causes skip connections to dominate
+                adaptive_state[fuse_w].normal_(mean=0.0, std=0.01)
                 adaptive_state[fuse_b].zero_()
+                
+                # Apply additional scaling to deep layers (closer to output) to prevent instability
+                if i > config.n_layer // 2:
+                    layer_scale = 1.0 - (i - config.n_layer // 2) / (config.n_layer // 2) * 0.5
+                    adaptive_state[fuse_w] *= layer_scale
+                    
             loaded.extend([fuse_w, fuse_b])
 
     print(f"✅ Adaptive model initialized from {model_name} weights ({len(loaded)}/{len(adaptive_state)} parameters loaded)")
