@@ -7,10 +7,10 @@ This document details the current support status for different model architectur
 | Family | Architecture | Example Models | Status | Notes |
 |--------|--------------|----------------|--------|-------|
 | **GPT-2** | Decoder-only | distilgpt2, gpt2, gpt2-medium | ✅ Full Support | Thoroughly tested and optimized |
-| **OPT** | Decoder-only | facebook/opt-125m | ⚠️ Partial Support | Basic models work, larger ones may have issues |
+| **OPT** | Decoder-only | facebook/opt-125m | 🟠 Partial Support | Basic models work, larger ones may have issues |
 | **Pythia/GPT-NeoX** | Decoder-only | EleutherAI/pythia-70m, pythia-160m | ✅ Full Support | Successfully loaded and tested |
 | **BLOOM** | Decoder-only | bigscience/bloom-560m | ✅ Full Support | Uses hybrid adapter with original ALiBi attention |
-| **Llama** | Decoder-only | meta-llama/Llama-2-7b-hf | ⚠️ Limited Support | Requires HF token, not fully tested |
+| **Llama** | Decoder-only | TinyLlama-1.1B models | 🟠 Partial Support | Tested with TinyLlama variants, other Llama models may need authentication |
 
 ## Detailed Status by Family
 
@@ -68,12 +68,19 @@ This document details the current support status for different model architectur
 
 | Model | Loading | Inference | Quality | Notes |
 |-------|---------|-----------|---------|-------|
-| meta-llama/Llama-2-7b-hf | ⚠️ | ⚠️ | Unknown | Requires HuggingFace access token, not fully tested |
+| meta-llama/Llama-2-7b-hf | ⚠️ | ⚠️ | Unknown | Requires HuggingFace access token, not tested |
+| TinyLlama/TinyLlama-1.1B-Chat-v1.0 | ✅ | ✅ | Good | Uses hybrid adapter, coherent outputs |
+| TinyLlama/TinyLlama-1.1B-Chat-v0.6 | ✅ | ✅ | Good | Uses hybrid adapter, coherent outputs |
+| TinyLlama/TinyLlama-1.1B-step-50K-105b | ✅ | ✅ | Good | Uses hybrid adapter, coherent outputs |
+| openlm-research/open_llama_3b | 🟠 | 🟠 | Unknown | Requires additional dependencies (blobfile, tiktoken) |
+| hf-internal-testing/tiny-random-LlamaForCausalLM | ✅ | ✅ | Poor | Tiny test model (2 layers), produces gibberish |
 
 **Notes:**
-- Llama models require authentication with the HuggingFace API
-- Support is implemented but not thoroughly tested due to access requirements
-- Llama uses SwiGLU activation and rotary position encoding which our loader handles
+- Some Llama models (like Llama-2) require authentication with the HuggingFace API
+- Our Llama hybrid adapter preserves Llama's rotary position embeddings (RoPE) and SwiGLU activation
+- The adapter provides a compatible interface with our adaptive architecture
+- No parameter growth in adapted models since we use the original model internals
+- TinyLlama models are fully accessible and work well with our adapter
 
 ## Sample Outputs
 
@@ -101,6 +108,11 @@ EleutherAI/pythia-70m: exly-edcase, ")4 seat. 'cked oper-' better.,6ck => and: n
 bigscience/bloom-560m: replacing the original conventional power control system with a novel, more compact and robust approach. The proposed method is very effective in reducing operating costs of transformers due to its low total cost.
 ```
 
+### Llama Family
+```
+TinyLlama/TinyLlama-1.1B-Chat-v1.0: improve their ability to capture dependencies and generate contextualized representations of text. In particular, it consists in using a new layer for generating the output word embedding from hidden states produced at each
+```
+
 ## Usage Examples
 
 Here's how to use different model architectures with Sentinel-AI:
@@ -124,6 +136,10 @@ adaptive_model = load_adaptive_model("EleutherAI/pythia-70m", baseline_model, "c
 # Load a BLOOM model
 baseline_model = load_baseline_model("bigscience/bloom-560m", "cpu")
 adaptive_model = load_adaptive_model("bigscience/bloom-560m", baseline_model, "cpu")
+
+# Load a Llama model
+baseline_model = load_baseline_model("TinyLlama/TinyLlama-1.1B-Chat-v1.0", "cpu")
+adaptive_model = load_adaptive_model("TinyLlama/TinyLlama-1.1B-Chat-v1.0", baseline_model, "cpu")
 ```
 
 ## Command Line Usage
@@ -142,6 +158,9 @@ python main.py --model_name EleutherAI/pythia-70m --prompt "Your prompt here"
 
 # BLOOM
 python main.py --model_name bigscience/bloom-560m --prompt "Your prompt here"
+
+# Llama
+python main.py --model_name TinyLlama/TinyLlama-1.1B-Chat-v1.0 --prompt "Your prompt here"
 ```
 
 ## Technical Details
@@ -162,6 +181,13 @@ For BLOOM models, we use a specialized hybrid approach:
 - A thin adapter layer provides compatibility with our adaptive architecture
 - Gate values are supported for compatibility with our controller framework
 - This approach maintains output quality while enabling integration with our system
+
+#### Llama Adaptation Approach
+For Llama models, we use a similar specialized hybrid approach:
+- The original Llama model's rotary position embeddings (RoPE) and SwiGLU activation are preserved
+- A thin adapter layer provides compatibility with our adaptive architecture
+- Gate values are supported for compatibility with our controller framework
+- This approach maintains output quality while enabling integration with our system
 ## Ongoing Improvements
 
 We're actively working to improve multi-model support:
@@ -170,9 +196,10 @@ We're actively working to improve multi-model support:
 2. Improve generation parameter settings for each model family
 3. Add support for more model families (T5, BART, etc.)
 4. Optimize loading process for faster initialization
-5. Extend and test the hybrid adapter approach for Llama models
+5. Extend the hybrid adapter approach to other model families (Falcon, MPT, Phi)
 6. Implement multi-model profiling and benchmarking in standard workflow
 7. Improve disk space management for large model caches
+8. Test larger Llama models with our hybrid adapter
 
 ## Reporting Issues
 

@@ -146,8 +146,8 @@ Sentinel-AI is a research framework for adaptive transformer models that restruc
 - **Per-Head Learning Rates** — Dynamic learning rate adjustments during pruning and regrowth
 - **Pruned Model Fine-tuning** — Specialized techniques to recover accuracy in pruned models
 - **Multi-Model Support** — Compatible with various architectures:
-  - ✅ **Fully Supported**: GPT-2 family (distilgpt2, gpt2), Pythia/GPT-NeoX, BLOOM
-  - ⚠️ **Partially Supported**: OPT (smaller models), Llama (requires HF token)
+  - ✅ **Fully Supported**: GPT-2 family (distilgpt2, gpt2), Pythia/GPT-NeoX, BLOOM, TinyLlama
+  - 🟠 **Partially Supported**: OPT (smaller models), Llama (some require HF token)
 - **Progressive Growth** — Start with heavily pruned models and grow strategically during training
 - **Attention Head Agency** — Heads can signal internal states like "overloaded" or "withdrawn" with full consent tracking
 - **Task-Specific Specialization** — Automatic detection and optimization of attention patterns based on task
@@ -227,6 +227,7 @@ python main.py --model_name distilgpt2 --prompt "Your prompt here"
 python main.py --model_name facebook/opt-125m --prompt "Your prompt here"
 python main.py --model_name EleutherAI/pythia-70m --prompt "Your prompt here"
 python main.py --model_name bigscience/bloom-560m --prompt "Your prompt here"
+python main.py --model_name TinyLlama/TinyLlama-1.1B-Chat-v1.0 --prompt "Your prompt here"
 
 # Run model compatibility test suite
 python test_model_support.py --verbose
@@ -361,8 +362,10 @@ Sentinel-AI supports multiple model architectures with varying levels of compati
 | **EleutherAI/pythia-70m** | 70M | 85M | ✅ Full | Good compatibility, coherence varies |
 | **EleutherAI/pythia-160m** | 162M | 189M | ✅ Full | Good compatibility, coherence varies |
 | **bigscience/bloom-560m** | 559M | 581M | ✅ Full | Good compatibility, multilingual outputs |
-| **facebook/opt-125m** | 125M | 138M | ✅ Partial | Works correctly, coherence varies |
+| **facebook/opt-125m** | 125M | 138M | 🟠 Partial | Works correctly, coherence varies |
 | **facebook/opt-350m** | 331M | 347M | ⚠️ Issues | Loads but fails during inference (tensor mismatch) |
+| **TinyLlama/TinyLlama-1.1B-Chat-v1.0** | 1.1B | ~1.2B | ✅ Full | Works with hybrid adapter, good coherence |
+| **TinyLlama/TinyLlama-1.1B-Chat-v0.6** | 1.1B | ~1.2B | ✅ Full | Works with hybrid adapter, good coherence |
 | **meta-llama/Llama-2-7b-hf** | 7B | ~7.4B | ⚠️ Limited | Not fully tested (requires HF token) |
 
 > **Parameter Count Note**: The adaptive model adds ~10-15% parameters for head-specific processing, agency controls, and skip connections.
