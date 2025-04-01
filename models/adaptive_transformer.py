@@ -51,7 +51,7 @@ class GatedMultiHeadSelfAttention(nn.Module):
                 "state": "active",  # active, overloaded, misaligned, withdrawn
                 "consent": True,    # Whether the head consents to activation
                 "utilization": 0.0, # Utilization metric (0.0-1.0)
-                "last_signal": 0    # Timestamp of last signal change (initialized to 0)
+                "last_signal": 0    # Timestamp of last signal change
             } for head_idx in range(num_heads)
         }
         
