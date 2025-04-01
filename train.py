@@ -7,6 +7,21 @@ This script implements the training procedure described in the paper, including:
 - Dynamic controller for adaptive head pruning
 - U-Net style skip connections
 - Metrics tracking and visualization
+- Controller learning rate scheduling
+- Early stopping based on gate activity plateaus
+
+Key features:
+1. Dynamic learning rate for controller: The controller's learning rate is automatically
+   scheduled to decrease over time, stabilizing gate values in later stages of training.
+
+2. Early stopping mechanism: Detects when gate activity plateaus across multiple updates,
+   preventing oscillations and stabilizing the pruning process.
+
+3. Head regrowth capability: The controller can reactivate previously pruned heads
+   based on importance metrics, allowing for dynamic architecture adaptation.
+
+4. U-Net skip connections: Hierarchical connections between encoder and decoder layers,
+   enabling richer representations and improved adaptation.
 """
 
 import os
@@ -122,7 +137,7 @@ def train(args):
         num_training_steps=num_training_steps
     )
     
-    # Initialize controller manager
+    # Initialize controller manager with enhanced configuration
     controller_config = {
         "controller_type": args.controller_type,
         "update_frequency": args.controller_update_freq,
@@ -131,7 +146,16 @@ def train(args):
         "controller_config": {
             "init_value": args.gate_init_value,
             "reg_weight": args.gate_reg_weight
-        }
+        },
+        # Learning rate scheduling for controller
+        "controller_lr": args.controller_lr,
+        "controller_lr_decay": args.controller_lr_decay,
+        "controller_lr_decay_steps": args.controller_lr_decay_steps,
+        "min_controller_lr": args.min_controller_lr,
+        # Early stopping configuration
+        "enable_early_stopping": args.enable_early_stopping,
+        "early_stopping_patience": args.early_stopping_patience,
+        "min_gate_change": args.min_gate_change
     }
     controller = ControllerManager(model, controller_config)
     
@@ -216,7 +240,7 @@ def train(args):
                 # Get current learning rate
                 current_lr = lr_scheduler.get_last_lr()[0]
                 
-                # Log metrics
+                # Log metrics including controller-specific information
                 metrics = {
                     "loss": loss.item(),
                     "reg_loss": reg_loss.item(),
@@ -225,6 +249,15 @@ def train(args):
                     "epoch": epoch,
                     "pruned_percent": controller._get_pruned_percent()
                 }
+                
+                # Add controller metrics if available from update
+                if isinstance(controller_update, dict):
+                    if "controller_lr" in controller_update:
+                        metrics["controller_lr"] = controller_update["controller_lr"]
+                    if "plateau_counter" in controller_update:
+                        metrics["plateau_counter"] = controller_update["plateau_counter"]
+                    if "early_stopping_triggered" in controller_update and controller_update["early_stopping_triggered"]:
+                        metrics["early_stopping"] = 1.0
                 
                 metrics_logger.log_metrics(metrics, global_step)
                 
@@ -377,6 +410,24 @@ def parse_args():
                         help="Weight for L1 regularization of gates")
     parser.add_argument("--max_pruned_heads", type=float, default=0.3,
                         help="Maximum fraction of heads to prune")
+    
+    # Controller learning rate scheduling
+    parser.add_argument("--controller_lr", type=float, default=0.01,
+                        help="Initial learning rate for controller updates")
+    parser.add_argument("--controller_lr_decay", type=float, default=0.95,
+                        help="Decay factor for controller learning rate")
+    parser.add_argument("--controller_lr_decay_steps", type=int, default=1000,
+                        help="Number of steps between learning rate decays")
+    parser.add_argument("--min_controller_lr", type=float, default=0.001,
+                        help="Minimum controller learning rate")
+    
+    # Early stopping for controller
+    parser.add_argument("--enable_early_stopping", action="store_true",
+                        help="Enable early stopping based on gate activity plateau")
+    parser.add_argument("--early_stopping_patience", type=int, default=5,
+                        help="Number of updates with minimal change before stopping")
+    parser.add_argument("--min_gate_change", type=float, default=0.01,
+                        help="Minimum gate change to continue updates")
     
     # U-Net configuration
     parser.add_argument("--unet_start_epoch", type=int, default=1,

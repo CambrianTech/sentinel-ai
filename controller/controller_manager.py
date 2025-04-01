@@ -15,6 +15,8 @@ class ControllerManager:
     3. Collecting head metrics
     4. Applying the controller decisions to model gates
     5. Managing the overall pruning strategy
+    6. Scheduling learning rate adjustments for controller
+    7. Implementing early stopping based on gate activity
     """
     
     def __init__(self, model, config=None):
@@ -52,6 +54,19 @@ class ControllerManager:
         self.warmup_steps = self.config.get("warmup_steps", 500)  # Wait before pruning
         self.max_pruned_heads = self.config.get("max_pruned_heads", 0.3)  # Max fraction to prune
         
+        # Initialize learning rate scheduling for controller
+        self.controller_lr = self.config.get("controller_lr", 0.01)
+        self.controller_lr_decay = self.config.get("controller_lr_decay", 0.95)
+        self.controller_lr_decay_steps = self.config.get("controller_lr_decay_steps", 1000)
+        self.min_controller_lr = self.config.get("min_controller_lr", 0.001)
+        
+        # Initialize early stopping parameters
+        self.patience = self.config.get("early_stopping_patience", 5)  # Number of checks before stopping
+        self.min_gate_change = self.config.get("min_gate_change", 0.01)  # Minimum change to continue
+        self.plateau_counter = 0
+        self.last_avg_gate_value = None
+        self.early_stopping_active = self.config.get("enable_early_stopping", True)
+        
         # Track gate activity for monitoring
         self.gate_history = []
     
@@ -78,6 +93,10 @@ class ControllerManager:
         if self.current_step % self.update_frequency != 0:
             return {"status": "skipped", "step": self.current_step}
         
+        # Update controller learning rate (decay over time)
+        if self.current_step % self.controller_lr_decay_steps == 0:
+            self._update_controller_learning_rate()
+        
         # Collect metrics if not provided
         if metrics_dict is None:
             metrics_dict = collect_head_metrics(
@@ -86,6 +105,9 @@ class ControllerManager:
                 loss_fn=loss_fn,
                 device=device
             )
+        
+        # Add learning rate to metrics before updating controller
+        metrics_dict["controller_lr"] = torch.tensor(self.controller_lr, device=device)
         
         # Update controller gates based on metrics
         self.controller.update_gates(metrics_dict)
@@ -99,11 +121,19 @@ class ControllerManager:
         # Track gate activity
         self.gate_history.append(self._get_active_gates())
         
+        # Check for early stopping based on gate activity plateau
+        early_stopping_triggered = False
+        if self.early_stopping_active:
+            early_stopping_triggered = self._check_gate_activity_plateau(gate_values)
+        
         return {
             "status": "updated",
             "step": self.current_step,
             "active_gates": self._get_active_gates(),
-            "pruned_percent": self._get_pruned_percent()
+            "pruned_percent": self._get_pruned_percent(),
+            "controller_lr": self.controller_lr,
+            "early_stopping_triggered": early_stopping_triggered,
+            "plateau_counter": self.plateau_counter
         }
     
     def _apply_gates_to_model(self, gate_values):
@@ -195,6 +225,64 @@ class ControllerManager:
                 else:
                     self.model.blocks[decoder_index].use_skip_connection = False
     
+    def _update_controller_learning_rate(self):
+        """
+        Update the learning rate for controller updates according to the decay schedule.
+        
+        This reduces the magnitude of gate updates over time as the model converges,
+        providing more stability in the latter stages of training.
+        """
+        # Apply decay to current learning rate
+        self.controller_lr = max(
+            self.controller_lr * self.controller_lr_decay,
+            self.min_controller_lr
+        )
+        
+        # Log the learning rate update
+        if self.controller_lr <= self.min_controller_lr:
+            print(f"🔄 Controller learning rate reached minimum value: {self.controller_lr:.6f}")
+        else:
+            print(f"🔄 Controller learning rate updated: {self.controller_lr:.6f}")
+            
+    def _check_gate_activity_plateau(self, gate_values):
+        """
+        Check if gate activity has plateaued over multiple updates.
+        
+        This implements early stopping based on gate activity to prevent
+        oscillations and stabilize the pruning process.
+        
+        Args:
+            gate_values: Current gate values from controller
+            
+        Returns:
+            Boolean indicating whether early stopping should be triggered
+        """
+        # Calculate average gate value across all active gates
+        avg_gate = torch.mean(gate_values).item()
+        
+        # Skip if this is the first check
+        if self.last_avg_gate_value is None:
+            self.last_avg_gate_value = avg_gate
+            return False
+        
+        # Calculate absolute change in average gate value
+        gate_change = abs(avg_gate - self.last_avg_gate_value)
+        
+        # Check if change is below threshold
+        if gate_change < self.min_gate_change:
+            self.plateau_counter += 1
+            if self.plateau_counter >= self.patience:
+                print(f"⚠️ Gate activity plateau detected! Early stopping controller updates.")
+                print(f"   Average gate value: {avg_gate:.4f}, Change: {gate_change:.4f}")
+                return True
+        else:
+            # Reset counter if we see significant changes
+            self.plateau_counter = 0
+        
+        # Update reference value for next check
+        self.last_avg_gate_value = avg_gate
+        return False
+    
     def save_state_dict(self):
         """
         Get a state dictionary for saving the controller state.
@@ -207,6 +295,9 @@ class ControllerManager:
             "config": self.config,
             "current_step": self.current_step,
             "gate_history": self.gate_history,
+            "controller_lr": self.controller_lr,
+            "plateau_counter": self.plateau_counter,
+            "last_avg_gate_value": self.last_avg_gate_value
         }
     
     def load_state_dict(self, state_dict):
@@ -220,6 +311,9 @@ class ControllerManager:
         self.config = state_dict.get("config", self.config)
         self.current_step = state_dict.get("current_step", 0)
         self.gate_history = state_dict.get("gate_history", [])
+        self.controller_lr = state_dict.get("controller_lr", self.controller_lr)
+        self.plateau_counter = state_dict.get("plateau_counter", 0)
+        self.last_avg_gate_value = state_dict.get("last_avg_gate_value", None)
         
         # Apply the loaded gates to the model
         self._apply_gates_to_model(self.controller())
