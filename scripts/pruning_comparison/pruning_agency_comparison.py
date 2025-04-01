@@ -290,7 +290,7 @@ def load_prompts(prompt_file):
     return prompts
 
 def evaluate_model(model, tokenizer, prompts, num_tokens, temperature=0.7, 
-                batch_size=1, device="cpu", memory_logging=False, max_prompts=None):
+                batch_size=1, device="cpu", memory_logging=False, max_prompts=None, quiet=False):
     """
     Evaluate model performance on a set of prompts with comprehensive metrics.
     
@@ -304,6 +304,7 @@ def evaluate_model(model, tokenizer, prompts, num_tokens, temperature=0.7,
         device: Device to run on ("cpu" or "cuda")
         memory_logging: Whether to log memory usage
         max_prompts: Maximum number of prompts to evaluate
+        quiet: If True, reduce logging verbosity
         
     Returns:
         Dictionary of performance metrics
@@ -343,11 +344,15 @@ def evaluate_model(model, tokenizer, prompts, num_tokens, temperature=0.7,
     # Process prompts (in batches if batch_size > 1)
     for i in range(0, len(prompts), batch_size):
         batch_prompts = prompts[i:i+batch_size]
-        print(f"Processing batch {i//batch_size + 1}/{(len(prompts) + batch_size - 1)//batch_size} ({len(batch_prompts)} prompts)")
+        # Only print batch progress if not in quiet mode
+        if not quiet:
+            print(f"Processing batch {i//batch_size + 1}/{(len(prompts) + batch_size - 1)//batch_size} ({len(batch_prompts)} prompts)")
         
         for prompt_idx, prompt in enumerate(batch_prompts):
             prompt_num = i + prompt_idx + 1
-            print(f"  Evaluating prompt {prompt_num}/{len(prompts)}: {prompt[:50]}...")
+            # Skip per-prompt logging in quiet mode
+            if not quiet:
+                print(f"  Evaluating prompt {prompt_num}/{len(prompts)}: {prompt[:50]}...")
             
             try:
                 # Clear cache if on CUDA
@@ -437,12 +442,14 @@ def evaluate_model(model, tokenizer, prompts, num_tokens, temperature=0.7,
                 results["repetition"].append(repetition)
                 results["outputs"].append(output)
                 
-                # Print progress info
-                print(f"    Generated {tokens_generated} tokens in {generation_time:.2f}s "
-                     f"({tokens_per_second:.2f} tokens/sec), perplexity: {perplexity:.2f}")
+                # Print progress info (skip in quiet mode)
+                if not quiet:
+                    print(f"    Generated {tokens_generated} tokens in {generation_time:.2f}s "
+                         f"({tokens_per_second:.2f} tokens/sec), perplexity: {perplexity:.2f}")
                 
             except Exception as e:
-                print(f"Error processing prompt {prompt_num}: {str(e)}")
+                if not quiet:
+                    print(f"Error processing prompt {prompt_num}: {str(e)}")
                 failures += 1
     
     # Handle case where all prompts failed
@@ -599,7 +606,8 @@ def run_pruning_comparison(args):
                     batch_size=args.batch_size,
                     device=args.device,
                     memory_logging=args.memory_logging,
-                    max_prompts=args.max_prompts
+                    max_prompts=args.max_prompts,
+                    quiet=args.quiet
                 )
                 
                 log(f"Evaluating agency model...")
@@ -612,7 +620,8 @@ def run_pruning_comparison(args):
                     batch_size=args.batch_size,
                     device=args.device,
                     memory_logging=args.memory_logging,
-                    max_prompts=args.max_prompts
+                    max_prompts=args.max_prompts,
+                    quiet=args.quiet
                 )
                 
                 # Store iteration results
@@ -634,8 +643,13 @@ def run_pruning_comparison(args):
                             f.write(output + "\n\n")
                 
                 # Print comparison for this iteration
-                # Only show detailed per-iteration results if not in quiet mode
-                if not hasattr(args, 'quiet') or not args.quiet:
+                # Skip per-iteration logging entirely in quiet mode
+                if args.quiet:
+                    # Just calculate improvements silently
+                    speed_improvement = ((agency_results['tokens_per_second'] / baseline_results['tokens_per_second']) - 1) * 100
+                    quality_improvement = ((baseline_results['perplexity'] / agency_results['perplexity']) - 1) * 100
+                else:
+                    # Show detailed per-iteration results
                     log(f"\nIteration {iteration+1} Results at {level}% pruning, temp={temperature}:")
                     log(f"  Baseline: {baseline_results['tokens_per_second']:.2f} tokens/sec, "
                          f"perplexity: {baseline_results['perplexity']:.2f}, "
@@ -683,18 +697,20 @@ def run_pruning_comparison(args):
             results[f"temperature_{temperature}"]["agency"][level] = agency_avg
             
             # Print averaged results
-            # Always show final averaged results
-            log(f"\nAveraged Results at {level}% pruning, temp={temperature}:", force=True)
+            # Only force display of key results at highest pruning level and in final temperature
+            force_display = (level == max(pruning_levels) and temperature == temperatures[-1])
+            
+            log(f"\nAveraged Results at {level}% pruning, temp={temperature}:", force=force_display)
             log(f"  Baseline: {baseline_avg['tokens_per_second']['mean']:.2f} ± {baseline_avg['tokens_per_second']['std']:.2f} tokens/sec, "
-                 f"perplexity: {baseline_avg['perplexity']['mean']:.2f} ± {baseline_avg['perplexity']['std']:.2f}", force=True)
+                 f"perplexity: {baseline_avg['perplexity']['mean']:.2f} ± {baseline_avg['perplexity']['std']:.2f}", force=force_display)
             log(f"  Agency:   {agency_avg['tokens_per_second']['mean']:.2f} ± {agency_avg['tokens_per_second']['std']:.2f} tokens/sec, "
-                 f"perplexity: {agency_avg['perplexity']['mean']:.2f} ± {agency_avg['perplexity']['std']:.2f}", force=True)
+                 f"perplexity: {agency_avg['perplexity']['mean']:.2f} ± {agency_avg['perplexity']['std']:.2f}", force=force_display)
             
             # Calculate improvement
             speed_improvement = ((agency_avg['tokens_per_second']['mean'] / baseline_avg['tokens_per_second']['mean']) - 1) * 100
             quality_improvement = ((baseline_avg['perplexity']['mean'] / agency_avg['perplexity']['mean']) - 1) * 100
             
-            log(f"  Improvement: {speed_improvement:.1f}% faster, {quality_improvement:.1f}% better quality", force=True)
+            log(f"  Improvement: {speed_improvement:.1f}% faster, {quality_improvement:.1f}% better quality", force=force_display)
             
             # Save incremental results after each pruning level
             incremental_results_file = output_dir / f"incremental_results_temp{temperature}.json"
@@ -719,8 +735,8 @@ def run_pruning_comparison(args):
     except Exception as e:
         latest_link_msg = f"Note: Could not create symlink to latest results: {e}"
     
-    log(f"\nAll results saved to {output_dir}", force=True)
-    log(latest_link_msg, force=True)
+    # Just show a brief message for cleaner output
+    log(f"Experiment completed. Results saved to {output_dir}", force=True)
     
     return results, output_dir
 
