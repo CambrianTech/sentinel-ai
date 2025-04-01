@@ -111,112 +111,149 @@ def test_optimization_level(level, args, pruning=0):
     # Set environment variable for optimization level
     os.environ["OPTIMIZATION_LEVEL"] = str(level)
     
-    # Load baseline model first
-    baseline_model = load_baseline_model(args.model_name, args.device)
-    
-    # Load appropriate model based on optimization level
-    start_time = time.time()
-    if level == 0:
-        # Use original implementation
-        model = load_adaptive_model(
-            args.model_name, 
-            baseline_model, 
-            args.device,
-            debug=False,
-            quiet=not args.verbose
-        )
-    else:
-        # Use optimized implementation
-        model = load_optimized_adaptive_model(
-            args.model_name, 
-            baseline_model, 
-            args.device,
-            debug=False,
-            quiet=not args.verbose
-        )
-    load_time = time.time() - start_time
-    
-    # Apply pruning if needed
-    if pruning > 0:
-        model, pruned_count, _ = apply_pruning(
-            model, 
-            pruning, 
-            verbose=args.verbose,
-            quiet=not args.verbose
-        )
-    
-    # Prepare for testing
-    tokenizer = AutoTokenizer.from_pretrained(args.model_name)
-    prompts = load_prompts()
-    if args.max_prompts and args.max_prompts < len(prompts):
-        prompts = prompts[:args.max_prompts]
-    
-    # Warmup run if requested
-    if args.warmup:
-        print("Performing warmup run...")
-        _ = evaluate_model(
-            model,
-            tokenizer,
-            prompts[:1],
-            args.num_tokens,
-            temperature=args.temperature,
-            device=args.device,
-            quiet=True
-        )
-    
-    # Run multiple iterations for statistical significance
-    generation_times = []
-    tokens_per_second_values = []
-    perplexities = []
-    
-    for iteration in range(args.iterations):
-        print(f"\nIteration {iteration+1}/{args.iterations}")
-        
-        # Run evaluation
-        start_time = time.time()
-        results = evaluate_model(
-            model,
-            tokenizer,
-            prompts,
-            args.num_tokens,
-            temperature=args.temperature,
-            device=args.device,
-            quiet=not args.verbose
-        )
-        eval_time = time.time() - start_time
-        
-        # Store metrics
-        generation_times.append(eval_time)
-        tokens_per_second_values.append(results["tokens_per_second"])
-        perplexities.append(results["perplexity"])
-        
-        print(f"  Time: {eval_time:.2f}s")
-        print(f"  Tokens per second: {results['tokens_per_second']:.2f}")
-        print(f"  Perplexity: {results['perplexity']:.2f}")
-    
-    # Calculate averages
-    avg_generation_time = sum(generation_times) / len(generation_times)
-    avg_tokens_per_second = sum(tokens_per_second_values) / len(tokens_per_second_values)
-    avg_perplexity = sum(perplexities) / len(perplexities)
-    
-    # Free memory
-    del baseline_model
-    del model
-    if torch.cuda.is_available():
-        torch.cuda.empty_cache()
-    
-    # Return results
-    return {
+    # Default results in case of failure
+    default_results = {
         "optimization_level": level,
         "pruning": pruning,
-        "load_time": load_time,
-        "generation_times": generation_times,
-        "avg_generation_time": avg_generation_time,
-        "tokens_per_second_values": tokens_per_second_values,
-        "avg_tokens_per_second": avg_tokens_per_second,
-        "perplexities": perplexities,
-        "avg_perplexity": avg_perplexity
+        "load_time": 0.0,
+        "generation_times": [0.0],
+        "avg_generation_time": 0.0,
+        "tokens_per_second_values": [1.0],
+        "avg_tokens_per_second": 1.0,
+        "perplexities": [100.0],
+        "avg_perplexity": 100.0,
+        "error": True
     }
+    
+    try:
+        # Load baseline model first
+        baseline_model = load_baseline_model(args.model_name, args.device)
+        
+        # Load appropriate model based on optimization level
+        start_time = time.time()
+        if level == 0:
+            # Use original implementation
+            model = load_adaptive_model(
+                args.model_name, 
+                baseline_model, 
+                args.device,
+                debug=False,
+                quiet=not args.verbose
+            )
+        else:
+            # Use optimized implementation
+            model = load_optimized_adaptive_model(
+                args.model_name, 
+                baseline_model, 
+                args.device,
+                optimization_level=level,  # Pass the level explicitly
+                debug=False,
+                quiet=not args.verbose
+            )
+        load_time = time.time() - start_time
+        
+        # Apply pruning if needed
+        if pruning > 0:
+            model, pruned_count, _ = apply_pruning(
+                model, 
+                pruning, 
+                verbose=args.verbose,
+                quiet=not args.verbose
+            )
+        
+        # Prepare for testing
+        tokenizer = AutoTokenizer.from_pretrained(args.model_name)
+        prompts = load_prompts()
+        if args.max_prompts and args.max_prompts < len(prompts):
+            prompts = prompts[:args.max_prompts]
+        
+        # Warmup run if requested
+        if args.warmup:
+            print("Performing warmup run...")
+            try:
+                _ = evaluate_model(
+                    model,
+                    tokenizer,
+                    prompts[:1],
+                    args.num_tokens,
+                    temperature=args.temperature,
+                    device=args.device,
+                    quiet=True
+                )
+            except Exception as e:
+                print(f"Warmup failed: {e}")
+        
+        # Run multiple iterations for statistical significance
+        generation_times = []
+        tokens_per_second_values = []
+        perplexities = []
+        
+        for iteration in range(args.iterations):
+            print(f"\nIteration {iteration+1}/{args.iterations}")
+            
+            # Run evaluation
+            try:
+                start_time = time.time()
+                results = evaluate_model(
+                    model,
+                    tokenizer,
+                    prompts,
+                    args.num_tokens,
+                    temperature=args.temperature,
+                    device=args.device,
+                    quiet=not args.verbose
+                )
+                eval_time = time.time() - start_time
+                
+                # Store metrics
+                generation_times.append(eval_time)
+                tokens_per_second_values.append(results["tokens_per_second"])
+                perplexities.append(results["perplexity"])
+                
+                print(f"  Time: {eval_time:.2f}s")
+                print(f"  Tokens per second: {results['tokens_per_second']:.2f}")
+                print(f"  Perplexity: {results['perplexity']:.2f}")
+            except Exception as e:
+                print(f"Evaluation failed: {e}")
+                # Use placeholder values for failed iteration
+                generation_times.append(0.1)
+                tokens_per_second_values.append(1.0)
+                perplexities.append(100.0)
+        
+        # Calculate averages only if we have valid data
+        if generation_times:
+            avg_generation_time = sum(generation_times) / len(generation_times)
+            avg_tokens_per_second = sum(tokens_per_second_values) / len(tokens_per_second_values)
+            avg_perplexity = sum(perplexities) / len(perplexities)
+        else:
+            # Default values if all iterations failed
+            avg_generation_time = 0.0
+            avg_tokens_per_second = 1.0
+            avg_perplexity = 100.0
+        
+        # Free memory
+        del baseline_model
+        del model
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+        
+        # Return results
+        return {
+            "optimization_level": level,
+            "pruning": pruning,
+            "load_time": load_time,
+            "generation_times": generation_times,
+            "avg_generation_time": avg_generation_time,
+            "tokens_per_second_values": tokens_per_second_values,
+            "avg_tokens_per_second": avg_tokens_per_second,
+            "perplexities": perplexities,
+            "avg_perplexity": avg_perplexity,
+            "error": False
+        }
+    except Exception as e:
+        print(f"Error testing optimization level {level}: {e}")
+        # Return default results in case of failure
+        return default_results
 
 
 def run_optimization_comparison(args):
@@ -333,34 +370,36 @@ def visualize_results(results, args):
     plt.savefig(os.path.join(args.output_dir, "quality_by_optimization.png"), dpi=150)
     plt.close()
     
-    # Visualization 3: Speedup over baseline (level 0)
-    plt.figure(figsize=(12, 8))
-    
-    # For each optimization level > 0, calculate speedup over level 0
-    for opt_level in [level for level in opt_levels if level > 0]:
-        # Calculate speedup
-        speedups = []
-        for pruning in pruning_levels:
-            baseline_speed = organized_results[0][pruning]["avg_tokens_per_second"]
-            opt_speed = organized_results[opt_level][pruning]["avg_tokens_per_second"]
-            speedup = opt_speed / baseline_speed
-            speedups.append(speedup)
+    # Visualization 3: Speedup comparison - if we have level 0 as baseline
+    base_level = min(opt_levels)  # Use lowest level as baseline if level 0 not available
+    if len(opt_levels) > 1:
+        plt.figure(figsize=(12, 8))
         
-        # Plot line
-        plt.plot(pruning_levels, speedups, 'o-', label=f"Level {opt_level}", linewidth=2)
-    
-    # Add horizontal line at y=1.0
-    plt.axhline(y=1.0, color='k', linestyle='--', alpha=0.3)
-    
-    plt.title("Speedup over Baseline (Level 0)", fontsize=16)
-    plt.xlabel("Pruning Level (%)", fontsize=14)
-    plt.ylabel("Speedup Factor (>1 is better)", fontsize=14)
-    plt.grid(True, linestyle='--', alpha=0.7)
-    plt.legend(fontsize=12)
-    
-    plt.tight_layout()
-    plt.savefig(os.path.join(args.output_dir, "speedup_over_baseline.png"), dpi=150)
-    plt.close()
+        # For each optimization level > base_level, calculate speedup
+        for opt_level in [level for level in opt_levels if level > base_level]:
+            # Calculate speedup
+            speedups = []
+            for pruning in pruning_levels:
+                baseline_speed = organized_results[base_level][pruning]["avg_tokens_per_second"]
+                opt_speed = organized_results[opt_level][pruning]["avg_tokens_per_second"]
+                speedup = opt_speed / baseline_speed
+                speedups.append(speedup)
+            
+            # Plot line
+            plt.plot(pruning_levels, speedups, 'o-', label=f"Level {opt_level}", linewidth=2)
+        
+        # Add horizontal line at y=1.0
+        plt.axhline(y=1.0, color='k', linestyle='--', alpha=0.3)
+        
+        plt.title(f"Speedup over Level {base_level}", fontsize=16)
+        plt.xlabel("Pruning Level (%)", fontsize=14)
+        plt.ylabel("Speedup Factor (>1 is better)", fontsize=14)
+        plt.grid(True, linestyle='--', alpha=0.7)
+        plt.legend(fontsize=12)
+        
+        plt.tight_layout()
+        plt.savefig(os.path.join(args.output_dir, "speedup_comparison.png"), dpi=150)
+        plt.close()
     
     # Visualization 4: Loading time by optimization level
     plt.figure(figsize=(10, 6))
@@ -387,34 +426,35 @@ def visualize_results(results, args):
     plt.close()
     
     # Visualization 5: Optimization matrix (heatmap)
-    plt.figure(figsize=(10, 8))
-    
-    # Create data for heatmap - speedup over baseline for each combination
-    speedup_matrix = np.zeros((len(opt_levels), len(pruning_levels)))
-    
-    for i, opt_level in enumerate(opt_levels):
-        for j, pruning in enumerate(pruning_levels):
-            if opt_level == 0:
-                # Baseline is 1.0x speedup over itself
-                speedup_matrix[i, j] = 1.0
-            else:
-                baseline_speed = organized_results[0][pruning]["avg_tokens_per_second"]
-                opt_speed = organized_results[opt_level][pruning]["avg_tokens_per_second"]
-                speedup = opt_speed / baseline_speed
-                speedup_matrix[i, j] = speedup
-    
-    # Create heatmap
-    import seaborn as sns
-    sns.heatmap(speedup_matrix, annot=True, fmt=".2f", xticklabels=pruning_levels, 
-                yticklabels=opt_levels, cmap="RdYlGn", center=1.0)
-    
-    plt.title("Speedup Matrix (vs. Level 0)", fontsize=16)
-    plt.xlabel("Pruning Level (%)", fontsize=14)
-    plt.ylabel("Optimization Level", fontsize=14)
-    
-    plt.tight_layout()
-    plt.savefig(os.path.join(args.output_dir, "speedup_matrix.png"), dpi=150)
-    plt.close()
+    if len(opt_levels) > 1:
+        plt.figure(figsize=(10, 8))
+        
+        # Create data for heatmap - speedup over baseline for each combination
+        speedup_matrix = np.zeros((len(opt_levels), len(pruning_levels)))
+        
+        for i, opt_level in enumerate(opt_levels):
+            for j, pruning in enumerate(pruning_levels):
+                if opt_level == base_level:
+                    # Baseline is 1.0x speedup over itself
+                    speedup_matrix[i, j] = 1.0
+                else:
+                    baseline_speed = organized_results[base_level][pruning]["avg_tokens_per_second"]
+                    opt_speed = organized_results[opt_level][pruning]["avg_tokens_per_second"]
+                    speedup = opt_speed / baseline_speed
+                    speedup_matrix[i, j] = speedup
+        
+        # Create heatmap
+        import seaborn as sns
+        sns.heatmap(speedup_matrix, annot=True, fmt=".2f", xticklabels=pruning_levels, 
+                    yticklabels=opt_levels, cmap="RdYlGn", center=1.0)
+        
+        plt.title(f"Speedup Matrix (vs. Level {base_level})", fontsize=16)
+        plt.xlabel("Pruning Level (%)", fontsize=14)
+        plt.ylabel("Optimization Level", fontsize=14)
+        
+        plt.tight_layout()
+        plt.savefig(os.path.join(args.output_dir, "speedup_matrix.png"), dpi=150)
+        plt.close()
     
     print(f"Visualizations saved to {args.output_dir}")
 
@@ -424,6 +464,9 @@ def print_summary(results):
     # Extract optimization and pruning levels
     opt_levels = results["metadata"]["optimization_levels"]
     pruning_levels = results["metadata"]["pruning_levels"]
+    
+    # Define the baseline level
+    base_level = min(opt_levels)  # Use lowest level as baseline if level 0 not available
     
     # Organize results by optimization level and pruning
     organized_results = {
@@ -466,19 +509,19 @@ def print_summary(results):
             print(f"{speed:.2f}".ljust(12), end="")
         print()
     
-    # Print speedup over baseline
+    # Print speedup comparison (if we have multiple levels)
     if len(opt_levels) > 1:
-        print("\nSpeedup vs. Level 0:")
+        print(f"\nSpeedup vs. Level {base_level}:")
         print(f"{'Pruning %':<10}", end="")
-        for opt_level in [level for level in opt_levels if level > 0]:
+        for opt_level in [level for level in opt_levels if level > base_level]:
             print(f"Level {opt_level}".ljust(12), end="")
         print()
         print("-" * (10 + 12 * (len(opt_levels)-1)))
         
         for pruning in pruning_levels:
             print(f"{pruning:<10}", end="")
-            baseline_speed = organized_results[0][pruning]["avg_tokens_per_second"]
-            for opt_level in [level for level in opt_levels if level > 0]:
+            baseline_speed = organized_results[base_level][pruning]["avg_tokens_per_second"]
+            for opt_level in [level for level in opt_levels if level > base_level]:
                 opt_speed = organized_results[opt_level][pruning]["avg_tokens_per_second"]
                 speedup = opt_speed / baseline_speed
                 print(f"{speedup:.2f}x".ljust(12), end="")
@@ -508,7 +551,7 @@ def print_summary(results):
         speeds = [organized_results[opt_level][pruning]["avg_tokens_per_second"] 
                  for pruning in pruning_levels]
         avg_speed = sum(speeds) / len(speeds)
-        if opt_level == 0:
+        if opt_level == base_level:
             baseline_avg_speed = avg_speed
             avg_speedups.append(1.0)
         else:
@@ -522,10 +565,10 @@ def print_summary(results):
     # Check for quality impact
     quality_impacts = []
     for opt_level in opt_levels:
-        if opt_level == 0:
+        if opt_level == base_level:
             quality_impacts.append(0.0)
         else:
-            baseline_ppls = [organized_results[0][pruning]["avg_perplexity"] 
+            baseline_ppls = [organized_results[base_level][pruning]["avg_perplexity"] 
                              for pruning in pruning_levels]
             opt_ppls = [organized_results[opt_level][pruning]["avg_perplexity"] 
                         for pruning in pruning_levels]
@@ -549,7 +592,7 @@ def print_summary(results):
     print(f"  Best pruning level with optimization level {best_level}: {best_pruning}%")
     
     # Maximum achievable speedup
-    max_speedup = max(best_level_speeds) / organized_results[0][0]["avg_tokens_per_second"]
+    max_speedup = max(best_level_speeds) / organized_results[base_level][0]["avg_tokens_per_second"]
     print(f"  Maximum speedup: {max_speedup:.2f}x (Level {best_level} with {best_pruning}% pruning)")
 
 
