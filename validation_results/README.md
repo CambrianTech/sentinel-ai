@@ -1,64 +1,45 @@
-# Sentinel-AI Validation Results
+# Validation Results
 
-This directory contains validation results for various features of Sentinel-AI, with a focus on empirically demonstrating the benefits of our innovations.
+This directory contains validation results and reports for Sentinel-AI experiments and features.
 
-## Agency Validation
+## Contents
 
-The `agency/` directory contains validation results for our attention head agency features. These tests empirically measure the performance benefits of allowing attention heads to express internal states like "overloaded," "misaligned," or "withdrawn."
+- **agency/**: Validation results for attention head agency features
+  - `sample_results.md`: Sample results showing expected validation metrics
 
-### Running Agency Validation
+## Running Validation
 
-To run the agency validation yourself:
+To run validation experiments, use the following scripts:
 
 ```bash
-# Simple run with default settings
-python scripts/run_agency_validation.py
-
-# Specific model and scenarios
-python scripts/run_agency_validation.py --model_name distilgpt2 --scenarios baseline agency_default agency_mixed
-
-# Generate report from existing results
-python scripts/run_agency_validation.py --skip_validation
+# For agency validation
+python scripts/run_agency_validation.py --output validation_results/agency/
 ```
 
-### Understanding the Results
+This will run all defined test scenarios and generate a comprehensive report including:
+- Performance metrics
+- Resource utilization measurements
+- Output quality assessments
+- Head state analysis
+- Visualizations comparing all scenarios
 
-The validation compares different agency scenarios:
+## Interpreting Results
 
-1. **baseline**: Standard model with no agency features activated
-2. **agency_default**: All heads in active state with full consent
-3. **agency_specialized**: Specialized head states for different tasks
-4. **agency_mixed**: Mixed state configuration (some overloaded, some misaligned)
-5. **agency_constrained**: Simulated resource constraints (some heads withdrawn)
+The validation reports include:
 
-For each scenario, we measure:
-- **Generation speed** (tokens per second)
-- **Output quality** (lexical diversity, repetition, etc.)
-- **Resource utilization** (memory, CPU usage, etc.)
-- **Agency state distribution** (active/overloaded/misaligned/withdrawn heads)
+1. **Summary**: Overview of key findings and improvements
+2. **Performance Metrics**: Generation speed and throughput measurements
+3. **Resource Utilization**: Memory and computational resource usage
+4. **Output Quality**: Perplexity, diversity, and reference-based metrics
+5. **Head State Analysis**: Distribution of head states and transition patterns
+6. **Detailed Analysis**: In-depth examination of specific scenarios
+7. **Conclusions**: Overall assessment and recommendations
 
-### Interpreting Visualizations
+## Custom Validations
 
-The validation produces several visualizations:
+To create custom validation scenarios:
 
-- **generation_speed.png**: Compares tokens per second across scenarios
-- **lexical_diversity_comparison.png**: Compares output quality metrics
-- **head_state_distribution.png**: Shows the distribution of head states in agency scenarios
-
-## Other Validations
-
-Additional validation results for other Sentinel-AI features may be added here in future updates.
-
-## Reproducing Results
-
-For consistent reproduction of validation results, use the same model, hardware configuration, and scenarios. Variations in hardware and model initialization may lead to slight differences in absolute metrics, but the relative performance patterns should remain consistent.
-
-## Contributing New Validations
-
-When adding new validation results, please include:
-1. The script used to generate the results
-2. A summary of key findings
-3. Visualizations where appropriate
-4. Details on the testing environment
-
-This helps ensure that all results in this repository can be verified and reproduced.
+1. Edit `scripts/validate_agency.py` to define new test scenarios
+2. Configure parameters in `scripts/run_agency_validation.py`
+3. Run the validation script with your custom parameters
+4. Results will be generated in your specified output directory
