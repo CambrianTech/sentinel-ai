@@ -2,12 +2,12 @@
 
 ```mermaid
 flowchart TD
-    classDef standard fill:#f9f9f9,stroke:#333,stroke-width:1px
-    classDef highlight fill:#d1f0ff,stroke:#0078b8,stroke-width:2px
-    classDef adapter fill:#e6f7e6,stroke:#2e8b57,stroke-width:1px
-    classDef controller fill:#fff4e6,stroke:#ff8c00,stroke-width:1px
-    classDef attention fill:#f5e6ff,stroke:#9370db,stroke-width:1px
-    classDef embedding fill:#f9f9f9,stroke:#666,stroke-width:1px
+    classDef standard fill:#f9f9f9,stroke:#333,stroke-width:1px,color:#333
+    classDef highlight fill:#d1f0ff,stroke:#0078b8,stroke-width:2px,color:#0078b8
+    classDef adapter fill:#e6f7e6,stroke:#2e8b57,stroke-width:1px,color:#2e8b57
+    classDef controller fill:#fff4e6,stroke:#ff8c00,stroke-width:1px,color:#ff8c00
+    classDef attention fill:#f5e6ff,stroke:#9370db,stroke-width:1px,color:#9370db
+    classDef embedding fill:#f9f9f9,stroke:#666,stroke-width:1px,color:#666
     
     %% Main Architecture Components
     title["SENTINEL-AI ARCHITECTURE"]
@@ -83,11 +83,11 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-    classDef standard fill:#f9f9f9,stroke:#333,stroke-width:1px
-    classDef agency fill:#e6f7e6,stroke:#2e8b57,stroke-width:1px
-    classDef state fill:#f5e6ff,stroke:#9370db,stroke-width:1px
-    classDef computation fill:#d1f0ff,stroke:#0078b8,stroke-width:1px
-    classDef gate fill:#fff4e6,stroke:#ff8c00,stroke-width:1px
+    classDef standard fill:#f9f9f9,stroke:#333,stroke-width:1px,color:#333
+    classDef agency fill:#e6f7e6,stroke:#2e8b57,stroke-width:1px,color:#2e8b57
+    classDef state fill:#f5e6ff,stroke:#9370db,stroke-width:1px,color:#9370db
+    classDef computation fill:#d1f0ff,stroke:#0078b8,stroke-width:1px,color:#0078b8
+    classDef gate fill:#fff4e6,stroke:#ff8c00,stroke-width:1px,color:#ff8c00
     
     %% Main Components
     title["ATTENTION HEAD WITH AGENCY"]
@@ -149,10 +149,10 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-    classDef standard fill:#f9f9f9,stroke:#333,stroke-width:1px
-    classDef interface fill:#d1f0ff,stroke:#0078b8,stroke-width:2px
-    classDef adapter fill:#fff4e6,stroke:#ff8c00,stroke-width:1px
-    classDef original fill:#e6f7e6,stroke:#2e8b57,stroke-width:1px
+    classDef standard fill:#f9f9f9,stroke:#333,stroke-width:1px,color:#333
+    classDef interface fill:#d1f0ff,stroke:#0078b8,stroke-width:2px,color:#0078b8
+    classDef adapter fill:#fff4e6,stroke:#ff8c00,stroke-width:1px,color:#ff8c00
+    classDef original fill:#e6f7e6,stroke:#2e8b57,stroke-width:1px,color:#2e8b57
     
     %% Main Components
     title["HYBRID ADAPTER PATTERN"]
@@ -191,11 +191,11 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-    classDef standard fill:#f9f9f9,stroke:#333,stroke-width:1px
-    classDef metrics fill:#e6f7e6,stroke:#2e8b57,stroke-width:1px
-    classDef reward fill:#fff4e6,stroke:#ff8c00,stroke-width:1px
-    classDef policy fill:#d1f0ff,stroke:#0078b8,stroke-width:1px
-    classDef optimization fill:#f5e6ff,stroke:#9370db,stroke-width:1px
+    classDef standard fill:#f9f9f9,stroke:#333,stroke-width:1px,color:#333
+    classDef metrics fill:#e6f7e6,stroke:#2e8b57,stroke-width:1px,color:#2e8b57
+    classDef reward fill:#fff4e6,stroke:#ff8c00,stroke-width:1px,color:#ff8c00
+    classDef policy fill:#d1f0ff,stroke:#0078b8,stroke-width:1px,color:#0078b8
+    classDef optimization fill:#f5e6ff,stroke:#9370db,stroke-width:1px,color:#9370db
     
     %% Main Components
     title["REINFORCEMENT LEARNING CONTROLLER"]
@@ -229,11 +229,11 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-    classDef standard fill:#f9f9f9,stroke:#333,stroke-width:1px
-    classDef layer fill:#d1f0ff,stroke:#0078b8,stroke-width:1px
-    classDef attention fill:#f5e6ff,stroke:#9370db,stroke-width:1px
-    classDef ffn fill:#e6f7e6,stroke:#2e8b57,stroke-width:1px
-    classDef head fill:#fff4e6,stroke:#ff8c00,stroke-width:1px
+    classDef standard fill:#f9f9f9,stroke:#333,stroke-width:1px,color:#333
+    classDef layer fill:#d1f0ff,stroke:#0078b8,stroke-width:1px,color:#0078b8
+    classDef attention fill:#f5e6ff,stroke:#9370db,stroke-width:1px,color:#9370db
+    classDef ffn fill:#e6f7e6,stroke:#2e8b57,stroke-width:1px,color:#2e8b57
+    classDef head fill:#fff4e6,stroke:#ff8c00,stroke-width:1px,color:#ff8c00
     
     %% Main Components
     title["ADAPTIVE TRANSFORMER BLOCK"]
@@ -283,11 +283,11 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-    classDef standard fill:#f9f9f9,stroke:#333,stroke-width:1px
-    classDef embedding fill:#d1f0ff,stroke:#0078b8,stroke-width:1px
-    classDef decoder fill:#f5e6ff,stroke:#9370db,stroke-width:1px
-    classDef skip fill:#fff4e6,stroke:#ff8c00,stroke-width:1px
-    classDef encoder fill:#e6f7e6,stroke:#2e8b57,stroke-width:1px
+    classDef standard fill:#f9f9f9,stroke:#333,stroke-width:1px,color:#333
+    classDef embedding fill:#d1f0ff,stroke:#0078b8,stroke-width:1px,color:#0078b8
+    classDef decoder fill:#f5e6ff,stroke:#9370db,stroke-width:1px,color:#9370db
+    classDef skip fill:#fff4e6,stroke:#ff8c00,stroke-width:1px,color:#ff8c00
+    classDef encoder fill:#e6f7e6,stroke:#2e8b57,stroke-width:1px,color:#2e8b57
     
     %% Main Components
     title["U-NET INSPIRED ARCHITECTURE"]
