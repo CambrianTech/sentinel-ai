@@ -19,9 +19,10 @@ flowchart TD
     classDef controller fill:#ff8c00,stroke:#ff8c00,stroke-width:1px,color:#fff
     classDef attention fill:#9370db,stroke:#9370db,stroke-width:1px,color:#fff
     classDef embedding fill:#666,stroke:#666,stroke-width:1px,color:#fff
+    classDef header fill:none,stroke:none,color:#fff,font-weight:bold
     
     %% Main Architecture Components
-    title["SENTINEL-AI ARCHITECTURE"]
+    header["SENTINEL-AI ARCHITECTURE"]
     adapterLayer["MODEL ADAPTER LAYER"]
     output["OUTPUT LAYER"]
     transformerBlocks["TRANSFORMER DECODER BLOCKS"]
@@ -46,8 +47,6 @@ flowchart TD
     reward["Reward Function<br/>(Performance Delta)"]
     
     %% Connections
-    title --> adapterLayer
-    
     adapterLayer --> gpt
     adapterLayer --> bloom
     adapterLayer --> llama
@@ -75,7 +74,7 @@ flowchart TD
     controller --> input
     
     %% Styling
-    title:::standard
+    header:::header
     adapterLayer:::adapter
     output:::standard
     transformerBlocks:::highlight
@@ -103,7 +102,7 @@ flowchart TD
     classDef gate fill:#ff8c00,stroke:#ff8c00,stroke-width:1px,color:#fff
     
     %% Main Components
-    title["ATTENTION HEAD WITH AGENCY"]
+    header["ATTENTION HEAD WITH AGENCY"]
     signals["AGENCY SIGNALS"]
     stateProcessing["STATE PROCESSING"]
     monitor["CONSENT VIOLATION<br/>MONITORING"]
@@ -126,8 +125,7 @@ flowchart TD
     fullContribution["Full Contribution"]
     
     %% Connections
-    title --> signals
-    signals --> active
+        signals --> active
     
     signals --> stateProcessing
     signals --> monitor
@@ -144,7 +142,7 @@ flowchart TD
     gate --> attention
     
     %% Styling
-    title:::standard
+    header:::header
     signals:::agency
     stateProcessing:::state
     monitor:::agency
@@ -170,7 +168,7 @@ flowchart TD
     classDef original fill:#2e8b57,stroke:#2e8b57,stroke-width:1px,color:#fff
     
     %% Main Components
-    title["HYBRID ADAPTER PATTERN"]
+    header["HYBRID ADAPTER PATTERN"]
     interface["SENTINEL-AI INTERFACE"]
     adapter["MODEL-SPECIFIC ADAPTER"]
     original["ORIGINAL MODEL INTERNALS"]
@@ -185,14 +183,13 @@ flowchart TD
     llama["LLAMA: Rotary Embeddings<br/>+ SwiGLU Activation"]
     
     %% Connections
-    title --> interface
-    interface --> adapter
+        interface --> adapter
     adapter --> gates & compatible & agency
     gates & compatible & agency --> original
     original --> bloom & llama
     
     %% Styling
-    title:::standard
+    header:::header
     interface:::interface
     adapter:::adapter
     original:::original
@@ -215,7 +212,7 @@ flowchart TD
     classDef encoder fill:#2e8b57,stroke:#2e8b57,stroke-width:1px,color:#fff
     
     %% Main Components
-    title["U-NET INSPIRED ARCHITECTURE"]
+    header["U-NET INSPIRED ARCHITECTURE"]
     outputEmbed["OUTPUT EMBEDDING"]
     decoderBlocks["DECODER BLOCKS"]
     skipConnections["U-NET SKIP CONNECTIONS"]
@@ -239,8 +236,7 @@ flowchart TD
     block3["Block 3"]
     
     %% Connections
-    title --> outputEmbed
-    outputEmbed --> decoderBlocks
+        outputEmbed --> decoderBlocks
     
     decoderBlocks --> blockN & blockN1 & blockN2 & blockN3
     
@@ -255,7 +251,7 @@ flowchart TD
     block1 & block2 & block3 --> inputEmbed
     
     %% Styling
-    title:::standard
+    header:::header
     outputEmbed & inputEmbed:::embedding
     decoderBlocks:::decoder
     skipConnections:::skip
@@ -487,7 +483,7 @@ flowchart TD
     classDef optimization fill:#9370db,stroke:#9370db,stroke-width:1px,color:#fff
     
     %% Main Components
-    title["REINFORCEMENT LEARNING CONTROLLER"]
+    header["REINFORCEMENT LEARNING CONTROLLER"]
     metrics["VALIDATION METRICS<br/>COLLECTOR"]
     reward["REWARD CALCULATION<br/>reward = perf_improvement + efficiency_factor"]
     policy["POLICY NETWORK<br/>(Learns pruning patterns)"]
@@ -496,8 +492,7 @@ flowchart TD
     optimization["MULTI-OBJECTIVE<br/>OPTIMIZATION<br/>- Balance efficiency vs. performance<br/>- Task-specific specialization<br/>- Continuous adaptation"]
     
     %% Connections
-    title --> metrics & policy & update & optimization
-    
+        
     metrics --> reward
     reward --> policy
     policy <--> history
@@ -505,7 +500,7 @@ flowchart TD
     update --> optimization
     
     %% Styling
-    title:::standard
+    header:::header
     metrics:::metrics
     reward:::reward
     policy:::policy
@@ -527,7 +522,7 @@ flowchart TD
     classDef head fill:#ff8c00,stroke:#ff8c00,stroke-width:1px,color:#fff
     
     %% Main Components
-    title["ADAPTIVE TRANSFORMER BLOCK"]
+    header["ADAPTIVE TRANSFORMER BLOCK"]
     residual["RESIDUAL CONNECTION"]
     norm["LAYER NORMALIZATION"]
     attention["MULTI-HEAD ATTENTION"]
@@ -545,8 +540,7 @@ flowchart TD
     gaten["GATE N"]
     
     %% Connections
-    title --> residual & norm
-    
+        
     residual & norm --> attention
     
     attention --> head1 & head2 & headn
@@ -559,7 +553,7 @@ flowchart TD
     dropout --> output
     
     %% Styling
-    title:::standard
+    header:::header
     residual & norm:::layer
     attention:::attention
     ffn:::ffn
