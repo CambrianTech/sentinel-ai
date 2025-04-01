@@ -150,9 +150,11 @@ Our experiments with agency-aware attention demonstrate significant improvements
 
 These improvements come from better allocation of computational resources, not from cutting corners. In fact, by reducing interference between specialized heads, the quality of outputs can actually improve even while using fewer resources.
 
-## 🧬 Biological Parallel
+## 🧬 Biological and Systems Parallels
 
-The agency-aware mechanism mirrors how biological neural networks operate:
+The agency-aware mechanism mirrors principles observed in several complex adaptive systems:
+
+### Neural Networks
 
 - **Inhibitory gating** when neurons are irrelevant to the current task
 - **Excitatory dominance** when specialized circuits are needed
@@ -160,6 +162,16 @@ The agency-aware mechanism mirrors how biological neural networks operate:
 - **Recovery periods** after intense activation
 
 Just as the brain doesn't fire all neurons at maximum intensity simultaneously, our agency-aware attention selectively modulates the contribution of different heads based on context and internal state.
+
+### Coordinated Systems
+
+Agency-aware attention also resembles how coordinated systems operate efficiently:
+
+- **Specialization and coordination** - Components develop expertise in specific domains and are activated when their expertise is relevant
+- **Adaptive resource allocation** - Resources shift dynamically based on current needs
+- **Self-regulating feedback** - System components adjust their contributions based on contextual feedback
+
+This framework allows for sophisticated dynamic behavior where the collective performance emerges from the coordinated actions of specialized components, each operating within their domain of expertise when appropriate.
 
 ## Implementation Example
 

@@ -263,6 +263,8 @@ The Adaptive Transformer, with its agency-aware attention mechanism, ANN-control
 
 By embedding ethical principles directly into the architecture through our agency layer, we demonstrate that performance optimization and ethical AI are not mutually exclusive goals, but can be effectively integrated. The attention head agency mechanism provides a foundation for more sophisticated models that can better manage their own resources, express internal states, and respect consent boundaries.
 
+Our agency-aware attention mechanism demonstrates how specialized components can coordinate their activities through a system of dynamic feedback, resulting in more efficient resource utilization. This self-regulating behavior resembles principles observed in complex adaptive systems, where specialized units modulate their contributions based on context and system needs, leading to emergent collective intelligence that exceeds what would be possible with static, uniform activation.
+
 Future work aims to further develop these ethical mechanisms while scaling the architecture to the frontier of NLP models, potentially unlocking new paradigms of responsible and adaptable AI systems.
 
 ---
