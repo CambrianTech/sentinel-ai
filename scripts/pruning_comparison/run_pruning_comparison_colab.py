@@ -121,9 +121,127 @@ end_time = time.time()
 
 print(f"\nExperiment completed in {end_time - start_time:.2f} seconds")
 
-# @title Save Results to Google Drive
+# @title Display Visualizations
+# @markdown Run this cell to display the experiment results
+import glob
+import json
+import matplotlib.pyplot as plt
+from IPython.display import display, Image
+from pathlib import Path
+
+def display_results():
+    # Find the latest run directory
+    latest_runs = sorted(glob.glob("validation_results/pruning_agency/run_*"))
+    if not latest_runs:
+        print("No results found. Run the experiment first.")
+        return
+        
+    latest_run = latest_runs[-1]
+    print(f"Displaying results from: {latest_run}")
+    
+    # Display temperature-specific visualizations
+    temp_dirs = glob.glob(f"{latest_run}/temp_*")
+    if temp_dirs:
+        # Temperature-specific visualizations exist
+        for temp_dir in sorted(temp_dirs):
+            temp = Path(temp_dir).name.replace("temp_", "")
+            print(f"\n== Results for temperature {temp} ==")
+            
+            # Show comprehensive summary
+            comp_summary = f"{temp_dir}/comprehensive_summary.png"
+            if os.path.exists(comp_summary):
+                display(Image(comp_summary))
+            
+            # Show relative improvement
+            rel_improvement = f"{temp_dir}/relative_improvement.png"
+            if os.path.exists(rel_improvement):
+                display(Image(rel_improvement))
+        
+        # Display temperature comparison charts
+        print("\n== Temperature Comparisons ==")
+        temp_comparison = f"{latest_run}/temperature_improvement_comparison.png"
+        if os.path.exists(temp_comparison):
+            display(Image(temp_comparison))
+            
+        heatmap = f"{latest_run}/improvement_heatmap.png"
+        if os.path.exists(heatmap):
+            display(Image(heatmap))
+    else:
+        # Single temperature visualizations (older format)
+        print("\n== Results ==")
+        for img_path in glob.glob(f"{latest_run}/*.png"):
+            display(Image(img_path))
+    
+    # Print key findings if results file exists
+    results_file = f"{latest_run}/pruning_comparison_results.json"
+    if os.path.exists(results_file):
+        with open(results_file, "r") as f:
+            try:
+                results = json.load(f)
+                
+                print("\n== Key Findings ==")
+                # Check if new format with temperatures
+                temp_keys = [k for k in results.keys() if k.startswith("temperature_")]
+                
+                if temp_keys:
+                    # New format with temperatures
+                    for temp_key in temp_keys:
+                        temp = float(temp_key.split("_")[1])
+                        print(f"\nTemperature {temp}:")
+                        
+                        pruning_levels = sorted([
+                            int(l) for l in results[temp_key]["baseline"].keys() 
+                            if l.isdigit() and int(l) > 0
+                        ])
+                        
+                        for level in pruning_levels:
+                            try:
+                                baseline_speed = results[temp_key]["baseline"][str(level)]["tokens_per_second"]["mean"]
+                                agency_speed = results[temp_key]["agency"][str(level)]["tokens_per_second"]["mean"]
+                                
+                                baseline_ppl = results[temp_key]["baseline"][str(level)]["perplexity"]["mean"]
+                                agency_ppl = results[temp_key]["agency"][str(level)]["perplexity"]["mean"]
+                                
+                                speed_imp = ((agency_speed / baseline_speed) - 1) * 100
+                                quality_imp = ((baseline_ppl / agency_ppl) - 1) * 100
+                                
+                                print(f"  At {level}% pruning: Agency is {speed_imp:.1f}% faster and {quality_imp:.1f}% better quality")
+                            except (KeyError, TypeError) as e:
+                                # Skip levels with missing data
+                                continue
+                else:
+                    # Old format without temperatures
+                    print("\nAggregate results:")
+                    
+                    pruning_levels = sorted([
+                        int(l) for l in results["baseline"].keys() 
+                        if l.isdigit() and int(l) > 0
+                    ])
+                    
+                    for level in pruning_levels:
+                        try:
+                            baseline_speed = results["baseline"][str(level)]["tokens_per_second"]
+                            agency_speed = results["agency"][str(level)]["tokens_per_second"]
+                            
+                            baseline_ppl = results["baseline"][str(level)]["perplexity"]
+                            agency_ppl = results["agency"][str(level)]["perplexity"]
+                            
+                            speed_imp = ((agency_speed / baseline_speed) - 1) * 100
+                            quality_imp = ((baseline_ppl / agency_ppl) - 1) * 100
+                            
+                            print(f"  At {level}% pruning: Agency is {speed_imp:.1f}% faster and {quality_imp:.1f}% better quality")
+                        except (KeyError, TypeError) as e:
+                            # Skip levels with missing data
+                            continue
+            except json.JSONDecodeError:
+                print("Error parsing results file.")
+
+# Call the function to display results
+display_results()
+
+# @title Save Results to Google Drive (Optional)
 # @markdown Run this after the experiment completes to save results to Google Drive
-mount_drive = True  # @param {type:"boolean"}
+mount_drive = False  # @param {type:"boolean"}
 drive_folder = "Sentinel_AI_Results"  # @param {type:"string"}
 
 if mount_drive:
@@ -135,10 +253,11 @@ if mount_drive:
     os.makedirs(drive_path, exist_ok=True)
     
     # Copy results to Drive
-    latest_results = "validation_results/pruning_agency/latest"
-    if os.path.exists(latest_results):
+    latest_results = sorted(glob.glob("validation_results/pruning_agency/run_*"))
+    if latest_results:
+        latest = latest_results[-1]
         print(f"Copying results to Google Drive: {drive_path}")
-        !cp -r {latest_results} {drive_path}/pruning_results_{time.strftime("%Y%m%d_%H%M%S")}
+        !cp -r {latest} {drive_path}/pruning_results_{time.strftime("%Y%m%d_%H%M%S")}
         print("Results successfully copied to Google Drive")
     else:
         print("No results found to copy. Run the experiment first.")
