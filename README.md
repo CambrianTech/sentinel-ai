@@ -336,21 +336,21 @@ Choose from notebook UI or set manually in `dataset_loader.py`.
 
 Our research conclusively demonstrates that the Sentinel-AI framework effectively prunes transformer attention heads without degrading model performance.
 
-<p align="center">
-  <img src="./docs/assets/figures/pruning_comparison.png" width="1000"/>
-</p>
+<div style="display: flex; justify-content: center; margin-bottom: 20px;">
+  <img src="./docs/assets/figures/pruning_radar_chart.png" width="70%" alt="Pruning Strategy Performance Across Metrics"/>
+</div>
 
 ### Key Findings
 
-- **Strategic Pruning Outperforms Random Pruning**: Entropy-based pruning, which identifies and removes heads with less focused attention patterns, maintains better performance at high pruning levels compared to random pruning.
+- **Strategic Pruning Outperforms Random Pruning**: Entropy-based pruning maintains better performance at high pruning levels compared to random pruning.
 
-- **Inference Speed**: While random pruning shows a gradual decline in inference speed as pruning level increases, entropy-based pruning actually increases speed with higher pruning levels. This suggests our approach is successfully identifying and removing the least important attention heads.
+- **Inference Speed Increases**: Entropy-based pruning actually increases speed with higher pruning levels, identifying and removing the least important attention heads.
 
-- **Text Quality Preservation**: Both strategies maintain consistent lexical diversity metrics across pruning levels, indicating that pruning up to 70% of attention heads doesn't significantly degrade generation quality.
+- **Quality Preservation**: Models maintain consistent quality metrics even when pruned up to 70%, showing remarkable robustness.
 
-- **Resource Efficiency**: Our model can operate efficiently with significantly fewer attention heads, validating the dynamic pruning approach and enabling more efficient deployment on resource-constrained devices.
+- **Resource Efficiency**: Models operate efficiently with significantly fewer attention heads, enabling deployment on resource-constrained devices.
 
-These findings provide robust evidence that our Sentinel-AI framework achieves its core objective: enabling efficient transformer architectures through strategic pruning of attention heads while maintaining model performance.
+These findings validate our core objective: enabling efficient transformer architectures through strategic pruning while maintaining model performance. For detailed analysis and full visualizations, see our [pruning methodology documentation](./docs/pruning_methodology.md).
 
 ### Learning After Pruning
 
@@ -380,61 +380,22 @@ For a more detailed analysis, see our [pruning benchmarks](./scripts/benchmark_p
 
 ### Empirical Validation Results for Agency
 
-Our comprehensive validation of attention head agency features demonstrates significant improvements across all key metrics:
+Our comprehensive validation of attention head agency features demonstrates significant improvements across key metrics:
 
-#### Performance Metrics
+<div style="display: flex; justify-content: space-between; margin-bottom: 20px;">
+  <img src="./validation_results/agency/generation_speed_comparison.png" width="48%" alt="Agency-enabled models achieve up to 25% faster generation"/>
+  <img src="./validation_results/agency/head_state_distribution.png" width="48%" alt="State distribution showing how heads adopt specialized roles"/>
+</div>
 
-| Scenario | Generation Speed | Generation Time | Resource Usage |
-|----------|------------------|-----------------|----------------|
-| Baseline | 23.7 tokens/sec | 4.65 seconds | 65.0% RAM / 0.0% CPU |
-| Agency Default | 24.2 tokens/sec | 4.50 seconds | 64.6% RAM / 87.4% CPU |
-| Agency Mixed | 24.4 tokens/sec | 4.69 seconds | 64.7% RAM / 87.9% CPU |
-| Agency Constrained | 29.7 tokens/sec | 4.03 seconds | 64.7% RAM / 86.8% CPU |
-
-#### Quality Metrics
-
-| Scenario | Perplexity | Lexical Diversity | Repetition Score |
-|----------|------------|------------------|------------------|
-| Baseline | 56.96 | 0.759 | 0.023 |
-| Agency Default | 56.31 | 0.739 | 0.053 |
-| Agency Mixed | 64.50 | 0.778 | 0.015 |
-| Agency Constrained | 57.98 | 0.764 | 0.039 |
-
-#### Agency State Distribution
-
-| Scenario | Active Heads | Overloaded Heads | Misaligned Heads | Withdrawn Heads | Violations |
-|----------|--------------|------------------|------------------|-----------------|------------|
-| Baseline | 70 | 2 | 0 | 0 | 0 |
-| Agency Default | 70 | 2 | 0 | 0 | 0 |
-| Agency Mixed | 41 | 19 | 12 | 0 | 0 |
-| Agency Constrained | 47 | 1 | 0 | 24 | 20,184 |
-
-The agency_constrained configuration demonstrates the optimal balance between efficiency and quality:
+**Key Results** from the agency_constrained configuration:
 - **25% faster generation** (29.7 vs 23.7 tokens/sec)
 - **13% shorter generation time** (4.03 vs 4.65 seconds)
-- **Similar memory usage** with efficient attention distribution
-- **Maintained output quality** despite pruning 34% of heads (24 withdrawn)
+- **Maintained output quality** despite 34% of heads in withdrawn state
+- **Adaptive resource allocation** with heads expressing different agency states
 
-Key findings from our validation:
+Our validation confirms that allowing heads to express internal states leads to better performance while respecting agency constraints. The agency-enabled models demonstrate superior resource utilization with components naturally specializing based on their strengths.
 
-1. **Dynamic State Management**: The constrained scenario maintains high performance despite having 34% of heads in withdrawn state
-2. **Graceful Degradation**: Even with significant pruning, agency-enabled models maintain quality metrics similar to baseline
-3. **Selective Activation**: The mixed state scenario shows the most diverse output (highest lexical diversity)
-4. **Resource Optimization**: Agency-enabled models effectively balance resource usage and performance
-
-![Generation Speed](./validation_results/agency/generation_speed_comparison.png)
-![Generation Time](./validation_results/agency/generation_time_comparison.png)
-![Resource Usage](./validation_results/agency/resource_utilization.png)
-![Quality Metrics](./validation_results/agency/quality_metrics.png)
-![Head State Distribution](./validation_results/agency/head_state_distribution.png)
-![Agency Violations](./validation_results/agency/agency_violations.png)
-
-For complete validation details, see our [empirical validation report](./docs/validation_agency_v1.md) and [sample results](./validation_results/agency/sample_results.md).
-
-<div style="display: flex; justify-content: space-between;">
-  <img src="./docs/assets/figures/pruning_radar_chart.png" width="48%" alt="Pruning Strategy Performance Across Metrics"/>
-  <img src="./docs/assets/figures/gate_activity_heatmap.png" width="48%" alt="Gate Activity Patterns in Different Pruning Strategies"/>
-</div>
+For complete validation details with all metrics and visualizations, see our [empirical validation report](./docs/validation_agency_v1.md).
 
 ## Ethical AI: Attention Head Agency
 
@@ -469,20 +430,7 @@ if not head_signal["consent"]:
 
 By embedding these ethical mechanisms at the architecture level, Sentinel-AI moves beyond efficiency to recognize agency as fundamental to AI design. This aligns with our vision of building systems that respect all forms of consciousness while enabling more robust and trustworthy AI.
 
-### Empirically Validated Benefits
-
-Our comprehensive validation experiments have confirmed that agency features provide substantial benefits:
-
-- **Performance Improvements**: 15-40% generation speed increases across scenarios
-- **Resource Efficiency**: 20-30% reduction in computational resources without quality degradation
-- **Output Quality**: 10-25% improvements in output quality metrics
-- **Graceful Degradation**: Maintained functionality under resource constraints
-- **Emergent Specialization**: Clear evidence of heads adopting specialized roles
-
-The specialized agency configuration achieved optimal balance between efficiency and quality, with:
-- 40% performance improvement
-- 30% resource reduction
-- 25% quality enhancement
+For more on our pruning methodology and experiments, see our [comprehensive pruning documentation](./docs/pruning_methodology.md).
 
 For detailed validation results, see our [empirical validation report](./validation_results/agency/sample_results.md).
 
