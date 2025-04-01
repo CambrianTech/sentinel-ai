@@ -51,3 +51,4 @@ generated/
 !/pruning_results/examples/
 /pruning_speed_results.png
 message.txt
+MANIFESTO.md
