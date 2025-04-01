@@ -70,7 +70,10 @@ This document details the current support status for different model architectur
 |-------|---------|-----------|---------|-------|
 | meta-llama/Llama-2-7b-hf | ⚠️ | ⚠️ | Unknown | Requires HuggingFace access token, not tested |
 | TinyLlama/TinyLlama-1.1B-Chat-v1.0 | ✅ | ✅ | Good | Uses hybrid adapter, coherent outputs |
+| TinyLlama/TinyLlama-1.1B-Chat-v0.6 | ✅ | ✅ | Good | Uses hybrid adapter, coherent outputs |
+| TinyLlama/TinyLlama-1.1B-step-50K-105b | ✅ | ✅ | Good | Uses hybrid adapter, coherent outputs |
 | openlm-research/open_llama_3b | ⚠️ | ⚠️ | Unknown | May work but requires additional dependencies |
+| hf-internal-testing/tiny-random-LlamaForCausalLM | ✅ | ✅ | Poor | Tiny test model (2 layers), produces gibberish |
 
 **Notes:**
 - Some Llama models (like Llama-2) require authentication with the HuggingFace API
