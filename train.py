@@ -74,7 +74,11 @@ def train(args):
     # Create adaptive model
     print("⚙️ Creating adaptive transformer model")
     debug_mode = args.debug
-    quiet_mode = args.quiet or os.environ.get("QUIET", "0") == "1"
+    # If verbose flag is set, it overrides quiet mode
+    if args.verbose:
+        quiet_mode = False
+    else:
+        quiet_mode = args.quiet or os.environ.get("QUIET", "0") == "1"
     model = load_adaptive_model(args.model_name, baseline_model, device, debug=debug_mode, quiet=quiet_mode)
     
     # Load dataset
@@ -168,8 +172,8 @@ def train(args):
         "enable_early_stopping": args.enable_early_stopping,
         "early_stopping_patience": args.early_stopping_patience,
         "min_gate_change": args.min_gate_change,
-        # Verbosity control
-        "quiet": args.quiet
+        # Verbosity control - if verbose flag is set, override quiet mode
+        "quiet": quiet_mode
     }
     controller = ControllerManager(model, controller_config)
     
@@ -188,13 +192,13 @@ def train(args):
         steps_per_epoch=len(train_loader),
         log_interval=args.log_interval,
         eval_interval=args.eval_interval,
-        quiet=args.quiet
+        quiet=quiet_mode
     )
     
     # Initialize the head learning rate manager if enabled
     head_lr_manager = None
     if args.enable_head_lr:
-        if not args.quiet:
+        if not quiet_mode:
             print(f"🔄 Initializing per-head learning rate manager")
             print(f"   - Boost factor: {args.head_lr_boost}")
             print(f"   - Warmup steps: {args.head_lr_warmup}")
@@ -224,14 +228,14 @@ def train(args):
         if os.path.exists(os.path.join(os.path.dirname(args.resume), "controller.pt")):
             controller_path = os.path.join(os.path.dirname(args.resume), "controller.pt")
             controller.load_state_dict(torch.load(controller_path, map_location=device))
-            if not args.quiet:
+            if not quiet_mode:
                 print(f"📂 Loaded controller state from {controller_path}")
             
         # Load head learning rate manager state if available
         if args.enable_head_lr and os.path.exists(os.path.join(os.path.dirname(args.resume), "head_lr.pt")):
             head_lr_path = os.path.join(os.path.dirname(args.resume), "head_lr.pt")
             head_lr_manager.load_state_dict(torch.load(head_lr_path, map_location=device))
-            if not args.quiet:
+            if not quiet_mode:
                 print(f"📂 Loaded head learning rate state from {head_lr_path}")
     
     # Training loop
@@ -279,7 +283,7 @@ def train(args):
                 optimizer.zero_grad()
                 
                 # Log accumulated step
-                if args.gradient_accumulation_steps > 1 and args.debug and not args.quiet:
+                if args.gradient_accumulation_steps > 1 and args.debug and not quiet_mode:
                     print(f"  Accumulated gradients for {args.gradient_accumulation_steps} steps, optimizer update performed")
             
             # Update global step counter - only count actual optimizer updates
@@ -331,7 +335,7 @@ def train(args):
                             metrics["avg_head_lr_multiplier"] = lr_info.get("avg_multiplier", 1.0)
                             
                             # Print verbose info if changes were made and debug mode is on
-                            if args.debug and lr_info.get("changes_made", False):
+                            if args.debug and lr_info.get("changes_made", False) and not quiet_mode:
                                 print(f"  📊 Head LR adjustments: avg={metrics['avg_head_lr_multiplier']:.2f}x, max={metrics['max_head_lr_multiplier']:.2f}x")
                 
                 metrics_logger.log_metrics(metrics, global_step)
@@ -373,7 +377,7 @@ def train(args):
                         torch.save(head_lr_manager.save_state_dict(), head_lr_path)
                     
                     # Include info about gradient accumulation in checkpoint message
-                    if not args.quiet:
+                    if not quiet_mode:
                         if args.gradient_accumulation_steps > 1:
                             print(f"💾 Saved checkpoint to {checkpoint_path} (effective batch size: {args.batch_size * args.gradient_accumulation_steps})")
                         else:
@@ -406,7 +410,7 @@ def train(args):
                 )
                 torch.save(head_lr_manager.save_state_dict(), head_lr_path)
                 
-            if not args.quiet:
+            if not quiet_mode:
                 print(f"💾 Saved epoch checkpoint to {checkpoint_path}")
     
     # Save final model
@@ -574,8 +578,10 @@ def parse_args():
                         help="Device to use (default: auto-detect)")
     parser.add_argument("--debug", action="store_true",
                         help="Enable debug output")
-    parser.add_argument("--quiet", action="store_true",
-                        help="Reduce verbose loading and training output")
+    parser.add_argument("--quiet", action="store_true", default=True,
+                        help="Reduce verbose loading and training output (enabled by default)")
+    parser.add_argument("--verbose", action="store_true",
+                        help="Show detailed loading and training output (disables --quiet)")
     
     return parser.parse_args()
 
