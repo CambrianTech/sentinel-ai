@@ -21,7 +21,7 @@ def load_optimized_baseline_model(model_name, device):
     
     return model
 
-def load_optimized_adaptive_model(model_name, baseline_model, device, debug=True, quiet=False):
+def load_optimized_adaptive_model(model_name, baseline_model, device, debug=True, quiet=False, optimization_level=None):
     """
     Load an adaptive transformer model with optimizations based on profiling results.
     
@@ -31,6 +31,7 @@ def load_optimized_adaptive_model(model_name, baseline_model, device, debug=True
         device: Device to load the model on ('cpu' or 'cuda')
         debug: Enable debug output
         quiet: Suppress verbose output
+        optimization_level: Override the default optimization level (0-3)
         
     Returns:
         An optimized adaptive transformer model
@@ -45,7 +46,8 @@ def load_optimized_adaptive_model(model_name, baseline_model, device, debug=True
             baseline_model, 
             config, 
             device, 
-            quiet=quiet
+            quiet=quiet,
+            optimization_level=optimization_level
         )
     else:
         # Default fallback to original loader for unsupported models

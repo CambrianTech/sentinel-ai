@@ -17,7 +17,9 @@ import random
 import numpy as np
 from transformers import AutoTokenizer, AutoModelForCausalLM
 from models.loaders.loader import load_baseline_model, load_adaptive_model
+from models.loaders.loader_optimized import load_optimized_adaptive_model
 from controller.controller_manager import ControllerManager
+import os
 
 def set_seed(seed):
     """Set all random seeds for reproducibility"""
@@ -363,6 +365,8 @@ Examples:
                         help="Reduce verbose loading output (enabled by default)")
     parser.add_argument("--verbose", action="store_true",
                         help="Show detailed loading and gate activity output (disables --quiet)")
+    parser.add_argument("--optimization_level", type=int, default=None, choices=[0, 1, 2, 3],
+                        help="Optimization level (0-3), where 3 is fully optimized")
 
     return parser.parse_args()
 
@@ -395,7 +399,23 @@ def main():
             quiet_mode = False
         else:
             quiet_mode = args.quiet or os.environ.get("QUIET", "0") == "1"
-        model = load_adaptive_model(args.model_name, baseline_model, device, debug=debug_mode, quiet=quiet_mode)
+            
+        # Use optimized implementation if optimization level is specified
+        if args.optimization_level is not None:
+            # Set environment variable for other components that check it
+            os.environ["OPTIMIZATION_LEVEL"] = str(args.optimization_level)
+            print(f"⚡ Using optimization level {args.optimization_level}")
+            model = load_optimized_adaptive_model(
+                args.model_name, 
+                baseline_model, 
+                device, 
+                debug=debug_mode, 
+                quiet=quiet_mode,
+                optimization_level=args.optimization_level
+            )
+        else:
+            # Use original implementation
+            model = load_adaptive_model(args.model_name, baseline_model, device, debug=debug_mode, quiet=quiet_mode)
         
         # Initialize the controller
         controller = ControllerManager(model)
