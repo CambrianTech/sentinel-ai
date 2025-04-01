@@ -4,13 +4,20 @@ import matplotlib.pyplot as plt
 
 
 class ProgressTracker:
-    def __init__(self):
+    def __init__(self, total_epochs=None, steps_per_epoch=None, log_interval=10, eval_interval=100, quiet=False):
         self.train_losses = []
         self.val_losses = []
         self.perplexities = []
         self.baseline_perplexities = []
         self.active_heads = []
         self.param_counts = []
+        
+        # Configuration for display
+        self.total_epochs = total_epochs
+        self.steps_per_epoch = steps_per_epoch
+        self.log_interval = log_interval
+        self.eval_interval = eval_interval
+        self.quiet = quiet
 
     def log_train_loss(self, loss):
         self.train_losses.append(loss)
@@ -24,6 +31,52 @@ class ProgressTracker:
         self.active_heads.append(active_head_count)
         self.param_counts.append(param_count)
 
+    def log_train_step(self, epoch, step, metrics):
+        """Log metrics from a training step"""
+        if self.quiet:
+            return
+        
+        # Store for plotting
+        self.log_train_loss(metrics.get("loss", 0))
+        
+        # Display progress
+        progress_str = f"Epoch {epoch+1}/{self.total_epochs} - Step {step+1}/{self.steps_per_epoch}"
+        metrics_str = f"Loss: {metrics.get('loss', 0):.4f}"
+        
+        # Add controller metrics if available
+        if "pruned_percent" in metrics:
+            metrics_str += f" | Pruned: {metrics.get('pruned_percent', 0)*100:.1f}%"
+        if "controller_lr" in metrics:
+            metrics_str += f" | Ctrl LR: {metrics.get('controller_lr', 0):.5f}"
+        
+        print(f"{progress_str} - {metrics_str}")
+    
+    def log_eval_step(self, epoch, step, metrics):
+        """Log metrics from an evaluation step"""
+        # Always show eval results, even in quiet mode as they're less frequent
+        
+        # Store for plotting if perplexity available
+        if "loss" in metrics:
+            self.log_val_metrics(
+                metrics.get("loss", 0),
+                metrics.get("perplexity", 0),
+                metrics.get("baseline_perplexity", 0)
+            )
+        
+        # Display evaluation results
+        progress_str = f"[Evaluation] Epoch {epoch+1}/{self.total_epochs}"
+        metrics_str = f"Loss: {metrics.get('loss', 0):.4f}"
+        
+        # Add perplexity if available
+        if "perplexity" in metrics:
+            metrics_str += f" | PPL: {metrics.get('perplexity', 0):.2f}"
+        
+        # Add pruning metrics if available
+        if "pruned_percent" in metrics:
+            metrics_str += f" | Pruned: {metrics.get('pruned_percent', 0)*100:.1f}%"
+        
+        print(f"{progress_str} - {metrics_str}")
+    
     def plot(self):
         if not self.train_losses:
             print("No data to plot yet.")
