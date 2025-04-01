@@ -7,10 +7,10 @@ This document details the current support status for different model architectur
 | Family | Architecture | Example Models | Status | Notes |
 |--------|--------------|----------------|--------|-------|
 | **GPT-2** | Decoder-only | distilgpt2, gpt2, gpt2-medium | ✅ Full Support | Thoroughly tested and optimized |
-| **OPT** | Decoder-only | facebook/opt-125m | ⚠️ Partial Support | Basic models work, larger ones may have issues |
+| **OPT** | Decoder-only | facebook/opt-125m | 🟠 Partial Support | Basic models work, larger ones may have issues |
 | **Pythia/GPT-NeoX** | Decoder-only | EleutherAI/pythia-70m, pythia-160m | ✅ Full Support | Successfully loaded and tested |
 | **BLOOM** | Decoder-only | bigscience/bloom-560m | ✅ Full Support | Uses hybrid adapter with original ALiBi attention |
-| **Llama** | Decoder-only | meta-llama/Llama-2-7b-hf, TinyLlama-1.1B | ✅ Full Support | Uses hybrid adapter with original RoPE and SwiGLU |
+| **Llama** | Decoder-only | TinyLlama-1.1B models | 🟠 Partial Support | Tested with TinyLlama variants, other Llama models may need authentication |
 
 ## Detailed Status by Family
 
@@ -72,7 +72,7 @@ This document details the current support status for different model architectur
 | TinyLlama/TinyLlama-1.1B-Chat-v1.0 | ✅ | ✅ | Good | Uses hybrid adapter, coherent outputs |
 | TinyLlama/TinyLlama-1.1B-Chat-v0.6 | ✅ | ✅ | Good | Uses hybrid adapter, coherent outputs |
 | TinyLlama/TinyLlama-1.1B-step-50K-105b | ✅ | ✅ | Good | Uses hybrid adapter, coherent outputs |
-| openlm-research/open_llama_3b | ⚠️ | ⚠️ | Unknown | May work but requires additional dependencies |
+| openlm-research/open_llama_3b | 🟠 | 🟠 | Unknown | Requires additional dependencies (blobfile, tiktoken) |
 | hf-internal-testing/tiny-random-LlamaForCausalLM | ✅ | ✅ | Poor | Tiny test model (2 layers), produces gibberish |
 
 **Notes:**
