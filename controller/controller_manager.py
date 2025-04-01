@@ -70,7 +70,7 @@ class ControllerManager:
         # Track gate activity for monitoring
         self.gate_history = []
     
-    def step(self, metrics_dict=None, dataloader=None, loss_fn=None):
+    def step(self, metrics_dict=None, dataloader=None, loss_fn=None, head_lr_manager=None):
         """
         Perform one step of the controller manager, potentially updating gates.
         
@@ -78,6 +78,7 @@ class ControllerManager:
             metrics_dict: Optional pre-computed metrics dictionary
             dataloader: Optional dataloader for computing metrics
             loss_fn: Optional loss function for computing importance metrics
+            head_lr_manager: Optional manager for per-head learning rates
             
         Returns:
             Dictionary with update information
@@ -109,6 +110,9 @@ class ControllerManager:
         # Add learning rate to metrics before updating controller
         metrics_dict["controller_lr"] = torch.tensor(self.controller_lr, device=device)
         
+        # Get current gate values before update (for tracking changes)
+        prev_gate_values = self.controller.forward()
+        
         # Update controller gates based on metrics
         self.controller.update_gates(metrics_dict)
         
@@ -117,6 +121,21 @@ class ControllerManager:
         
         # Apply gates to model
         self._apply_gates_to_model(gate_values)
+        
+        # Update per-head learning rates if manager is provided
+        head_lr_info = {}
+        if head_lr_manager is not None:
+            # Update head status based on gate changes
+            head_status_info = head_lr_manager.update_head_status(gate_values, prev_gate_values)
+            
+            # Update learning rates based on status
+            lr_update_info = head_lr_manager.update_learning_rates()
+            
+            # Combine all info for reporting
+            head_lr_info = {
+                "head_status": head_status_info,
+                "lr_updates": lr_update_info
+            }
         
         # Track gate activity
         self.gate_history.append(self._get_active_gates())
@@ -133,7 +152,9 @@ class ControllerManager:
             "pruned_percent": self._get_pruned_percent(),
             "controller_lr": self.controller_lr,
             "early_stopping_triggered": early_stopping_triggered,
-            "plateau_counter": self.plateau_counter
+            "plateau_counter": self.plateau_counter,
+            "head_lr_info": head_lr_info,
+            "gate_changes": torch.sum(torch.abs(gate_values - prev_gate_values)).item()
         }
     
     def _apply_gates_to_model(self, gate_values):

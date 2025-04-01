@@ -22,6 +22,11 @@ Key features:
 
 4. U-Net skip connections: Hierarchical connections between encoder and decoder layers,
    enabling richer representations and improved adaptation.
+
+5. Per-head learning rate adjustment: When heads are pruned or regrown, their learning
+   rates are temporarily boosted to allow faster adaptation to their new role, then
+   gradually decayed back to the base learning rate. This improves stability during
+   architectural changes.
 """
 
 import os
@@ -37,6 +42,7 @@ from utils.metrics_logger import MetricsLogger
 from utils.checkpoint import save_checkpoint, load_checkpoint
 from utils.progress_tracker import ProgressTracker
 from utils.training import compute_loss
+from utils.head_lr_manager import HeadLRManager
 from controller.controller_manager import ControllerManager
 
 def set_seed(seed):
@@ -181,6 +187,24 @@ def train(args):
         eval_interval=args.eval_interval
     )
     
+    # Initialize the head learning rate manager if enabled
+    head_lr_manager = None
+    if args.enable_head_lr:
+        print(f"🔄 Initializing per-head learning rate manager")
+        print(f"   - Boost factor: {args.head_lr_boost}")
+        print(f"   - Warmup steps: {args.head_lr_warmup}")
+        print(f"   - Cooldown steps: {args.head_lr_cooldown}")
+        
+        head_lr_manager = HeadLRManager(
+            model=model,
+            optimizer=optimizer,
+            base_lr=args.learning_rate,
+            boost_factor=args.head_lr_boost,
+            decay_factor=args.head_lr_decay,
+            warmup_steps=args.head_lr_warmup,
+            cooldown_steps=args.head_lr_cooldown
+        )
+    
     # Load checkpoint if resuming training
     start_epoch = 0
     global_step = 0
@@ -195,6 +219,12 @@ def train(args):
             controller_path = os.path.join(os.path.dirname(args.resume), "controller.pt")
             controller.load_state_dict(torch.load(controller_path, map_location=device))
             print(f"📂 Loaded controller state from {controller_path}")
+            
+        # Load head learning rate manager state if available
+        if args.enable_head_lr and os.path.exists(os.path.join(os.path.dirname(args.resume), "head_lr.pt")):
+            head_lr_path = os.path.join(os.path.dirname(args.resume), "head_lr.pt")
+            head_lr_manager.load_state_dict(torch.load(head_lr_path, map_location=device))
+            print(f"📂 Loaded head learning rate state from {head_lr_path}")
     
     # Training loop
     print(f"🏋️ Starting training for {args.epochs} epochs")
@@ -248,7 +278,7 @@ def train(args):
                 global_step += 1
             
                 # Update controller periodically - only on actual update steps
-                controller_update = controller.step()
+                controller_update = controller.step(head_lr_manager=head_lr_manager)
             
             # Log metrics - only on actual update steps
             if (step + 1) % args.gradient_accumulation_steps == 0 and global_step % args.log_interval == 0:
@@ -273,6 +303,27 @@ def train(args):
                         metrics["plateau_counter"] = controller_update["plateau_counter"]
                     if "early_stopping_triggered" in controller_update and controller_update["early_stopping_triggered"]:
                         metrics["early_stopping"] = 1.0
+                    if "gate_changes" in controller_update:
+                        metrics["gate_changes"] = controller_update["gate_changes"]
+                    
+                    # Add head learning rate info if available
+                    if "head_lr_info" in controller_update and controller_update["head_lr_info"]:
+                        head_lr_info = controller_update["head_lr_info"]
+                        
+                        if "head_status" in head_lr_info:
+                            status_info = head_lr_info["head_status"]
+                            metrics["newly_activated_heads"] = len(status_info.get("newly_activated", []))
+                            metrics["newly_pruned_heads"] = len(status_info.get("newly_deactivated", []))
+                            metrics["cooling_down_heads"] = status_info.get("cooling_down", 0)
+                        
+                        if "lr_updates" in head_lr_info:
+                            lr_info = head_lr_info["lr_updates"]
+                            metrics["max_head_lr_multiplier"] = lr_info.get("max_multiplier", 1.0)
+                            metrics["avg_head_lr_multiplier"] = lr_info.get("avg_multiplier", 1.0)
+                            
+                            # Print verbose info if changes were made and debug mode is on
+                            if args.debug and lr_info.get("changes_made", False):
+                                print(f"  📊 Head LR adjustments: avg={metrics['avg_head_lr_multiplier']:.2f}x, max={metrics['max_head_lr_multiplier']:.2f}x")
                 
                 metrics_logger.log_metrics(metrics, global_step)
                 
@@ -304,6 +355,14 @@ def train(args):
                     )
                     torch.save(controller.save_state_dict(), controller_path)
                     
+                    # Save head learning rate manager state if enabled
+                    if args.enable_head_lr and head_lr_manager is not None:
+                        head_lr_path = os.path.join(
+                            args.output_dir,
+                            "head_lr.pt"
+                        )
+                        torch.save(head_lr_manager.save_state_dict(), head_lr_path)
+                    
                     # Include info about gradient accumulation in checkpoint message
                     if args.gradient_accumulation_steps > 1:
                         print(f"💾 Saved checkpoint to {checkpoint_path} (effective batch size: {args.batch_size * args.gradient_accumulation_steps})")
@@ -328,6 +387,15 @@ def train(args):
                 f"controller_epoch{epoch}.pt"
             )
             torch.save(controller.save_state_dict(), controller_path)
+            
+            # Save head learning rate manager state if enabled
+            if args.enable_head_lr and head_lr_manager is not None:
+                head_lr_path = os.path.join(
+                    args.output_dir,
+                    f"head_lr_epoch{epoch}.pt"
+                )
+                torch.save(head_lr_manager.save_state_dict(), head_lr_path)
+                
             print(f"💾 Saved epoch checkpoint to {checkpoint_path}")
     
     # Save final model
@@ -341,6 +409,11 @@ def train(args):
     # Save final controller state
     final_controller_path = os.path.join(args.output_dir, "final_controller.pt")
     torch.save(controller.save_state_dict(), final_controller_path)
+    
+    # Save final head learning rate manager state if enabled
+    if args.enable_head_lr and head_lr_manager is not None:
+        final_head_lr_path = os.path.join(args.output_dir, "final_head_lr.pt")
+        torch.save(head_lr_manager.save_state_dict(), final_head_lr_path)
     
     print(f"🎉 Training completed! Final model saved to {final_path}")
     return model, tokenizer
@@ -450,6 +523,18 @@ def parse_args():
                         help="Number of updates with minimal change before stopping")
     parser.add_argument("--min_gate_change", type=float, default=0.01,
                         help="Minimum gate change to continue updates")
+    
+    # Per-head learning rate configuration
+    parser.add_argument("--enable_head_lr", action="store_true",
+                        help="Enable per-head learning rate adjustments during pruning/regrowth")
+    parser.add_argument("--head_lr_boost", type=float, default=5.0,
+                        help="Factor to boost learning rates for newly activated heads")
+    parser.add_argument("--head_lr_decay", type=float, default=0.9,
+                        help="Decay factor for head learning rate boosts")
+    parser.add_argument("--head_lr_warmup", type=int, default=200,
+                        help="Warmup steps for gradually increasing head learning rates")
+    parser.add_argument("--head_lr_cooldown", type=int, default=1000,
+                        help="Cooldown steps before returning to base learning rate")
     
     # U-Net configuration
     parser.add_argument("--unet_start_epoch", type=int, default=1,
