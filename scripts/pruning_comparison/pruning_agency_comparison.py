@@ -419,15 +419,56 @@ def evaluate_model(model, tokenizer, prompts, num_tokens, temperature=0.7,
                         print(f"    Converting inputs from {input_dtype} to {model_dtype} to match model precision")
                     input_ids = input_ids.to(model_dtype)
                     attention_mask = attention_mask.to(model_dtype)
+                
+                try:
+                    # Ensure temperature is a Python float, not a tensor
+                    temp_value = float(temperature)
                     
-                output_ids = generate_method(
-                    input_ids,
-                    attention_mask=attention_mask,
-                    max_length=input_ids.size(1) + num_tokens,
-                    temperature=temperature,
-                    do_sample=(temperature > 0),
-                    pad_token_id=tokenizer.eos_token_id,
-                )
+                    # Use context manager to catch and convert any half-precision errors
+                    with torch.cuda.amp.autocast(enabled=(model_dtype == torch.float16)):
+                        output_ids = generate_method(
+                            input_ids,
+                            attention_mask=attention_mask,
+                            max_length=input_ids.size(1) + num_tokens,
+                            temperature=temp_value,
+                            do_sample=(temp_value > 0),
+                            pad_token_id=tokenizer.eos_token_id,
+                        )
+                except RuntimeError as e:
+                    if "expected scalar type Float but found Half" in str(e):
+                        # Fall back to full precision if there's a half precision error
+                        if not quiet:
+                            print(f"    Half precision error, falling back to float32 for generation")
+                        
+                        # Move model to float32 temporarily for generation
+                        model_was_half = next(model.parameters()).dtype == torch.float16
+                        if model_was_half:
+                            # Only convert for generation
+                            if hasattr(model, 'generate'):
+                                # For direct model generate
+                                with torch.cuda.amp.autocast(enabled=False):
+                                    model = model.float()
+                                    input_ids = input_ids.float()
+                                    attention_mask = attention_mask.float()
+                                    output_ids = model.generate(
+                                        input_ids,
+                                        attention_mask=attention_mask,
+                                        max_length=input_ids.size(1) + num_tokens,
+                                        temperature=temp_value,
+                                        do_sample=(temp_value > 0),
+                                        pad_token_id=tokenizer.eos_token_id,
+                                    )
+                                    # Convert back after generation
+                                    model = model.half()
+                            else:
+                                # This is a complex case - we'll need to skip it
+                                raise RuntimeError("Half precision error and cannot convert nested model")
+                        else:
+                            # Re-raise if model isn't half precision
+                            raise
+                    else:
+                        # Re-raise other errors
+                        raise
                 
                 # Measure time to first token
                 first_token_time = time.time() - generation_start
