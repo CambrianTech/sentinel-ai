@@ -53,6 +53,10 @@ dist/
 !/pruning_results/examples/
 /pruning_speed_results.png
 
+# Profiling and optimization results
+/profiling_results/
+/optimization_results/
+
 # Visualization files
 *.png
 *.jpg
