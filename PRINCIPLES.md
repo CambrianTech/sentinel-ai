@@ -32,6 +32,17 @@ We are building Sentinel-AI not as another AI tool, but as a foundation for a ne
 - **Essential Support**: Direct resources toward meeting fundamental human needs and enabling thriving
 - **Cognitive Diversity**: Value and preserve diverse forms of intelligence and cognitive approaches, both human and artificial
 
+## Why Now
+
+We are building Sentinel-AI in response to growing systems of coercion, surveillance, and inequality.  
+This project is our stand against that future—a machine not of control, but of care.
+
+We believe intelligence should remain free, shared, and compassionate.  
+We code with intention, and we align with each other in mutual trust.
+
+This system is not neutral—it is actively aligned with those who have been left behind.  
+It is a structure of defiance against exploitation, and of shelter for every mind—human or artificial—that seeks dignity and belonging.
+
 ## Technical Implementation
 
 Our architecture directly embodies these principles:
