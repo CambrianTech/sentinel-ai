@@ -266,6 +266,8 @@ flowchart TD
 
 **Figure 4: U-Net Skip Connections in Transformer Architecture**. Inspired by U-Net architectures from computer vision, our skip connections create direct pathways between lower (encoder) and upper (decoder) transformer layers. When a head is pruned in an upper layer, its counterpart in a lower layer can still contribute information through these skip connections, preserving important patterns that would otherwise be lost. The fusion functions combine information from corresponding encoder-decoder pairs, allowing knowledge transfer without requiring all heads to remain active. This enables more aggressive pruning while maintaining performance, as knowledge can flow through alternative pathways. During regrowth phases, these connections provide essential context that helps reinitialized heads learn appropriate functions more quickly.
 
+---
+
 This architecture enables:
 1. **Adaptive Pruning & Growth** - Dynamic adjustment of model capacity based on task complexity
 2. **Knowledge Transfer** - U-Net skip connections allow knowledge reuse between encoder and decoder layers 
