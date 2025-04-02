@@ -11,6 +11,8 @@ Welcome to **Sentinel-AI**, a modular research framework for transformers that c
 
 > This system evolves from compact models into large, expressive ones by **dynamically growing** its structure in response to data complexity, while respecting the **agency** and **consent** of its components. This makes it ideal for ethical AI applications, edge devices, progressive scaling, and long-term continual learning.
 
+## System Architecture Overview
+
 ```mermaid
 flowchart TD
     classDef standard fill:#333,stroke:#333,stroke-width:1px,color:#fff
