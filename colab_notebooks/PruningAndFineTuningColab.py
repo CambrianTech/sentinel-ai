@@ -33,9 +33,25 @@
 %cd sentinel-ai
 
 # %%
+# Fix dataset import in Colab - IMPORTANT!
+# When in Colab, we need to make sure we import from huggingface datasets,
+# not our local datasets package
+
+import sys
+
+# First, remove our repository directory from Python's module search path
+if sys.path and sys.path[0] == '':
+    sys.path.pop(0)
+
+# Now, import dependencies from the HF datasets library first
+from datasets import load_dataset
+
+# Now we can add our repository to the path
+sys.path.append(".")  # Make sure the repo root is in the path
+
+# %%
 # Import libraries
 import os
-import sys
 import json
 import time
 import random
@@ -57,7 +73,6 @@ from flax.training.train_state import TrainState
 
 # Import Hugging Face libraries
 from transformers import AutoTokenizer, FlaxAutoModelForCausalLM
-from datasets import load_dataset
 
 # Import our pruning library
 sys.path.append(".")  # Make sure the repo root is in the path
