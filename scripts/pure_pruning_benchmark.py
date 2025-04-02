@@ -38,6 +38,31 @@ from tqdm import tqdm
 from models.loaders.loader import load_baseline_model, load_adaptive_model
 from models.loaders.loader_optimized import load_optimized_adaptive_model
 from scripts.pruning_comparison.pruning_agency_comparison import apply_pruning
+try:
+    # Import only what actually exists in train_utils
+    from utils.train_utils import compute_loss, compute_perplexity as compute_utils_perplexity
+except ImportError:
+    # Define fallback functions if imports fail
+    def compute_loss(logits, targets):
+        """Compute cross-entropy loss for language modeling."""
+        import torch.nn.functional as F
+        # Shift targets for language modeling (predict next token)
+        shifted_logits = logits[:, :-1, :].contiguous()
+        shifted_targets = targets[:, 1:].contiguous()
+        
+        # Flatten the logits and targets
+        vocab_size = shifted_logits.size(-1)
+        flat_logits = shifted_logits.view(-1, vocab_size)
+        flat_targets = shifted_targets.view(-1)
+        
+        # Compute loss
+        loss = F.cross_entropy(flat_logits, flat_targets)
+        return loss
+    
+    def compute_utils_perplexity(loss):
+        """Compute perplexity from loss."""
+        import math
+        return math.exp(loss)
 
 # Define metrics functions locally to avoid import errors
 def compute_perplexity(model, input_ids):
@@ -54,6 +79,112 @@ def compute_output_quality(prompt, output_text):
     if prompt in output_text:
         quality *= 0.9  # Slightly reduce if prompt is repeated
     return quality
+
+def train_epoch(model, train_loader, optimizer, scheduler, device, args=None):
+    """
+    Train the model for one epoch.
+    
+    Args:
+        model: The model to train
+        train_loader: DataLoader with training data
+        optimizer: Optimizer for model parameters
+        scheduler: Learning rate scheduler
+        device: Device to use for training
+        args: Optional arguments
+        
+    Returns:
+        Dictionary with training metrics
+    """
+    model.train()
+    epoch_loss = 0
+    step = 0
+    
+    metrics = {
+        "loss": [],
+        "active_heads": [] if hasattr(model, 'get_active_heads') else []
+    }
+    
+    for batch in tqdm(train_loader, desc="Training"):
+        # Move batch to device
+        batch = {k: v.to(device) for k, v in batch.items()}
+        
+        # Forward pass
+        outputs = model(
+            input_ids=batch["input_ids"],
+            attention_mask=batch["attention_mask"],
+            labels=batch["labels"]
+        )
+        loss = outputs.loss if hasattr(outputs, 'loss') else outputs[0]
+        
+        # Backward pass
+        loss.backward()
+        
+        # Gradient clipping
+        torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+        
+        # Update parameters
+        optimizer.step()
+        if scheduler is not None:
+            scheduler.step()
+        optimizer.zero_grad()
+        
+        # Record metrics
+        epoch_loss += loss.item()
+        metrics["loss"].append(loss.item())
+        
+        # Record active heads if applicable
+        if hasattr(model, 'get_active_heads'):
+            active_heads = model.get_active_heads()
+            metrics["active_heads"].append(active_heads)
+        
+        step += 1
+    
+    # Calculate average loss
+    avg_loss = epoch_loss / len(train_loader)
+    print(f"Average training loss: {avg_loss:.4f}")
+    
+    return metrics
+
+def validate(model, eval_loader, device):
+    """
+    Evaluate the model on the validation set.
+    
+    Args:
+        model: The model to evaluate
+        eval_loader: DataLoader with evaluation data
+        device: Device to use for evaluation
+        
+    Returns:
+        Dictionary with evaluation metrics
+    """
+    model.eval()
+    eval_loss = 0
+    
+    with torch.no_grad():
+        for batch in tqdm(eval_loader, desc="Evaluating"):
+            # Move batch to device
+            batch = {k: v.to(device) for k, v in batch.items()}
+            
+            # Forward pass
+            outputs = model(
+                input_ids=batch["input_ids"],
+                attention_mask=batch["attention_mask"],
+                labels=batch["labels"]
+            )
+            
+            loss = outputs.loss if hasattr(outputs, 'loss') else outputs[0]
+            eval_loss += loss.item()
+    
+    # Calculate average loss and perplexity
+    avg_loss = eval_loss / len(eval_loader)
+    perplexity = torch.exp(torch.tensor(avg_loss)).item()
+    
+    print(f"Evaluation loss: {avg_loss:.4f}, Perplexity: {perplexity:.2f}")
+    
+    return {
+        "loss": avg_loss,
+        "perplexity": perplexity
+    }
 
 
 class PruningBenchmark:
