@@ -26,7 +26,7 @@
 # %%
 # Install required packages and make sure HuggingFace datasets is properly installed
 !pip install -q jax jaxlib flax transformers matplotlib numpy pandas seaborn tqdm optax
-!pip install -q 'datasets>=2.0.0' --no-deps
+!pip install -q 'datasets>=2.0.0' multiprocess
 
 # %%
 # Clone the repository but make sure it's not in the Python path yet
