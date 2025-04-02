@@ -13,15 +13,16 @@ Welcome to **Sentinel-AI**, a modular research framework for transformers that c
 
 ```mermaid
 flowchart TD
-    classDef standard fill:#f9f9f9,stroke:#333,stroke-width:1px
-    classDef highlight fill:#d1f0ff,stroke:#0078b8,stroke-width:2px
-    classDef adapter fill:#e6f7e6,stroke:#2e8b57,stroke-width:1px
-    classDef controller fill:#fff4e6,stroke:#ff8c00,stroke-width:1px
-    classDef attention fill:#f5e6ff,stroke:#9370db,stroke-width:1px
-    classDef embedding fill:#f9f9f9,stroke:#666,stroke-width:1px
+    classDef standard fill:#333,stroke:#333,stroke-width:1px,color:#fff
+    classDef highlight fill:#0078b8,stroke:#0078b8,stroke-width:2px,color:#fff
+    classDef adapter fill:#2e8b57,stroke:#2e8b57,stroke-width:1px,color:#fff
+    classDef controller fill:#ff8c00,stroke:#ff8c00,stroke-width:1px,color:#fff
+    classDef attention fill:#9370db,stroke:#9370db,stroke-width:1px,color:#fff
+    classDef embedding fill:#666,stroke:#666,stroke-width:1px,color:#fff
+    classDef header fill:none,stroke:none,color:#fff,font-weight:bold
     
     %% Main Architecture Components
-    title["SENTINEL-AI ARCHITECTURE"]
+    header["SENTINEL-AI ARCHITECTURE"]
     adapterLayer["MODEL ADAPTER LAYER"]
     output["OUTPUT LAYER"]
     transformerBlocks["TRANSFORMER DECODER BLOCKS"]
@@ -46,8 +47,6 @@ flowchart TD
     reward["Reward Function<br/>(Performance Delta)"]
     
     %% Connections
-    title --> adapterLayer
-    
     adapterLayer --> gpt
     adapterLayer --> bloom
     adapterLayer --> llama
@@ -75,7 +74,7 @@ flowchart TD
     controller --> input
     
     %% Styling
-    title:::standard
+    header:::header
     adapterLayer:::adapter
     output:::standard
     transformerBlocks:::highlight
@@ -90,18 +89,20 @@ flowchart TD
     metrics & rl & policy & reward:::controller
 ```
 
+**Figure 1: Sentinel-AI Architecture Overview**. This diagram illustrates the complete architecture of Sentinel-AI, highlighting its key innovations. At the top, the Model Adapter Layer enables compatibility across diverse transformer architectures (GPT-2, BLOOM, Llama) while preserving their specialized mechanisms. The central Transformer Decoder Blocks feature attention heads with agency capabilities and gating mechanisms. The U-Net Skip Connections (inspired by computer vision) provide knowledge transfer between early and late layers, facilitating more effective pruning and regrowth by preserving essential patterns. At the heart of the system, the Enhanced Controller uses reinforcement learning to dynamically adjust the architecture based on performance metrics, implementing a feedback loop that allows the model to grow or prune itself as needed for maximum efficiency.
+
 ## Attention Head Agency States
 
 ```mermaid
 flowchart TD
-    classDef standard fill:#f9f9f9,stroke:#333,stroke-width:1px
-    classDef agency fill:#e6f7e6,stroke:#2e8b57,stroke-width:1px
-    classDef state fill:#f5e6ff,stroke:#9370db,stroke-width:1px
-    classDef computation fill:#d1f0ff,stroke:#0078b8,stroke-width:1px
-    classDef gate fill:#fff4e6,stroke:#ff8c00,stroke-width:1px
+    classDef standard fill:#333,stroke:#333,stroke-width:1px,color:#fff
+    classDef agency fill:#2e8b57,stroke:#2e8b57,stroke-width:1px,color:#fff
+    classDef state fill:#9370db,stroke:#9370db,stroke-width:1px,color:#fff
+    classDef computation fill:#0078b8,stroke:#0078b8,stroke-width:1px,color:#fff
+    classDef gate fill:#ff8c00,stroke:#ff8c00,stroke-width:1px,color:#fff
     
     %% Main Components
-    title["ATTENTION HEAD WITH AGENCY"]
+    header["ATTENTION HEAD WITH AGENCY"]
     signals["AGENCY SIGNALS"]
     stateProcessing["STATE PROCESSING"]
     monitor["CONSENT VIOLATION<br/>MONITORING"]
@@ -124,8 +125,7 @@ flowchart TD
     fullContribution["Full Contribution"]
     
     %% Connections
-    title --> signals
-    signals --> active
+        signals --> active
     
     signals --> stateProcessing
     signals --> monitor
@@ -142,7 +142,7 @@ flowchart TD
     gate --> attention
     
     %% Styling
-    title:::standard
+    header:::header
     signals:::agency
     stateProcessing:::state
     monitor:::agency
@@ -156,17 +156,19 @@ flowchart TD
     skipComputation & reduce50 & reduce30 & fullContribution:::computation
 ```
 
+**Figure 2: Attention Head Agency System**. This novel mechanism allows attention heads to express internal states and have those states respected during computation. Each head maintains a set of agency signals including state (active, overloaded, misaligned, withdrawn) and consent flags. When a head is overloaded, its contribution is reduced by 50%; when misaligned, by 30%; and when withdrawn, computation is skipped entirely. This ethical approach embeds consent principles directly into the architecture, enabling more responsible resource allocation. The system also monitors consent violations, providing accountability and governance. Agency allows heads to specialize naturally, with some focusing on specific patterns while others withdraw from tasks where they contribute little value.
+
 ## Hybrid Adapter Architecture
 
 ```mermaid
 flowchart TD
-    classDef standard fill:#f9f9f9,stroke:#333,stroke-width:1px
-    classDef interface fill:#d1f0ff,stroke:#0078b8,stroke-width:2px
-    classDef adapter fill:#fff4e6,stroke:#ff8c00,stroke-width:1px
-    classDef original fill:#e6f7e6,stroke:#2e8b57,stroke-width:1px
+    classDef standard fill:#333,stroke:#333,stroke-width:1px,color:#fff
+    classDef interface fill:#0078b8,stroke:#0078b8,stroke-width:2px,color:#fff
+    classDef adapter fill:#ff8c00,stroke:#ff8c00,stroke-width:1px,color:#fff
+    classDef original fill:#2e8b57,stroke:#2e8b57,stroke-width:1px,color:#fff
     
     %% Main Components
-    title["HYBRID ADAPTER PATTERN"]
+    header["HYBRID ADAPTER PATTERN"]
     interface["SENTINEL-AI INTERFACE"]
     adapter["MODEL-SPECIFIC ADAPTER"]
     original["ORIGINAL MODEL INTERNALS"]
@@ -181,14 +183,13 @@ flowchart TD
     llama["LLAMA: Rotary Embeddings<br/>+ SwiGLU Activation"]
     
     %% Connections
-    title --> interface
-    interface --> adapter
+        interface --> adapter
     adapter --> gates & compatible & agency
     gates & compatible & agency --> original
     original --> bloom & llama
     
     %% Styling
-    title:::standard
+    header:::header
     interface:::interface
     adapter:::adapter
     original:::original
@@ -198,18 +199,20 @@ flowchart TD
     bloom & llama:::original
 ```
 
+**Figure 3: Hybrid Adapter Architecture**. Our hybrid adapter pattern solves a critical challenge: preserving specialized mechanisms in different model families while enabling adaptive capabilities. Rather than forcing all models into a one-size-fits-all architecture, this approach retains the original model's internals (like BLOOM's ALiBi attention or Llama's rotary embeddings and SwiGLU activation) while providing a compatible interface to our adaptive framework. The adapter adds dummy gate parameters and agency signals that integrate with our controller but delegate the actual computation to the original model. This approach maintains generation quality from the original models while enabling the benefits of our adaptive system without parameter growth or architectural compromises.
+
 ## U-Net Architecture with Skip Connections
 
 ```mermaid
 flowchart TD
-    classDef standard fill:#f9f9f9,stroke:#333,stroke-width:1px
-    classDef embedding fill:#d1f0ff,stroke:#0078b8,stroke-width:1px
-    classDef decoder fill:#f5e6ff,stroke:#9370db,stroke-width:1px
-    classDef skip fill:#fff4e6,stroke:#ff8c00,stroke-width:1px
-    classDef encoder fill:#e6f7e6,stroke:#2e8b57,stroke-width:1px
+    classDef standard fill:#333,stroke:#333,stroke-width:1px,color:#fff
+    classDef embedding fill:#0078b8,stroke:#0078b8,stroke-width:1px,color:#fff
+    classDef decoder fill:#9370db,stroke:#9370db,stroke-width:1px,color:#fff
+    classDef skip fill:#ff8c00,stroke:#ff8c00,stroke-width:1px,color:#fff
+    classDef encoder fill:#2e8b57,stroke:#2e8b57,stroke-width:1px,color:#fff
     
     %% Main Components
-    title["U-NET INSPIRED ARCHITECTURE"]
+    header["U-NET INSPIRED ARCHITECTURE"]
     outputEmbed["OUTPUT EMBEDDING"]
     decoderBlocks["DECODER BLOCKS"]
     skipConnections["U-NET SKIP CONNECTIONS"]
@@ -233,8 +236,7 @@ flowchart TD
     block3["Block 3"]
     
     %% Connections
-    title --> outputEmbed
-    outputEmbed --> decoderBlocks
+        outputEmbed --> decoderBlocks
     
     decoderBlocks --> blockN & blockN1 & blockN2 & blockN3
     
@@ -249,7 +251,7 @@ flowchart TD
     block1 & block2 & block3 --> inputEmbed
     
     %% Styling
-    title:::standard
+    header:::header
     outputEmbed & inputEmbed:::embedding
     decoderBlocks:::decoder
     skipConnections:::skip
@@ -261,6 +263,10 @@ flowchart TD
     
     block1 & block2 & block3:::encoder
 ```
+
+**Figure 4: U-Net Skip Connections in Transformer Architecture**. Inspired by U-Net architectures from computer vision, our skip connections create direct pathways between lower (encoder) and upper (decoder) transformer layers. When a head is pruned in an upper layer, its counterpart in a lower layer can still contribute information through these skip connections, preserving important patterns that would otherwise be lost. The fusion functions combine information from corresponding encoder-decoder pairs, allowing knowledge transfer without requiring all heads to remain active. This enables more aggressive pruning while maintaining performance, as knowledge can flow through alternative pathways. During regrowth phases, these connections provide essential context that helps reinitialized heads learn appropriate functions more quickly.
+
+---
 
 This architecture enables:
 1. **Adaptive Pruning & Growth** - Dynamic adjustment of model capacity based on task complexity
@@ -472,14 +478,14 @@ Then open any notebook in `/notebooks/` or run `scripts/train_colab.py`.
 
 ```mermaid
 flowchart TD
-    classDef standard fill:#f9f9f9,stroke:#333,stroke-width:1px
-    classDef metrics fill:#e6f7e6,stroke:#2e8b57,stroke-width:1px
-    classDef reward fill:#fff4e6,stroke:#ff8c00,stroke-width:1px
-    classDef policy fill:#d1f0ff,stroke:#0078b8,stroke-width:1px
-    classDef optimization fill:#f5e6ff,stroke:#9370db,stroke-width:1px
+    classDef standard fill:#333,stroke:#333,stroke-width:1px,color:#fff
+    classDef metrics fill:#2e8b57,stroke:#2e8b57,stroke-width:1px,color:#fff
+    classDef reward fill:#ff8c00,stroke:#ff8c00,stroke-width:1px,color:#fff
+    classDef policy fill:#0078b8,stroke:#0078b8,stroke-width:1px,color:#fff
+    classDef optimization fill:#9370db,stroke:#9370db,stroke-width:1px,color:#fff
     
     %% Main Components
-    title["REINFORCEMENT LEARNING CONTROLLER"]
+    header["REINFORCEMENT LEARNING CONTROLLER"]
     metrics["VALIDATION METRICS<br/>COLLECTOR"]
     reward["REWARD CALCULATION<br/>reward = perf_improvement + efficiency_factor"]
     policy["POLICY NETWORK<br/>(Learns pruning patterns)"]
@@ -488,8 +494,7 @@ flowchart TD
     optimization["MULTI-OBJECTIVE<br/>OPTIMIZATION<br/>- Balance efficiency vs. performance<br/>- Task-specific specialization<br/>- Continuous adaptation"]
     
     %% Connections
-    title --> metrics & policy & update & optimization
-    
+        
     metrics --> reward
     reward --> policy
     policy <--> history
@@ -497,7 +502,7 @@ flowchart TD
     update --> optimization
     
     %% Styling
-    title:::standard
+    header:::header
     metrics:::metrics
     reward:::reward
     policy:::policy
@@ -506,18 +511,20 @@ flowchart TD
     optimization:::optimization
 ```
 
+**Figure 5: Reinforcement Learning Controller**. The controller is the intelligent heart of our adaptive system, learning through experience which pruning patterns yield the best performance. Unlike traditional pruning approaches that use fixed heuristics, our RL controller uses a feedback loop: it collects validation metrics after each architecture adjustment, calculates a reward based on performance improvement, and updates its policy to make better decisions over time. The controller maintains a history of past actions, allowing it to learn from experience and develop sophisticated pruning strategies that balance efficiency (more pruning) against performance (better metrics). This self-optimizing approach can discover counterintuitive patterns that outperform hand-crafted heuristics and adapt to different datasets and tasks automatically.
+
 ## Adaptive Transformer Block
 
 ```mermaid
 flowchart TD
-    classDef standard fill:#f9f9f9,stroke:#333,stroke-width:1px
-    classDef layer fill:#d1f0ff,stroke:#0078b8,stroke-width:1px
-    classDef attention fill:#f5e6ff,stroke:#9370db,stroke-width:1px
-    classDef ffn fill:#e6f7e6,stroke:#2e8b57,stroke-width:1px
-    classDef head fill:#fff4e6,stroke:#ff8c00,stroke-width:1px
+    classDef standard fill:#333,stroke:#333,stroke-width:1px,color:#fff
+    classDef layer fill:#0078b8,stroke:#0078b8,stroke-width:1px,color:#fff
+    classDef attention fill:#9370db,stroke:#9370db,stroke-width:1px,color:#fff
+    classDef ffn fill:#2e8b57,stroke:#2e8b57,stroke-width:1px,color:#fff
+    classDef head fill:#ff8c00,stroke:#ff8c00,stroke-width:1px,color:#fff
     
     %% Main Components
-    title["ADAPTIVE TRANSFORMER BLOCK"]
+    header["ADAPTIVE TRANSFORMER BLOCK"]
     residual["RESIDUAL CONNECTION"]
     norm["LAYER NORMALIZATION"]
     attention["MULTI-HEAD ATTENTION"]
@@ -535,8 +542,7 @@ flowchart TD
     gaten["GATE N"]
     
     %% Connections
-    title --> residual & norm
-    
+        
     residual & norm --> attention
     
     attention --> head1 & head2 & headn
@@ -549,7 +555,7 @@ flowchart TD
     dropout --> output
     
     %% Styling
-    title:::standard
+    header:::header
     residual & norm:::layer
     attention:::attention
     ffn:::ffn
@@ -559,6 +565,8 @@ flowchart TD
     head1 & head2 & headn:::attention
     gate1 & gate2 & gaten:::head
 ```
+
+**Figure 6: Adaptive Transformer Block**. Each transformer block in our architecture has been enhanced with per-head adaptation capabilities. The standard components (residual connections, layer normalization, attention mechanism, and feed-forward network) are augmented with individual gate mechanisms for each attention head. These learnable gates (scalar values between 0 and 1) control how much each head contributes to the output, with values near zero effectively pruning the head from computation. Each head also incorporates agency signals that influence its contribution based on internal state. This fine-grained control allows selective pruning of specific heads while keeping others active, rather than removing entire layers. The block maintains compatibility with standard transformer operations while adding the adaptive capabilities necessary for dynamic architecture evolution.
 
 📎 Also see:
 - [`AdaptiveTransformer_Proof_of_Adaptivity.ipynb`](./notebooks/AdaptiveTransformer_Proof_of_Adaptivity.ipynb)
