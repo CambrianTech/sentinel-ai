@@ -24,35 +24,28 @@
 # First, let's install dependencies and clone the repository:
 
 # %%
-# Install required packages
-!pip install -q jax jaxlib flax transformers datasets matplotlib numpy pandas seaborn tqdm optax
+# Install required packages and make sure HuggingFace datasets is properly installed
+!pip install -q jax jaxlib flax transformers matplotlib numpy pandas seaborn tqdm optax
+!pip install -q 'datasets>=2.0.0' --no-deps
 
 # %%
-# Import the Hugging Face datasets library FIRST, before doing anything else
-# This is critical to avoid import conflicts with our local datasets module
-import sys
-original_path = list(sys.path)
-
-# Force install the huggingface datasets library to be safe
-!pip install -q datasets
-
-# Import the datasets module before we modify the path
-import datasets
-from datasets import load_dataset
-print(f"Imported datasets from: {datasets.__file__}")
-
-# %%
-# Clone the repository and configure paths
+# Clone the repository but make sure it's not in the Python path yet
 !git clone -b feature/colab-overnight https://github.com/CambrianTech/sentinel-ai.git
+# Don't cd into it yet
+
+# %%
+# Import huggingface datasets directly before changing directory
+# We want to make sure we're using the system package
+from datasets import load_dataset
+import datasets
+print(f"Using datasets from: {datasets.__file__}")
+
+# Now safely change to the repository directory
 %cd sentinel-ai
 
-# Reset sys.path and then add the repository directory at the end
-sys.path = original_path
-sys.path.append(".")  # Make sure the repo root is in the path
-
-# %%
-# Import libraries
+# Import rest of the libraries
 import os
+import sys
 import json
 import time
 import random
@@ -75,8 +68,8 @@ from flax.training.train_state import TrainState
 # Import Hugging Face libraries
 from transformers import AutoTokenizer, FlaxAutoModelForCausalLM
 
-# Import our pruning library
-sys.path.append(".")  # Make sure the repo root is in the path
+# Add the current directory to path and import our modules
+sys.path.append(".")
 from utils.pruning import (
     Environment,
     ResultsManager,
