@@ -2,17 +2,17 @@
   "model_loading": {
     "operation": "model_loading",
     "baseline_model": {
-      "load_time": 0.7484867572784424,
+      "load_time": 6.8258209228515625,
       "memory_usage": 497759232,
       "parameter_count": 124439808
     },
     "original_model": {
-      "load_time": 1.2785160541534424,
+      "load_time": 1.0957591533660889,
       "memory_usage": 554825280,
       "parameter_count": 138706320
     },
     "optimized_model": {
-      "load_time": 1.4611172676086426,
+      "load_time": 1.1580760478973389,
       "memory_usage": 554825280,
       "parameter_count": 138706320
     }
@@ -23,43 +23,65 @@
         "model_type": "original",
         "pruning_level": 0,
         "generation_times": [
-          3.2115530967712402,
-          1.6601362228393555,
-          4.282867908477783
+          1.1480519771575928,
+          1.0533549785614014,
+          1.092529296875,
+          1.112886905670166,
+          1.1019997596740723
         ],
-        "avg_generation_time": 3.0515190760294595,
-        "tokens_per_second": 6.5541127227765426,
-        "first_token_time": 3.211548328399658,
+        "avg_generation_time": 1.1017645835876464,
+        "tokens_per_second": 18.15269822422004,
+        "first_token_time": 1.1480398178100586,
         "profile_data": null,
-        "generated_text": "The transformer model architecture revolutionized natural language processing by the world's going to be able of the 'The same day, a lot of my job is"
+        "generated_text": "The transformer model architecture revolutionized natural language processing by a major players's first two was to the same day, you're still and is not be able"
+      },
+      "30": {
+        "model_type": "original",
+        "pruning_level": 30,
+        "generation_times": [
+          1.1829369068145752,
+          1.2341618537902832,
+          1.1696021556854248,
+          1.171903133392334,
+          1.1957759857177734
+        ],
+        "avg_generation_time": 1.1908760070800781,
+        "tokens_per_second": 16.79435968236376,
+        "first_token_time": 1.1829328536987305,
+        "profile_data": null,
+        "generated_text": "The transformer model architecture revolutionized natural language processing by the only on Twitter. The day a little-fied to be able of the first, and"
       },
       "50": {
         "model_type": "original",
         "pruning_level": 50,
         "generation_times": [
-          1.1236250400543213,
-          1.6656129360198975,
-          3.141028881072998
+          0.9069299697875977,
+          0.9444959163665771,
+          0.8910470008850098,
+          0.8484899997711182,
+          0.8550689220428467
         ],
-        "avg_generation_time": 1.9767556190490723,
-        "tokens_per_second": 10.117588541177941,
-        "first_token_time": 1.123621940612793,
+        "avg_generation_time": 0.8892063617706298,
+        "tokens_per_second": 22.491966836781344,
+        "first_token_time": 0.9069268703460693,
         "profile_data": null,
-        "generated_text": "The transformer model architecture revolutionized natural language processing by this is a high, I can be able to get rid of a little on YouTube. It's"
+        "generated_text": "The transformer model architecture revolutionized natural language processing by a high, and so much of the same day a little of this is just what it was not"
       },
       "70": {
         "model_type": "original",
         "pruning_level": 70,
         "generation_times": [
-          0.9114251136779785,
-          0.971904993057251,
-          0.9443390369415283
+          1.0252721309661865,
+          0.9841079711914062,
+          0.9752020835876465,
+          0.9725286960601807,
+          0.991081953048706
         ],
-        "avg_generation_time": 0.9425563812255859,
-        "tokens_per_second": 21.218889817492325,
-        "first_token_time": 0.9114229679107666,
+        "avg_generation_time": 0.9896385669708252,
+        "tokens_per_second": 20.209398327328532,
+        "first_token_time": 1.0252711772918701,
         "profile_data": null,
-        "generated_text": "The transformer model architecture revolutionized natural language processing by the same day to be a lot of their own, and you're in the right. The same"
+        "generated_text": "The transformer model architecture revolutionized natural language processing by a couple of this year ago, it's not a group of their own individualism, and the"
       }
     },
     "optimized": {
@@ -67,44 +89,77 @@
         "model_type": "optimized",
         "pruning_level": 0,
         "generation_times": [
-          1.3450210094451904,
-          1.3557841777801514,
-          1.3550007343292236
+          1.2671170234680176,
+          1.2655720710754395,
+          1.2779498100280762,
+          1.2726731300354004,
+          1.3050520420074463
         ],
-        "avg_generation_time": 1.3519353071848552,
-        "tokens_per_second": 14.793607278181192,
-        "first_token_time": 1.3450188636779785,
+        "avg_generation_time": 1.277672815322876,
+        "tokens_per_second": 15.653459759137062,
+        "first_token_time": 1.2671151161193848,
         "profile_data": null,
-        "generated_text": "The transformer model architecture revolutionized natural language processing by the same thing you're to be a. The is not even I've been in a big."
+        "generated_text": "The transformer model architecture revolutionized natural language processing by the a second and, I'm still to be able of you're a non-leveling them"
+      },
+      "30": {
+        "model_type": "optimized",
+        "pruning_level": 30,
+        "generation_times": [
+          1.1245830059051514,
+          1.1119589805603027,
+          1.117419958114624,
+          1.1446659564971924,
+          1.2111239433288574
+        ],
+        "avg_generation_time": 1.1419503688812256,
+        "tokens_per_second": 17.513896001972572,
+        "first_token_time": 1.1245808601379395,
+        "profile_data": null,
+        "generated_text": "The transformer model architecture revolutionized natural language processing by these is on a few of the was not to be able in their work, and a major events"
       },
       "50": {
         "model_type": "optimized",
         "pruning_level": 50,
         "generation_times": [
-          0.9741170406341553,
-          1.0184199810028076,
-          1.0290288925170898
+          0.8238739967346191,
+          1.0161993503570557,
+          0.868567943572998,
+          0.9013659954071045,
+          0.9014012813568115
         ],
-        "avg_generation_time": 1.0071886380513508,
-        "tokens_per_second": 19.857253392666163,
-        "first_token_time": 0.9741148948669434,
+        "avg_generation_time": 0.9022817134857177,
+        "tokens_per_second": 22.16602608816651,
+        "first_token_time": 0.8238720893859863,
         "profile_data": null,
-        "generated_text": "The transformer model architecture revolutionized natural language processing by a day, the next. I'm a small, and was not to be asked you can't"
+        "generated_text": "The transformer model architecture revolutionized natural language processing by the, I was a of and so much more than a new generation, you have a large amounts"
       },
       "70": {
         "model_type": "optimized",
         "pruning_level": 70,
         "generation_times": [
-          1.1080422401428223,
-          1.027143955230713,
-          0.9753949642181396
+          0.973639965057373,
+          0.9337692260742188,
+          0.9704089164733887,
+          1.0033869743347168,
+          0.9806358814239502
         ],
-        "avg_generation_time": 1.0368603865305583,
-        "tokens_per_second": 19.28900000406232,
-        "first_token_time": 1.1080400943756104,
+        "avg_generation_time": 0.9723681926727294,
+        "tokens_per_second": 20.568340419513714,
+        "first_token_time": 0.9736378192901611,
         "profile_data": null,
-        "generated_text": "The transformer model architecture revolutionized natural language processing by this is a person's going to be considered was not necessarily, and then they all sorts of a"
+        "generated_text": "The transformer model architecture revolutionized natural language processing by a new, I was already made them both in this is what you've been considered to be able"
       }
     }
+  },
+  "timestamp": 1743617087.191193,
+  "args": {
+    "model_name": "gpt2",
+    "device": "cpu",
+    "optimization_level": 1,
+    "pruning_levels": "0,30,50,70",
+    "profile_mode": "all",
+    "multi_model_comparison": false,
+    "compare_models": null,
+    "model_family": null
   }
 }

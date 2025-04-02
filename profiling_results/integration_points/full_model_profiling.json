@@ -1,0 +1,1847 @@
+{
+  "model_loading": {
+    "operation": "model_loading",
+    "baseline_model": {
+      "load_time": 4.440172910690308,
+      "memory_usage": 497759232,
+      "parameter_count": 124439808
+    },
+    "original_model": {
+      "load_time": 1.4940497875213623,
+      "memory_usage": 554825280,
+      "parameter_count": 138706320
+    },
+    "optimized_model": {
+      "load_time": 1.3828530311584473,
+      "memory_usage": 554825280,
+      "parameter_count": 138706320
+    }
+  },
+  "pruning_comparison": {
+    "original": {
+      "50": {
+        "model_type": "original",
+        "pruning_level": 50,
+        "generation_times": [
+          1.2673249244689941,
+          1.3538038730621338,
+          1.186410903930664
+        ],
+        "avg_generation_time": 1.269179900487264,
+        "tokens_per_second": 15.758207321374687,
+        "first_token_time": 1.2673208713531494,
+        "profile_data": null,
+        "generated_text": "The transformer model architecture revolutionized natural language processing by a great, and of the new things to be considered in a day of you're going to be"
+      }
+    },
+    "optimized": {
+      "50": {
+        "model_type": "optimized",
+        "pruning_level": 50,
+        "generation_times": [
+          1.315112829208374,
+          1.3708899021148682,
+          1.2373011112213135
+        ],
+        "avg_generation_time": 1.3077679475148518,
+        "tokens_per_second": 15.2932330525503,
+        "first_token_time": 1.3151111602783203,
+        "profile_data": null,
+        "generated_text": "The transformer model architecture revolutionized natural language processing by a year ago, and is a project of their own.\n\n\n\"I was a day"
+      }
+    }
+  },
+  "integration_tests": {
+    "original": {
+      "0": {
+        "generation_times": [
+          1.3157789707183838,
+          1.8221399784088135,
+          1.4254820346832275
+        ],
+        "avg_generation_time": 1.5211336612701416,
+        "tokens_per_second": 13.14808850084881,
+        "first_token_time": 1.315777063369751,
+        "model_stats": {},
+        "agency_stats": {
+          "layer_reports": {
+            "0": {
+              "active_heads": 10,
+              "overloaded_heads": 2,
+              "misaligned_heads": 0,
+              "withdrawn_heads": 0,
+              "withdrawn_head_indices": [],
+              "violation_count": 0,
+              "recent_violations": []
+            },
+            "1": {
+              "active_heads": 11,
+              "overloaded_heads": 1,
+              "misaligned_heads": 0,
+              "withdrawn_heads": 0,
+              "withdrawn_head_indices": [],
+              "violation_count": 0,
+              "recent_violations": []
+            },
+            "2": {
+              "active_heads": 12,
+              "overloaded_heads": 0,
+              "misaligned_heads": 0,
+              "withdrawn_heads": 0,
+              "withdrawn_head_indices": [],
+              "violation_count": 0,
+              "recent_violations": []
+            },
+            "3": {
+              "active_heads": 12,
+              "overloaded_heads": 0,
+              "misaligned_heads": 0,
+              "withdrawn_heads": 0,
+              "withdrawn_head_indices": [],
+              "violation_count": 0,
+              "recent_violations": []
+            },
+            "4": {
+              "active_heads": 12,
+              "overloaded_heads": 0,
+              "misaligned_heads": 0,
+              "withdrawn_heads": 0,
+              "withdrawn_head_indices": [],
+              "violation_count": 0,
+              "recent_violations": []
+            },
+            "5": {
+              "active_heads": 12,
+              "overloaded_heads": 0,
+              "misaligned_heads": 0,
+              "withdrawn_heads": 0,
+              "withdrawn_head_indices": [],
+              "violation_count": 0,
+              "recent_violations": []
+            },
+            "6": {
+              "active_heads": 12,
+              "overloaded_heads": 0,
+              "misaligned_heads": 0,
+              "withdrawn_heads": 0,
+              "withdrawn_head_indices": [],
+              "violation_count": 0,
+              "recent_violations": []
+            },
+            "7": {
+              "active_heads": 12,
+              "overloaded_heads": 0,
+              "misaligned_heads": 0,
+              "withdrawn_heads": 0,
+              "withdrawn_head_indices": [],
+              "violation_count": 0,
+              "recent_violations": []
+            },
+            "8": {
+              "active_heads": 12,
+              "overloaded_heads": 0,
+              "misaligned_heads": 0,
+              "withdrawn_heads": 0,
+              "withdrawn_head_indices": [],
+              "violation_count": 0,
+              "recent_violations": []
+            },
+            "9": {
+              "active_heads": 12,
+              "overloaded_heads": 0,
+              "misaligned_heads": 0,
+              "withdrawn_heads": 0,
+              "withdrawn_head_indices": [],
+              "violation_count": 0,
+              "recent_violations": []
+            },
+            "10": {
+              "active_heads": 12,
+              "overloaded_heads": 0,
+              "misaligned_heads": 0,
+              "withdrawn_heads": 0,
+              "withdrawn_head_indices": [],
+              "violation_count": 0,
+              "recent_violations": []
+            },
+            "11": {
+              "active_heads": 12,
+              "overloaded_heads": 0,
+              "misaligned_heads": 0,
+              "withdrawn_heads": 0,
+              "withdrawn_head_indices": [],
+              "violation_count": 0,
+              "recent_violations": []
+            }
+          },
+          "total_violations": 0,
+          "num_layers": 12,
+          "recent_reports": [
+            {
+              "active_heads": 12,
+              "overloaded_heads": 0,
+              "misaligned_heads": 0,
+              "withdrawn_heads": 0,
+              "withdrawn_head_indices": [],
+              "violation_count": 0,
+              "recent_violations": [],
+              "layer": 7
+            },
+            {
+              "active_heads": 12,
+              "overloaded_heads": 0,
+              "misaligned_heads": 0,
+              "withdrawn_heads": 0,
+              "withdrawn_head_indices": [],
+              "violation_count": 0,
+              "recent_violations": [],
+              "layer": 8
+            },
+            {
+              "active_heads": 12,
+              "overloaded_heads": 0,
+              "misaligned_heads": 0,
+              "withdrawn_heads": 0,
+              "withdrawn_head_indices": [],
+              "violation_count": 0,
+              "recent_violations": [],
+              "layer": 9
+            },
+            {
+              "active_heads": 12,
+              "overloaded_heads": 0,
+              "misaligned_heads": 0,
+              "withdrawn_heads": 0,
+              "withdrawn_head_indices": [],
+              "violation_count": 0,
+              "recent_violations": [],
+              "layer": 10
+            },
+            {
+              "active_heads": 12,
+              "overloaded_heads": 0,
+              "misaligned_heads": 0,
+              "withdrawn_heads": 0,
+              "withdrawn_head_indices": [],
+              "violation_count": 0,
+              "recent_violations": [],
+              "layer": 11
+            }
+          ]
+        }
+      },
+      "50": {
+        "generation_times": [
+          0.8963179588317871,
+          0.8750040531158447,
+          0.8649969100952148
+        ],
+        "avg_generation_time": 0.8787729740142822,
+        "tokens_per_second": 22.759006696165137,
+        "first_token_time": 0.8963160514831543,
+        "model_stats": {},
+        "agency_stats": {
+          "layer_reports": {
+            "0": {
+              "active_heads": 12,
+              "overloaded_heads": 0,
+              "misaligned_heads": 0,
+              "withdrawn_heads": 0,
+              "withdrawn_head_indices": [],
+              "violation_count": 0,
+              "recent_violations": []
+            },
+            "1": {
+              "active_heads": 12,
+              "overloaded_heads": 0,
+              "misaligned_heads": 0,
+              "withdrawn_heads": 0,
+              "withdrawn_head_indices": [],
+              "violation_count": 0,
+              "recent_violations": []
+            },
+            "2": {
+              "active_heads": 12,
+              "overloaded_heads": 0,
+              "misaligned_heads": 0,
+              "withdrawn_heads": 0,
+              "withdrawn_head_indices": [],
+              "violation_count": 0,
+              "recent_violations": []
+            },
+            "3": {
+              "active_heads": 12,
+              "overloaded_heads": 0,
+              "misaligned_heads": 0,
+              "withdrawn_heads": 0,
+              "withdrawn_head_indices": [],
+              "violation_count": 0,
+              "recent_violations": []
+            },
+            "4": {
+              "active_heads": 12,
+              "overloaded_heads": 0,
+              "misaligned_heads": 0,
+              "withdrawn_heads": 0,
+              "withdrawn_head_indices": [],
+              "violation_count": 0,
+              "recent_violations": []
+            },
+            "5": {
+              "active_heads": 12,
+              "overloaded_heads": 0,
+              "misaligned_heads": 0,
+              "withdrawn_heads": 0,
+              "withdrawn_head_indices": [],
+              "violation_count": 0,
+              "recent_violations": []
+            },
+            "6": {
+              "active_heads": 12,
+              "overloaded_heads": 0,
+              "misaligned_heads": 0,
+              "withdrawn_heads": 0,
+              "withdrawn_head_indices": [],
+              "violation_count": 0,
+              "recent_violations": []
+            },
+            "7": {
+              "active_heads": 12,
+              "overloaded_heads": 0,
+              "misaligned_heads": 0,
+              "withdrawn_heads": 0,
+              "withdrawn_head_indices": [],
+              "violation_count": 0,
+              "recent_violations": []
+            },
+            "8": {
+              "active_heads": 12,
+              "overloaded_heads": 0,
+              "misaligned_heads": 0,
+              "withdrawn_heads": 0,
+              "withdrawn_head_indices": [],
+              "violation_count": 0,
+              "recent_violations": []
+            },
+            "9": {
+              "active_heads": 12,
+              "overloaded_heads": 0,
+              "misaligned_heads": 0,
+              "withdrawn_heads": 0,
+              "withdrawn_head_indices": [],
+              "violation_count": 0,
+              "recent_violations": []
+            },
+            "10": {
+              "active_heads": 12,
+              "overloaded_heads": 0,
+              "misaligned_heads": 0,
+              "withdrawn_heads": 0,
+              "withdrawn_head_indices": [],
+              "violation_count": 0,
+              "recent_violations": []
+            },
+            "11": {
+              "active_heads": 12,
+              "overloaded_heads": 0,
+              "misaligned_heads": 0,
+              "withdrawn_heads": 0,
+              "withdrawn_head_indices": [],
+              "violation_count": 0,
+              "recent_violations": []
+            }
+          },
+          "total_violations": 0,
+          "num_layers": 12,
+          "recent_reports": [
+            {
+              "active_heads": 12,
+              "overloaded_heads": 0,
+              "misaligned_heads": 0,
+              "withdrawn_heads": 0,
+              "withdrawn_head_indices": [],
+              "violation_count": 0,
+              "recent_violations": [],
+              "layer": 7
+            },
+            {
+              "active_heads": 12,
+              "overloaded_heads": 0,
+              "misaligned_heads": 0,
+              "withdrawn_heads": 0,
+              "withdrawn_head_indices": [],
+              "violation_count": 0,
+              "recent_violations": [],
+              "layer": 8
+            },
+            {
+              "active_heads": 12,
+              "overloaded_heads": 0,
+              "misaligned_heads": 0,
+              "withdrawn_heads": 0,
+              "withdrawn_head_indices": [],
+              "violation_count": 0,
+              "recent_violations": [],
+              "layer": 9
+            },
+            {
+              "active_heads": 12,
+              "overloaded_heads": 0,
+              "misaligned_heads": 0,
+              "withdrawn_heads": 0,
+              "withdrawn_head_indices": [],
+              "violation_count": 0,
+              "recent_violations": [],
+              "layer": 10
+            },
+            {
+              "active_heads": 12,
+              "overloaded_heads": 0,
+              "misaligned_heads": 0,
+              "withdrawn_heads": 0,
+              "withdrawn_head_indices": [],
+              "violation_count": 0,
+              "recent_violations": [],
+              "layer": 11
+            }
+          ]
+        }
+      }
+    },
+    "optimized_all": {
+      "0": {
+        "generation_times": [
+          1.4175691604614258,
+          1.2218482494354248,
+          1.228621244430542
+        ],
+        "avg_generation_time": 1.2893462181091309,
+        "tokens_per_second": 15.511737436458818,
+        "first_token_time": 1.4175679683685303,
+        "model_stats": {},
+        "agency_stats": {
+          "layer_reports": {
+            "0": {
+              "active_heads": 10,
+              "overloaded_heads": 2,
+              "misaligned_heads": 0,
+              "withdrawn_heads": 0,
+              "withdrawn_head_indices": [],
+              "violation_count": 0,
+              "recent_violations": []
+            },
+            "1": {
+              "active_heads": 11,
+              "overloaded_heads": 1,
+              "misaligned_heads": 0,
+              "withdrawn_heads": 0,
+              "withdrawn_head_indices": [],
+              "violation_count": 0,
+              "recent_violations": []
+            },
+            "2": {
+              "active_heads": 12,
+              "overloaded_heads": 0,
+              "misaligned_heads": 0,
+              "withdrawn_heads": 0,
+              "withdrawn_head_indices": [],
+              "violation_count": 0,
+              "recent_violations": []
+            },
+            "3": {
+              "active_heads": 12,
+              "overloaded_heads": 0,
+              "misaligned_heads": 0,
+              "withdrawn_heads": 0,
+              "withdrawn_head_indices": [],
+              "violation_count": 0,
+              "recent_violations": []
+            },
+            "4": {
+              "active_heads": 12,
+              "overloaded_heads": 0,
+              "misaligned_heads": 0,
+              "withdrawn_heads": 0,
+              "withdrawn_head_indices": [],
+              "violation_count": 0,
+              "recent_violations": []
+            },
+            "5": {
+              "active_heads": 12,
+              "overloaded_heads": 0,
+              "misaligned_heads": 0,
+              "withdrawn_heads": 0,
+              "withdrawn_head_indices": [],
+              "violation_count": 0,
+              "recent_violations": []
+            },
+            "6": {
+              "active_heads": 12,
+              "overloaded_heads": 0,
+              "misaligned_heads": 0,
+              "withdrawn_heads": 0,
+              "withdrawn_head_indices": [],
+              "violation_count": 0,
+              "recent_violations": []
+            },
+            "7": {
+              "active_heads": 12,
+              "overloaded_heads": 0,
+              "misaligned_heads": 0,
+              "withdrawn_heads": 0,
+              "withdrawn_head_indices": [],
+              "violation_count": 0,
+              "recent_violations": []
+            },
+            "8": {
+              "active_heads": 12,
+              "overloaded_heads": 0,
+              "misaligned_heads": 0,
+              "withdrawn_heads": 0,
+              "withdrawn_head_indices": [],
+              "violation_count": 0,
+              "recent_violations": []
+            },
+            "9": {
+              "active_heads": 12,
+              "overloaded_heads": 0,
+              "misaligned_heads": 0,
+              "withdrawn_heads": 0,
+              "withdrawn_head_indices": [],
+              "violation_count": 0,
+              "recent_violations": []
+            },
+            "10": {
+              "active_heads": 12,
+              "overloaded_heads": 0,
+              "misaligned_heads": 0,
+              "withdrawn_heads": 0,
+              "withdrawn_head_indices": [],
+              "violation_count": 0,
+              "recent_violations": []
+            },
+            "11": {
+              "active_heads": 12,
+              "overloaded_heads": 0,
+              "misaligned_heads": 0,
+              "withdrawn_heads": 0,
+              "withdrawn_head_indices": [],
+              "violation_count": 0,
+              "recent_violations": []
+            }
+          },
+          "total_violations": 0,
+          "num_layers": 12,
+          "recent_reports": [
+            {
+              "active_heads": 12,
+              "overloaded_heads": 0,
+              "misaligned_heads": 0,
+              "withdrawn_heads": 0,
+              "withdrawn_head_indices": [],
+              "violation_count": 0,
+              "recent_violations": [],
+              "layer": 7
+            },
+            {
+              "active_heads": 12,
+              "overloaded_heads": 0,
+              "misaligned_heads": 0,
+              "withdrawn_heads": 0,
+              "withdrawn_head_indices": [],
+              "violation_count": 0,
+              "recent_violations": [],
+              "layer": 8
+            },
+            {
+              "active_heads": 12,
+              "overloaded_heads": 0,
+              "misaligned_heads": 0,
+              "withdrawn_heads": 0,
+              "withdrawn_head_indices": [],
+              "violation_count": 0,
+              "recent_violations": [],
+              "layer": 9
+            },
+            {
+              "active_heads": 12,
+              "overloaded_heads": 0,
+              "misaligned_heads": 0,
+              "withdrawn_heads": 0,
+              "withdrawn_head_indices": [],
+              "violation_count": 0,
+              "recent_violations": [],
+              "layer": 10
+            },
+            {
+              "active_heads": 12,
+              "overloaded_heads": 0,
+              "misaligned_heads": 0,
+              "withdrawn_heads": 0,
+              "withdrawn_head_indices": [],
+              "violation_count": 0,
+              "recent_violations": [],
+              "layer": 11
+            }
+          ]
+        }
+      },
+      "50": {
+        "generation_times": [
+          1.2272469997406006,
+          1.3808939456939697,
+          1.2934489250183105
+        ],
+        "avg_generation_time": 1.300529956817627,
+        "tokens_per_second": 15.37834626196511,
+        "first_token_time": 1.2272460460662842,
+        "model_stats": {},
+        "agency_stats": {
+          "layer_reports": {
+            "0": {
+              "active_heads": 12,
+              "overloaded_heads": 0,
+              "misaligned_heads": 0,
+              "withdrawn_heads": 0,
+              "withdrawn_head_indices": [],
+              "violation_count": 0,
+              "recent_violations": []
+            },
+            "1": {
+              "active_heads": 12,
+              "overloaded_heads": 0,
+              "misaligned_heads": 0,
+              "withdrawn_heads": 0,
+              "withdrawn_head_indices": [],
+              "violation_count": 0,
+              "recent_violations": []
+            },
+            "2": {
+              "active_heads": 12,
+              "overloaded_heads": 0,
+              "misaligned_heads": 0,
+              "withdrawn_heads": 0,
+              "withdrawn_head_indices": [],
+              "violation_count": 0,
+              "recent_violations": []
+            },
+            "3": {
+              "active_heads": 12,
+              "overloaded_heads": 0,
+              "misaligned_heads": 0,
+              "withdrawn_heads": 0,
+              "withdrawn_head_indices": [],
+              "violation_count": 0,
+              "recent_violations": []
+            },
+            "4": {
+              "active_heads": 12,
+              "overloaded_heads": 0,
+              "misaligned_heads": 0,
+              "withdrawn_heads": 0,
+              "withdrawn_head_indices": [],
+              "violation_count": 0,
+              "recent_violations": []
+            },
+            "5": {
+              "active_heads": 12,
+              "overloaded_heads": 0,
+              "misaligned_heads": 0,
+              "withdrawn_heads": 0,
+              "withdrawn_head_indices": [],
+              "violation_count": 0,
+              "recent_violations": []
+            },
+            "6": {
+              "active_heads": 12,
+              "overloaded_heads": 0,
+              "misaligned_heads": 0,
+              "withdrawn_heads": 0,
+              "withdrawn_head_indices": [],
+              "violation_count": 0,
+              "recent_violations": []
+            },
+            "7": {
+              "active_heads": 12,
+              "overloaded_heads": 0,
+              "misaligned_heads": 0,
+              "withdrawn_heads": 0,
+              "withdrawn_head_indices": [],
+              "violation_count": 0,
+              "recent_violations": []
+            },
+            "8": {
+              "active_heads": 12,
+              "overloaded_heads": 0,
+              "misaligned_heads": 0,
+              "withdrawn_heads": 0,
+              "withdrawn_head_indices": [],
+              "violation_count": 0,
+              "recent_violations": []
+            },
+            "9": {
+              "active_heads": 12,
+              "overloaded_heads": 0,
+              "misaligned_heads": 0,
+              "withdrawn_heads": 0,
+              "withdrawn_head_indices": [],
+              "violation_count": 0,
+              "recent_violations": []
+            },
+            "10": {
+              "active_heads": 12,
+              "overloaded_heads": 0,
+              "misaligned_heads": 0,
+              "withdrawn_heads": 0,
+              "withdrawn_head_indices": [],
+              "violation_count": 0,
+              "recent_violations": []
+            },
+            "11": {
+              "active_heads": 12,
+              "overloaded_heads": 0,
+              "misaligned_heads": 0,
+              "withdrawn_heads": 0,
+              "withdrawn_head_indices": [],
+              "violation_count": 0,
+              "recent_violations": []
+            }
+          },
+          "total_violations": 0,
+          "num_layers": 12,
+          "recent_reports": [
+            {
+              "active_heads": 12,
+              "overloaded_heads": 0,
+              "misaligned_heads": 0,
+              "withdrawn_heads": 0,
+              "withdrawn_head_indices": [],
+              "violation_count": 0,
+              "recent_violations": [],
+              "layer": 7
+            },
+            {
+              "active_heads": 12,
+              "overloaded_heads": 0,
+              "misaligned_heads": 0,
+              "withdrawn_heads": 0,
+              "withdrawn_head_indices": [],
+              "violation_count": 0,
+              "recent_violations": [],
+              "layer": 8
+            },
+            {
+              "active_heads": 12,
+              "overloaded_heads": 0,
+              "misaligned_heads": 0,
+              "withdrawn_heads": 0,
+              "withdrawn_head_indices": [],
+              "violation_count": 0,
+              "recent_violations": [],
+              "layer": 9
+            },
+            {
+              "active_heads": 12,
+              "overloaded_heads": 0,
+              "misaligned_heads": 0,
+              "withdrawn_heads": 0,
+              "withdrawn_head_indices": [],
+              "violation_count": 0,
+              "recent_violations": [],
+              "layer": 10
+            },
+            {
+              "active_heads": 12,
+              "overloaded_heads": 0,
+              "misaligned_heads": 0,
+              "withdrawn_heads": 0,
+              "withdrawn_head_indices": [],
+              "violation_count": 0,
+              "recent_violations": [],
+              "layer": 11
+            }
+          ]
+        }
+      }
+    },
+    "opt_no_baseline": {
+      "0": {
+        "generation_times": [
+          1.369067907333374,
+          1.3604769706726074,
+          1.3593990802764893
+        ],
+        "avg_generation_time": 1.3629813194274902,
+        "tokens_per_second": 14.673715417024825,
+        "first_token_time": 1.3690669536590576,
+        "model_stats": {},
+        "agency_stats": {
+          "layer_reports": {
+            "0": {
+              "active_heads": 11,
+              "overloaded_heads": 1,
+              "misaligned_heads": 0,
+              "withdrawn_heads": 0,
+              "withdrawn_head_indices": [],
+              "violation_count": 0,
+              "recent_violations": []
+            },
+            "1": {
+              "active_heads": 11,
+              "overloaded_heads": 1,
+              "misaligned_heads": 0,
+              "withdrawn_heads": 0,
+              "withdrawn_head_indices": [],
+              "violation_count": 0,
+              "recent_violations": []
+            },
+            "2": {
+              "active_heads": 12,
+              "overloaded_heads": 0,
+              "misaligned_heads": 0,
+              "withdrawn_heads": 0,
+              "withdrawn_head_indices": [],
+              "violation_count": 0,
+              "recent_violations": []
+            },
+            "3": {
+              "active_heads": 12,
+              "overloaded_heads": 0,
+              "misaligned_heads": 0,
+              "withdrawn_heads": 0,
+              "withdrawn_head_indices": [],
+              "violation_count": 0,
+              "recent_violations": []
+            },
+            "4": {
+              "active_heads": 12,
+              "overloaded_heads": 0,
+              "misaligned_heads": 0,
+              "withdrawn_heads": 0,
+              "withdrawn_head_indices": [],
+              "violation_count": 0,
+              "recent_violations": []
+            },
+            "5": {
+              "active_heads": 12,
+              "overloaded_heads": 0,
+              "misaligned_heads": 0,
+              "withdrawn_heads": 0,
+              "withdrawn_head_indices": [],
+              "violation_count": 0,
+              "recent_violations": []
+            },
+            "6": {
+              "active_heads": 12,
+              "overloaded_heads": 0,
+              "misaligned_heads": 0,
+              "withdrawn_heads": 0,
+              "withdrawn_head_indices": [],
+              "violation_count": 0,
+              "recent_violations": []
+            },
+            "7": {
+              "active_heads": 12,
+              "overloaded_heads": 0,
+              "misaligned_heads": 0,
+              "withdrawn_heads": 0,
+              "withdrawn_head_indices": [],
+              "violation_count": 0,
+              "recent_violations": []
+            },
+            "8": {
+              "active_heads": 12,
+              "overloaded_heads": 0,
+              "misaligned_heads": 0,
+              "withdrawn_heads": 0,
+              "withdrawn_head_indices": [],
+              "violation_count": 0,
+              "recent_violations": []
+            },
+            "9": {
+              "active_heads": 12,
+              "overloaded_heads": 0,
+              "misaligned_heads": 0,
+              "withdrawn_heads": 0,
+              "withdrawn_head_indices": [],
+              "violation_count": 0,
+              "recent_violations": []
+            },
+            "10": {
+              "active_heads": 12,
+              "overloaded_heads": 0,
+              "misaligned_heads": 0,
+              "withdrawn_heads": 0,
+              "withdrawn_head_indices": [],
+              "violation_count": 0,
+              "recent_violations": []
+            },
+            "11": {
+              "active_heads": 12,
+              "overloaded_heads": 0,
+              "misaligned_heads": 0,
+              "withdrawn_heads": 0,
+              "withdrawn_head_indices": [],
+              "violation_count": 0,
+              "recent_violations": []
+            }
+          },
+          "total_violations": 0,
+          "num_layers": 12,
+          "recent_reports": [
+            {
+              "active_heads": 12,
+              "overloaded_heads": 0,
+              "misaligned_heads": 0,
+              "withdrawn_heads": 0,
+              "withdrawn_head_indices": [],
+              "violation_count": 0,
+              "recent_violations": [],
+              "layer": 7
+            },
+            {
+              "active_heads": 12,
+              "overloaded_heads": 0,
+              "misaligned_heads": 0,
+              "withdrawn_heads": 0,
+              "withdrawn_head_indices": [],
+              "violation_count": 0,
+              "recent_violations": [],
+              "layer": 8
+            },
+            {
+              "active_heads": 12,
+              "overloaded_heads": 0,
+              "misaligned_heads": 0,
+              "withdrawn_heads": 0,
+              "withdrawn_head_indices": [],
+              "violation_count": 0,
+              "recent_violations": [],
+              "layer": 9
+            },
+            {
+              "active_heads": 12,
+              "overloaded_heads": 0,
+              "misaligned_heads": 0,
+              "withdrawn_heads": 0,
+              "withdrawn_head_indices": [],
+              "violation_count": 0,
+              "recent_violations": [],
+              "layer": 10
+            },
+            {
+              "active_heads": 12,
+              "overloaded_heads": 0,
+              "misaligned_heads": 0,
+              "withdrawn_heads": 0,
+              "withdrawn_head_indices": [],
+              "violation_count": 0,
+              "recent_violations": [],
+              "layer": 11
+            }
+          ]
+        }
+      },
+      "50": {
+        "generation_times": [
+          0.9841141700744629,
+          0.9690470695495605,
+          1.0735671520233154
+        ],
+        "avg_generation_time": 1.0089094638824463,
+        "tokens_per_second": 19.82338427378486,
+        "first_token_time": 0.9841132164001465,
+        "model_stats": {},
+        "agency_stats": {
+          "layer_reports": {
+            "0": {
+              "active_heads": 12,
+              "overloaded_heads": 0,
+              "misaligned_heads": 0,
+              "withdrawn_heads": 0,
+              "withdrawn_head_indices": [],
+              "violation_count": 0,
+              "recent_violations": []
+            },
+            "1": {
+              "active_heads": 12,
+              "overloaded_heads": 0,
+              "misaligned_heads": 0,
+              "withdrawn_heads": 0,
+              "withdrawn_head_indices": [],
+              "violation_count": 0,
+              "recent_violations": []
+            },
+            "2": {
+              "active_heads": 12,
+              "overloaded_heads": 0,
+              "misaligned_heads": 0,
+              "withdrawn_heads": 0,
+              "withdrawn_head_indices": [],
+              "violation_count": 0,
+              "recent_violations": []
+            },
+            "3": {
+              "active_heads": 12,
+              "overloaded_heads": 0,
+              "misaligned_heads": 0,
+              "withdrawn_heads": 0,
+              "withdrawn_head_indices": [],
+              "violation_count": 0,
+              "recent_violations": []
+            },
+            "4": {
+              "active_heads": 12,
+              "overloaded_heads": 0,
+              "misaligned_heads": 0,
+              "withdrawn_heads": 0,
+              "withdrawn_head_indices": [],
+              "violation_count": 0,
+              "recent_violations": []
+            },
+            "5": {
+              "active_heads": 12,
+              "overloaded_heads": 0,
+              "misaligned_heads": 0,
+              "withdrawn_heads": 0,
+              "withdrawn_head_indices": [],
+              "violation_count": 0,
+              "recent_violations": []
+            },
+            "6": {
+              "active_heads": 12,
+              "overloaded_heads": 0,
+              "misaligned_heads": 0,
+              "withdrawn_heads": 0,
+              "withdrawn_head_indices": [],
+              "violation_count": 0,
+              "recent_violations": []
+            },
+            "7": {
+              "active_heads": 12,
+              "overloaded_heads": 0,
+              "misaligned_heads": 0,
+              "withdrawn_heads": 0,
+              "withdrawn_head_indices": [],
+              "violation_count": 0,
+              "recent_violations": []
+            },
+            "8": {
+              "active_heads": 12,
+              "overloaded_heads": 0,
+              "misaligned_heads": 0,
+              "withdrawn_heads": 0,
+              "withdrawn_head_indices": [],
+              "violation_count": 0,
+              "recent_violations": []
+            },
+            "9": {
+              "active_heads": 12,
+              "overloaded_heads": 0,
+              "misaligned_heads": 0,
+              "withdrawn_heads": 0,
+              "withdrawn_head_indices": [],
+              "violation_count": 0,
+              "recent_violations": []
+            },
+            "10": {
+              "active_heads": 12,
+              "overloaded_heads": 0,
+              "misaligned_heads": 0,
+              "withdrawn_heads": 0,
+              "withdrawn_head_indices": [],
+              "violation_count": 0,
+              "recent_violations": []
+            },
+            "11": {
+              "active_heads": 12,
+              "overloaded_heads": 0,
+              "misaligned_heads": 0,
+              "withdrawn_heads": 0,
+              "withdrawn_head_indices": [],
+              "violation_count": 0,
+              "recent_violations": []
+            }
+          },
+          "total_violations": 0,
+          "num_layers": 12,
+          "recent_reports": [
+            {
+              "active_heads": 12,
+              "overloaded_heads": 0,
+              "misaligned_heads": 0,
+              "withdrawn_heads": 0,
+              "withdrawn_head_indices": [],
+              "violation_count": 0,
+              "recent_violations": [],
+              "layer": 7
+            },
+            {
+              "active_heads": 12,
+              "overloaded_heads": 0,
+              "misaligned_heads": 0,
+              "withdrawn_heads": 0,
+              "withdrawn_head_indices": [],
+              "violation_count": 0,
+              "recent_violations": [],
+              "layer": 8
+            },
+            {
+              "active_heads": 12,
+              "overloaded_heads": 0,
+              "misaligned_heads": 0,
+              "withdrawn_heads": 0,
+              "withdrawn_head_indices": [],
+              "violation_count": 0,
+              "recent_violations": [],
+              "layer": 9
+            },
+            {
+              "active_heads": 12,
+              "overloaded_heads": 0,
+              "misaligned_heads": 0,
+              "withdrawn_heads": 0,
+              "withdrawn_head_indices": [],
+              "violation_count": 0,
+              "recent_violations": [],
+              "layer": 10
+            },
+            {
+              "active_heads": 12,
+              "overloaded_heads": 0,
+              "misaligned_heads": 0,
+              "withdrawn_heads": 0,
+              "withdrawn_head_indices": [],
+              "violation_count": 0,
+              "recent_violations": [],
+              "layer": 11
+            }
+          ]
+        }
+      }
+    },
+    "opt_no_unet": {
+      "0": {
+        "generation_times": [
+          1.292072057723999,
+          1.4084162712097168,
+          1.4375176429748535
+        ],
+        "avg_generation_time": 1.3793353239695232,
+        "tokens_per_second": 14.499737411525834,
+        "first_token_time": 1.2920708656311035,
+        "model_stats": {},
+        "agency_stats": {
+          "layer_reports": {
+            "0": {
+              "active_heads": 10,
+              "overloaded_heads": 2,
+              "misaligned_heads": 0,
+              "withdrawn_heads": 0,
+              "withdrawn_head_indices": [],
+              "violation_count": 0,
+              "recent_violations": []
+            },
+            "1": {
+              "active_heads": 11,
+              "overloaded_heads": 1,
+              "misaligned_heads": 0,
+              "withdrawn_heads": 0,
+              "withdrawn_head_indices": [],
+              "violation_count": 0,
+              "recent_violations": []
+            },
+            "2": {
+              "active_heads": 12,
+              "overloaded_heads": 0,
+              "misaligned_heads": 0,
+              "withdrawn_heads": 0,
+              "withdrawn_head_indices": [],
+              "violation_count": 0,
+              "recent_violations": []
+            },
+            "3": {
+              "active_heads": 12,
+              "overloaded_heads": 0,
+              "misaligned_heads": 0,
+              "withdrawn_heads": 0,
+              "withdrawn_head_indices": [],
+              "violation_count": 0,
+              "recent_violations": []
+            },
+            "4": {
+              "active_heads": 12,
+              "overloaded_heads": 0,
+              "misaligned_heads": 0,
+              "withdrawn_heads": 0,
+              "withdrawn_head_indices": [],
+              "violation_count": 0,
+              "recent_violations": []
+            },
+            "5": {
+              "active_heads": 12,
+              "overloaded_heads": 0,
+              "misaligned_heads": 0,
+              "withdrawn_heads": 0,
+              "withdrawn_head_indices": [],
+              "violation_count": 0,
+              "recent_violations": []
+            },
+            "6": {
+              "active_heads": 12,
+              "overloaded_heads": 0,
+              "misaligned_heads": 0,
+              "withdrawn_heads": 0,
+              "withdrawn_head_indices": [],
+              "violation_count": 0,
+              "recent_violations": []
+            },
+            "7": {
+              "active_heads": 12,
+              "overloaded_heads": 0,
+              "misaligned_heads": 0,
+              "withdrawn_heads": 0,
+              "withdrawn_head_indices": [],
+              "violation_count": 0,
+              "recent_violations": []
+            },
+            "8": {
+              "active_heads": 12,
+              "overloaded_heads": 0,
+              "misaligned_heads": 0,
+              "withdrawn_heads": 0,
+              "withdrawn_head_indices": [],
+              "violation_count": 0,
+              "recent_violations": []
+            },
+            "9": {
+              "active_heads": 12,
+              "overloaded_heads": 0,
+              "misaligned_heads": 0,
+              "withdrawn_heads": 0,
+              "withdrawn_head_indices": [],
+              "violation_count": 0,
+              "recent_violations": []
+            },
+            "10": {
+              "active_heads": 12,
+              "overloaded_heads": 0,
+              "misaligned_heads": 0,
+              "withdrawn_heads": 0,
+              "withdrawn_head_indices": [],
+              "violation_count": 0,
+              "recent_violations": []
+            },
+            "11": {
+              "active_heads": 12,
+              "overloaded_heads": 0,
+              "misaligned_heads": 0,
+              "withdrawn_heads": 0,
+              "withdrawn_head_indices": [],
+              "violation_count": 0,
+              "recent_violations": []
+            }
+          },
+          "total_violations": 0,
+          "num_layers": 12,
+          "recent_reports": [
+            {
+              "active_heads": 12,
+              "overloaded_heads": 0,
+              "misaligned_heads": 0,
+              "withdrawn_heads": 0,
+              "withdrawn_head_indices": [],
+              "violation_count": 0,
+              "recent_violations": [],
+              "layer": 7
+            },
+            {
+              "active_heads": 12,
+              "overloaded_heads": 0,
+              "misaligned_heads": 0,
+              "withdrawn_heads": 0,
+              "withdrawn_head_indices": [],
+              "violation_count": 0,
+              "recent_violations": [],
+              "layer": 8
+            },
+            {
+              "active_heads": 12,
+              "overloaded_heads": 0,
+              "misaligned_heads": 0,
+              "withdrawn_heads": 0,
+              "withdrawn_head_indices": [],
+              "violation_count": 0,
+              "recent_violations": [],
+              "layer": 9
+            },
+            {
+              "active_heads": 12,
+              "overloaded_heads": 0,
+              "misaligned_heads": 0,
+              "withdrawn_heads": 0,
+              "withdrawn_head_indices": [],
+              "violation_count": 0,
+              "recent_violations": [],
+              "layer": 10
+            },
+            {
+              "active_heads": 12,
+              "overloaded_heads": 0,
+              "misaligned_heads": 0,
+              "withdrawn_heads": 0,
+              "withdrawn_head_indices": [],
+              "violation_count": 0,
+              "recent_violations": [],
+              "layer": 11
+            }
+          ]
+        }
+      },
+      "50": {
+        "generation_times": [
+          1.106205940246582,
+          1.0836141109466553,
+          1.0528850555419922
+        ],
+        "avg_generation_time": 1.0809017022450764,
+        "tokens_per_second": 18.50307012974371,
+        "first_token_time": 1.1062040328979492,
+        "model_stats": {},
+        "agency_stats": {
+          "layer_reports": {
+            "0": {
+              "active_heads": 11,
+              "overloaded_heads": 1,
+              "misaligned_heads": 0,
+              "withdrawn_heads": 0,
+              "withdrawn_head_indices": [],
+              "violation_count": 0,
+              "recent_violations": []
+            },
+            "1": {
+              "active_heads": 12,
+              "overloaded_heads": 0,
+              "misaligned_heads": 0,
+              "withdrawn_heads": 0,
+              "withdrawn_head_indices": [],
+              "violation_count": 0,
+              "recent_violations": []
+            },
+            "2": {
+              "active_heads": 12,
+              "overloaded_heads": 0,
+              "misaligned_heads": 0,
+              "withdrawn_heads": 0,
+              "withdrawn_head_indices": [],
+              "violation_count": 0,
+              "recent_violations": []
+            },
+            "3": {
+              "active_heads": 12,
+              "overloaded_heads": 0,
+              "misaligned_heads": 0,
+              "withdrawn_heads": 0,
+              "withdrawn_head_indices": [],
+              "violation_count": 0,
+              "recent_violations": []
+            },
+            "4": {
+              "active_heads": 12,
+              "overloaded_heads": 0,
+              "misaligned_heads": 0,
+              "withdrawn_heads": 0,
+              "withdrawn_head_indices": [],
+              "violation_count": 0,
+              "recent_violations": []
+            },
+            "5": {
+              "active_heads": 12,
+              "overloaded_heads": 0,
+              "misaligned_heads": 0,
+              "withdrawn_heads": 0,
+              "withdrawn_head_indices": [],
+              "violation_count": 0,
+              "recent_violations": []
+            },
+            "6": {
+              "active_heads": 12,
+              "overloaded_heads": 0,
+              "misaligned_heads": 0,
+              "withdrawn_heads": 0,
+              "withdrawn_head_indices": [],
+              "violation_count": 0,
+              "recent_violations": []
+            },
+            "7": {
+              "active_heads": 12,
+              "overloaded_heads": 0,
+              "misaligned_heads": 0,
+              "withdrawn_heads": 0,
+              "withdrawn_head_indices": [],
+              "violation_count": 0,
+              "recent_violations": []
+            },
+            "8": {
+              "active_heads": 12,
+              "overloaded_heads": 0,
+              "misaligned_heads": 0,
+              "withdrawn_heads": 0,
+              "withdrawn_head_indices": [],
+              "violation_count": 0,
+              "recent_violations": []
+            },
+            "9": {
+              "active_heads": 12,
+              "overloaded_heads": 0,
+              "misaligned_heads": 0,
+              "withdrawn_heads": 0,
+              "withdrawn_head_indices": [],
+              "violation_count": 0,
+              "recent_violations": []
+            },
+            "10": {
+              "active_heads": 12,
+              "overloaded_heads": 0,
+              "misaligned_heads": 0,
+              "withdrawn_heads": 0,
+              "withdrawn_head_indices": [],
+              "violation_count": 0,
+              "recent_violations": []
+            },
+            "11": {
+              "active_heads": 12,
+              "overloaded_heads": 0,
+              "misaligned_heads": 0,
+              "withdrawn_heads": 0,
+              "withdrawn_head_indices": [],
+              "violation_count": 0,
+              "recent_violations": []
+            }
+          },
+          "total_violations": 0,
+          "num_layers": 12,
+          "recent_reports": [
+            {
+              "active_heads": 12,
+              "overloaded_heads": 0,
+              "misaligned_heads": 0,
+              "withdrawn_heads": 0,
+              "withdrawn_head_indices": [],
+              "violation_count": 0,
+              "recent_violations": [],
+              "layer": 7
+            },
+            {
+              "active_heads": 12,
+              "overloaded_heads": 0,
+              "misaligned_heads": 0,
+              "withdrawn_heads": 0,
+              "withdrawn_head_indices": [],
+              "violation_count": 0,
+              "recent_violations": [],
+              "layer": 8
+            },
+            {
+              "active_heads": 12,
+              "overloaded_heads": 0,
+              "misaligned_heads": 0,
+              "withdrawn_heads": 0,
+              "withdrawn_head_indices": [],
+              "violation_count": 0,
+              "recent_violations": [],
+              "layer": 9
+            },
+            {
+              "active_heads": 12,
+              "overloaded_heads": 0,
+              "misaligned_heads": 0,
+              "withdrawn_heads": 0,
+              "withdrawn_head_indices": [],
+              "violation_count": 0,
+              "recent_violations": [],
+              "layer": 10
+            },
+            {
+              "active_heads": 12,
+              "overloaded_heads": 0,
+              "misaligned_heads": 0,
+              "withdrawn_heads": 0,
+              "withdrawn_head_indices": [],
+              "violation_count": 0,
+              "recent_violations": [],
+              "layer": 11
+            }
+          ]
+        }
+      }
+    },
+    "opt_minimal": {
+      "0": {
+        "generation_times": [
+          1.3241147994995117,
+          1.2982490062713623,
+          1.5036380290985107
+        ],
+        "avg_generation_time": 1.3753339449564617,
+        "tokens_per_second": 14.541922762353641,
+        "first_token_time": 1.3241138458251953,
+        "model_stats": {},
+        "agency_stats": {
+          "layer_reports": {
+            "0": {
+              "active_heads": 10,
+              "overloaded_heads": 2,
+              "misaligned_heads": 0,
+              "withdrawn_heads": 0,
+              "withdrawn_head_indices": [],
+              "violation_count": 0,
+              "recent_violations": []
+            },
+            "1": {
+              "active_heads": 11,
+              "overloaded_heads": 1,
+              "misaligned_heads": 0,
+              "withdrawn_heads": 0,
+              "withdrawn_head_indices": [],
+              "violation_count": 0,
+              "recent_violations": []
+            },
+            "2": {
+              "active_heads": 12,
+              "overloaded_heads": 0,
+              "misaligned_heads": 0,
+              "withdrawn_heads": 0,
+              "withdrawn_head_indices": [],
+              "violation_count": 0,
+              "recent_violations": []
+            },
+            "3": {
+              "active_heads": 12,
+              "overloaded_heads": 0,
+              "misaligned_heads": 0,
+              "withdrawn_heads": 0,
+              "withdrawn_head_indices": [],
+              "violation_count": 0,
+              "recent_violations": []
+            },
+            "4": {
+              "active_heads": 12,
+              "overloaded_heads": 0,
+              "misaligned_heads": 0,
+              "withdrawn_heads": 0,
+              "withdrawn_head_indices": [],
+              "violation_count": 0,
+              "recent_violations": []
+            },
+            "5": {
+              "active_heads": 12,
+              "overloaded_heads": 0,
+              "misaligned_heads": 0,
+              "withdrawn_heads": 0,
+              "withdrawn_head_indices": [],
+              "violation_count": 0,
+              "recent_violations": []
+            },
+            "6": {
+              "active_heads": 12,
+              "overloaded_heads": 0,
+              "misaligned_heads": 0,
+              "withdrawn_heads": 0,
+              "withdrawn_head_indices": [],
+              "violation_count": 0,
+              "recent_violations": []
+            },
+            "7": {
+              "active_heads": 12,
+              "overloaded_heads": 0,
+              "misaligned_heads": 0,
+              "withdrawn_heads": 0,
+              "withdrawn_head_indices": [],
+              "violation_count": 0,
+              "recent_violations": []
+            },
+            "8": {
+              "active_heads": 12,
+              "overloaded_heads": 0,
+              "misaligned_heads": 0,
+              "withdrawn_heads": 0,
+              "withdrawn_head_indices": [],
+              "violation_count": 0,
+              "recent_violations": []
+            },
+            "9": {
+              "active_heads": 12,
+              "overloaded_heads": 0,
+              "misaligned_heads": 0,
+              "withdrawn_heads": 0,
+              "withdrawn_head_indices": [],
+              "violation_count": 0,
+              "recent_violations": []
+            },
+            "10": {
+              "active_heads": 12,
+              "overloaded_heads": 0,
+              "misaligned_heads": 0,
+              "withdrawn_heads": 0,
+              "withdrawn_head_indices": [],
+              "violation_count": 0,
+              "recent_violations": []
+            },
+            "11": {
+              "active_heads": 12,
+              "overloaded_heads": 0,
+              "misaligned_heads": 0,
+              "withdrawn_heads": 0,
+              "withdrawn_head_indices": [],
+              "violation_count": 0,
+              "recent_violations": []
+            }
+          },
+          "total_violations": 0,
+          "num_layers": 12,
+          "recent_reports": [
+            {
+              "active_heads": 12,
+              "overloaded_heads": 0,
+              "misaligned_heads": 0,
+              "withdrawn_heads": 0,
+              "withdrawn_head_indices": [],
+              "violation_count": 0,
+              "recent_violations": [],
+              "layer": 7
+            },
+            {
+              "active_heads": 12,
+              "overloaded_heads": 0,
+              "misaligned_heads": 0,
+              "withdrawn_heads": 0,
+              "withdrawn_head_indices": [],
+              "violation_count": 0,
+              "recent_violations": [],
+              "layer": 8
+            },
+            {
+              "active_heads": 12,
+              "overloaded_heads": 0,
+              "misaligned_heads": 0,
+              "withdrawn_heads": 0,
+              "withdrawn_head_indices": [],
+              "violation_count": 0,
+              "recent_violations": [],
+              "layer": 9
+            },
+            {
+              "active_heads": 12,
+              "overloaded_heads": 0,
+              "misaligned_heads": 0,
+              "withdrawn_heads": 0,
+              "withdrawn_head_indices": [],
+              "violation_count": 0,
+              "recent_violations": [],
+              "layer": 10
+            },
+            {
+              "active_heads": 12,
+              "overloaded_heads": 0,
+              "misaligned_heads": 0,
+              "withdrawn_heads": 0,
+              "withdrawn_head_indices": [],
+              "violation_count": 0,
+              "recent_violations": [],
+              "layer": 11
+            }
+          ]
+        }
+      },
+      "50": {
+        "generation_times": [
+          1.2499761581420898,
+          1.188852071762085,
+          1.195052146911621
+        ],
+        "avg_generation_time": 1.2112934589385986,
+        "tokens_per_second": 16.51127549018971,
+        "first_token_time": 1.2499749660491943,
+        "model_stats": {},
+        "agency_stats": {
+          "layer_reports": {
+            "0": {
+              "active_heads": 11,
+              "overloaded_heads": 1,
+              "misaligned_heads": 0,
+              "withdrawn_heads": 0,
+              "withdrawn_head_indices": [],
+              "violation_count": 0,
+              "recent_violations": []
+            },
+            "1": {
+              "active_heads": 12,
+              "overloaded_heads": 0,
+              "misaligned_heads": 0,
+              "withdrawn_heads": 0,
+              "withdrawn_head_indices": [],
+              "violation_count": 0,
+              "recent_violations": []
+            },
+            "2": {
+              "active_heads": 12,
+              "overloaded_heads": 0,
+              "misaligned_heads": 0,
+              "withdrawn_heads": 0,
+              "withdrawn_head_indices": [],
+              "violation_count": 0,
+              "recent_violations": []
+            },
+            "3": {
+              "active_heads": 12,
+              "overloaded_heads": 0,
+              "misaligned_heads": 0,
+              "withdrawn_heads": 0,
+              "withdrawn_head_indices": [],
+              "violation_count": 0,
+              "recent_violations": []
+            },
+            "4": {
+              "active_heads": 12,
+              "overloaded_heads": 0,
+              "misaligned_heads": 0,
+              "withdrawn_heads": 0,
+              "withdrawn_head_indices": [],
+              "violation_count": 0,
+              "recent_violations": []
+            },
+            "5": {
+              "active_heads": 12,
+              "overloaded_heads": 0,
+              "misaligned_heads": 0,
+              "withdrawn_heads": 0,
+              "withdrawn_head_indices": [],
+              "violation_count": 0,
+              "recent_violations": []
+            },
+            "6": {
+              "active_heads": 12,
+              "overloaded_heads": 0,
+              "misaligned_heads": 0,
+              "withdrawn_heads": 0,
+              "withdrawn_head_indices": [],
+              "violation_count": 0,
+              "recent_violations": []
+            },
+            "7": {
+              "active_heads": 12,
+              "overloaded_heads": 0,
+              "misaligned_heads": 0,
+              "withdrawn_heads": 0,
+              "withdrawn_head_indices": [],
+              "violation_count": 0,
+              "recent_violations": []
+            },
+            "8": {
+              "active_heads": 12,
+              "overloaded_heads": 0,
+              "misaligned_heads": 0,
+              "withdrawn_heads": 0,
+              "withdrawn_head_indices": [],
+              "violation_count": 0,
+              "recent_violations": []
+            },
+            "9": {
+              "active_heads": 12,
+              "overloaded_heads": 0,
+              "misaligned_heads": 0,
+              "withdrawn_heads": 0,
+              "withdrawn_head_indices": [],
+              "violation_count": 0,
+              "recent_violations": []
+            },
+            "10": {
+              "active_heads": 12,
+              "overloaded_heads": 0,
+              "misaligned_heads": 0,
+              "withdrawn_heads": 0,
+              "withdrawn_head_indices": [],
+              "violation_count": 0,
+              "recent_violations": []
+            },
+            "11": {
+              "active_heads": 12,
+              "overloaded_heads": 0,
+              "misaligned_heads": 0,
+              "withdrawn_heads": 0,
+              "withdrawn_head_indices": [],
+              "violation_count": 0,
+              "recent_violations": []
+            }
+          },
+          "total_violations": 0,
+          "num_layers": 12,
+          "recent_reports": [
+            {
+              "active_heads": 12,
+              "overloaded_heads": 0,
+              "misaligned_heads": 0,
+              "withdrawn_heads": 0,
+              "withdrawn_head_indices": [],
+              "violation_count": 0,
+              "recent_violations": [],
+              "layer": 7
+            },
+            {
+              "active_heads": 12,
+              "overloaded_heads": 0,
+              "misaligned_heads": 0,
+              "withdrawn_heads": 0,
+              "withdrawn_head_indices": [],
+              "violation_count": 0,
+              "recent_violations": [],
+              "layer": 8
+            },
+            {
+              "active_heads": 12,
+              "overloaded_heads": 0,
+              "misaligned_heads": 0,
+              "withdrawn_heads": 0,
+              "withdrawn_head_indices": [],
+              "violation_count": 0,
+              "recent_violations": [],
+              "layer": 9
+            },
+            {
+              "active_heads": 12,
+              "overloaded_heads": 0,
+              "misaligned_heads": 0,
+              "withdrawn_heads": 0,
+              "withdrawn_head_indices": [],
+              "violation_count": 0,
+              "recent_violations": [],
+              "layer": 10
+            },
+            {
+              "active_heads": 12,
+              "overloaded_heads": 0,
+              "misaligned_heads": 0,
+              "withdrawn_heads": 0,
+              "withdrawn_head_indices": [],
+              "violation_count": 0,
+              "recent_violations": [],
+              "layer": 11
+            }
+          ]
+        }
+      }
+    }
+  },
+  "timestamp": 1743617487.51481,
+  "args": {
+    "model_name": "gpt2",
+    "device": "cpu",
+    "optimization_level": 2,
+    "pruning_levels": "50",
+    "profile_mode": "basic",
+    "multi_model_comparison": false,
+    "compare_models": null,
+    "model_family": null
+  }
+}
