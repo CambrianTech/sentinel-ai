@@ -25,6 +25,59 @@ Our contributions:
 
 ## 2. Adaptive Transformer Architecture
 
+```mermaid
+flowchart TD
+    classDef standard fill:#333,stroke:#333,stroke-width:1px,color:#fff
+    classDef layer fill:#0078b8,stroke:#0078b8,stroke-width:1px,color:#fff
+    classDef attention fill:#9370db,stroke:#9370db,stroke-width:1px,color:#fff
+    classDef ffn fill:#2e8b57,stroke:#2e8b57,stroke-width:1px,color:#fff
+    classDef head fill:#ff8c00,stroke:#ff8c00,stroke-width:1px,color:#fff
+    classDef header fill:none,stroke:none,color:#fff,font-weight:bold
+    
+    %% Main Components
+    header["ADAPTIVE TRANSFORMER BLOCK"]
+    residual["RESIDUAL CONNECTION"]
+    norm["LAYER NORMALIZATION"]
+    attention["MULTI-HEAD ATTENTION"]
+    ffn["FEED FORWARD NETWORK"]
+    dropout["DROPOUT"]
+    output["OUTPUT"]
+    
+    %% Attention Components
+    head1["HEAD 1<br/>+ AGENCY"]
+    head2["HEAD 2<br/>+ AGENCY"]
+    headn["HEAD N<br/>+ AGENCY"]
+    
+    gate1["GATE 1"]
+    gate2["GATE 2"]
+    gaten["GATE N"]
+    
+    %% Connections
+    residual & norm --> attention
+    
+    attention --> head1 & head2 & headn
+    head1 --> gate1
+    head2 --> gate2
+    headn --> gaten
+    
+    gate1 & gate2 & gaten --> ffn
+    ffn --> dropout
+    dropout --> output
+    
+    %% Styling
+    header:::header
+    residual & norm:::layer
+    attention:::attention
+    ffn:::ffn
+    dropout:::layer
+    output:::layer
+    
+    head1 & head2 & headn:::attention
+    gate1 & gate2 & gaten:::head
+```
+
+**Figure 1: Overview of the Adaptive Transformer Block**. The architecture extends standard transformer blocks with per-head adaptation capabilities. Each attention head includes gate mechanisms and agency signals, allowing selective pruning and dynamic contribution adjustments. These learnable gates control how much each head contributes to the output, with values near zero effectively pruning the head from computation.
+
 ### 2.1 Gated Multi-Head Attention with Agency
 
 We modify standard multi-head attention by introducing sentinel gates and agency mechanisms for each head. The gates, parameterized by learnable scalar logits, regulate head contributions, while agency signals allow heads to express internal states that affect computation:
@@ -36,6 +89,72 @@ $$
 Here, \( g_i = \sigma(\text{logit}_i) \) is the sentinel gate, where \(\sigma\) denotes the sigmoid function, and \( a_i \) is the agency factor that depends on the head's internal state. Initially, gates are biased towards 1 (active heads), allowing the model to gradually identify and prune less useful heads.
 
 ### 2.2 Attention Head Agency Layer
+
+```mermaid
+flowchart TD
+    classDef standard fill:#333,stroke:#333,stroke-width:1px,color:#fff
+    classDef agency fill:#2e8b57,stroke:#2e8b57,stroke-width:1px,color:#fff
+    classDef state fill:#9370db,stroke:#9370db,stroke-width:1px,color:#fff
+    classDef computation fill:#0078b8,stroke:#0078b8,stroke-width:1px,color:#fff
+    classDef gate fill:#ff8c00,stroke:#ff8c00,stroke-width:1px,color:#fff
+    classDef header fill:none,stroke:none,color:#fff,font-weight:bold
+    
+    %% Main Components
+    header["ATTENTION HEAD WITH AGENCY"]
+    signals["AGENCY SIGNALS"]
+    stateProcessing["STATE PROCESSING"]
+    monitor["CONSENT VIOLATION<br/>MONITORING"]
+    attention["ATTENTION<br/>COMPUTATION"]
+    gate["GATE MECHANISM<br/>output = gate_value * agency_factor * attn_out"]
+    
+    %% Agency Signal Components
+    active["state: active<br/>consent: true/false<br/>utilization: 0.8<br/>last_signal: t"]
+    
+    %% State Components
+    withdrawn["Withdrawn"]
+    overloaded["Overloaded"]
+    misaligned["Misaligned"]
+    activeState["Active"]
+    
+    %% Action Components
+    skipComputation["Skip Computation"]
+    reduce50["Reduce Contribution<br/>by 50%"]
+    reduce30["Reduce Contribution<br/>by 30%"]
+    fullContribution["Full Contribution"]
+    
+    %% Connections
+    signals --> active
+    
+    signals --> stateProcessing
+    signals --> monitor
+    
+    stateProcessing --> withdrawn & overloaded & misaligned & activeState
+    
+    withdrawn --> skipComputation
+    overloaded --> reduce50
+    misaligned --> reduce30
+    activeState --> fullContribution
+    
+    skipComputation & reduce50 & reduce30 & fullContribution --> gate
+    
+    gate --> attention
+    
+    %% Styling
+    header:::header
+    signals:::agency
+    stateProcessing:::state
+    monitor:::agency
+    attention:::computation
+    gate:::gate
+    
+    active:::agency
+    
+    withdrawn & overloaded & misaligned & activeState:::state
+    
+    skipComputation & reduce50 & reduce30 & fullContribution:::computation
+```
+
+**Figure 2: Attention Head Agency System**. This mechanism allows attention heads to express internal states and have those states respected during computation. Each head maintains agency signals including state (active, overloaded, misaligned, withdrawn) and consent flags. State affects computation: overloaded heads reduce contribution by 50%, misaligned by 30%, and withdrawn skip computation entirely.
 
 A key innovation in our architecture is the Agency Layer that enables attention heads to signal their internal states and have these states respected during computation. Each attention head maintains an agency signal dictionary:
 
@@ -78,6 +197,70 @@ This agency layer embeds ethical principles directly into the architecture, maki
 
 ### 2.3 U-Net Inspired Skip Connections
 
+```mermaid
+flowchart TD
+    classDef standard fill:#333,stroke:#333,stroke-width:1px,color:#fff
+    classDef embedding fill:#0078b8,stroke:#0078b8,stroke-width:1px,color:#fff
+    classDef decoder fill:#9370db,stroke:#9370db,stroke-width:1px,color:#fff
+    classDef skip fill:#ff8c00,stroke:#ff8c00,stroke-width:1px,color:#fff
+    classDef encoder fill:#2e8b57,stroke:#2e8b57,stroke-width:1px,color:#fff
+    classDef header fill:none,stroke:none,color:#fff,font-weight:bold
+    
+    %% Main Components
+    header["U-NET INSPIRED ARCHITECTURE"]
+    outputEmbed["OUTPUT EMBEDDING"]
+    decoderBlocks["DECODER BLOCKS"]
+    skipConnections["U-NET SKIP CONNECTIONS"]
+    encoderBlocks["ENCODER BLOCKS"]
+    inputEmbed["INPUT EMBEDDING"]
+    
+    %% Decoder Components
+    blockN["Block N"]
+    blockN1["Block N-1"]
+    blockN2["Block N-2"]
+    blockN3["Block N-3"]
+    
+    %% Skip Components
+    fusion1["Fusion Function 1<br/>Linear([E;D])"]
+    fusion2["Fusion Function 2<br/>Linear([E;D])"]
+    fusion3["Fusion Function 3<br/>Linear([E;D])"]
+    
+    %% Encoder Components
+    block1["Block 1"]
+    block2["Block 2"]
+    block3["Block 3"]
+    
+    %% Connections
+    outputEmbed --> decoderBlocks
+    
+    decoderBlocks --> blockN & blockN1 & blockN2 & blockN3
+    
+    blockN & blockN1 & blockN2 & blockN3 --> skipConnections
+    
+    skipConnections --> fusion1 & fusion2 & fusion3
+    
+    fusion1 & fusion2 & fusion3 --> encoderBlocks
+    
+    encoderBlocks --> block1 & block2 & block3
+    
+    block1 & block2 & block3 --> inputEmbed
+    
+    %% Styling
+    header:::header
+    outputEmbed & inputEmbed:::embedding
+    decoderBlocks:::decoder
+    skipConnections:::skip
+    encoderBlocks:::encoder
+    
+    blockN & blockN1 & blockN2 & blockN3:::decoder
+    
+    fusion1 & fusion2 & fusion3:::skip
+    
+    block1 & block2 & block3:::encoder
+```
+
+**Figure 3: U-Net Inspired Architecture**. Our skip connections create direct pathways between lower (encoder) and upper (decoder) transformer layers. When heads are pruned in upper layers, their counterparts in lower layers can still contribute information through these connections, preserving important patterns. The fusion functions combine information from corresponding encoder-decoder pairs, allowing knowledge transfer while enabling aggressive pruning.
+
 Inspired by the U-Net architecture ([Ronneberger et al., 2015](https://arxiv.org/abs/1505.04597)), our model integrates skip-connections between lower ("encoder-like") and upper ("decoder-like") transformer layers. Specifically:
 
 - For a Transformer of \( N \) layers, layers \( 1 \rightarrow N/2 \) act as encoder layers, and \( N/2+1 \rightarrow N \) as decoder layers.
@@ -86,11 +269,48 @@ Inspired by the U-Net architecture ([Ronneberger et al., 2015](https://arxiv.org
   h'_{\text{decoder}_{N-i+1}} = \text{Linear}\left(\left[h_{\text{encoder}_i}; h_{\text{decoder}_{N-i+1}}\right]\right)
   $$
 
-This provides richer representations and reduces semantic gaps.
+This provides richer representations and reduces semantic gaps. During regrowth phases, these connections provide essential context that helps reinitialized heads learn appropriate functions more quickly.
 
 ---
 
 ## 3. ANN-based Dynamic Controller
+
+```mermaid
+flowchart TD
+    classDef standard fill:#333,stroke:#333,stroke-width:1px,color:#fff
+    classDef metrics fill:#2e8b57,stroke:#2e8b57,stroke-width:1px,color:#fff
+    classDef reward fill:#ff8c00,stroke:#ff8c00,stroke-width:1px,color:#fff
+    classDef policy fill:#0078b8,stroke:#0078b8,stroke-width:1px,color:#fff
+    classDef optimization fill:#9370db,stroke:#9370db,stroke-width:1px,color:#fff
+    classDef header fill:none,stroke:none,color:#fff,font-weight:bold
+    
+    %% Main Components
+    header["REINFORCEMENT LEARNING CONTROLLER"]
+    metrics["VALIDATION METRICS<br/>COLLECTOR"]
+    reward["REWARD CALCULATION<br/>reward = perf_improvement + efficiency_factor"]
+    policy["POLICY NETWORK<br/>(Learns pruning patterns)"]
+    history["ACTION HISTORY<br/>- Previous gate adjustments<br/>- State transitions<br/>- Reward history"]
+    update["GATE VALUE UPDATE<br/>MECHANISM"]
+    optimization["MULTI-OBJECTIVE<br/>OPTIMIZATION<br/>- Balance efficiency vs. performance<br/>- Task-specific specialization<br/>- Continuous adaptation"]
+    
+    %% Connections
+    metrics --> reward
+    reward --> policy
+    policy <--> history
+    policy --> update
+    update --> optimization
+    
+    %% Styling
+    header:::header
+    metrics:::metrics
+    reward:::reward
+    policy:::policy
+    history:::policy
+    update:::policy
+    optimization:::optimization
+```
+
+**Figure 4: Reinforcement Learning Controller**. The controller is the intelligent heart of our adaptive system, learning which pruning patterns yield the best performance. Unlike traditional pruning with fixed heuristics, our controller uses a feedback loop: it collects validation metrics, calculates rewards based on performance improvement, and updates its policy over time. This self-optimizing approach can discover pruning strategies that outperform hand-crafted heuristics.
 
 We propose an ANN-based controller to dynamically manage sentinel gate values based on live metrics during training. The controller comprises learned parameters (gate logits) and external adjustments based on real-time metrics like attention entropy and gradient norms.
 
