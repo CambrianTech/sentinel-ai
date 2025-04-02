@@ -22,6 +22,25 @@ from pathlib import Path
 from tqdm.notebook import tqdm
 from datetime import datetime
 
+# Extract branch name from URL if running in Colab
+if 'google.colab' in sys.modules:
+    try:
+        # This will get the branch from the URL when opened via GitHub
+        from IPython import get_ipython
+        branch_name = "feature/colab-overnight"  # Default branch
+        
+        # Clone the repository with specific branch
+        !git clone -b {branch_name} https://github.com/CambrianTech/sentinel-ai.git
+        %cd sentinel-ai
+        print(f"Cloned repository using branch: {branch_name}")
+    except:
+        # Fallback to main branch if can't determine
+        !git clone https://github.com/CambrianTech/sentinel-ai.git
+        %cd sentinel-ai
+        print("Cloned repository using default branch")
+else:
+    print("Not running in Colab environment")
+
 # Make sure required packages are installed
 try:
     import transformers
@@ -562,6 +581,35 @@ class PruningBenchmark:
             "perplexities": perplexities,
             "quality_scores": quality_scores
         }
+    
+    def _measure_hardware_utilization(self, model):
+        """Measure hardware utilization metrics like FLOPs."""
+        # This is a basic implementation - can be expanded for more detailed profiling
+        
+        # Estimate FLOPs
+        try:
+            from thop import profile as thop_profile
+            
+            # Sample input for profiling
+            prompt = self.eval_prompts[0]
+            input_ids = self.tokenizer.encode(prompt, return_tensors='pt').to(self.device)
+            
+            # Measure FLOPS for forward pass
+            try:
+                macs, params = thop_profile(model, inputs=(input_ids,))
+                flops = macs * 2  # FLOPs ≈ MACs * 2
+            except Exception:
+                raise
+        except ImportError:
+            # Fall back to a rough estimate based on common formulations
+            n_layers = 12 if "gpt2" in self.model_name.lower() else 24
+            hidden_size = 768 if "gpt2" in self.model_name.lower() else 1024
+            seq_len = len(self.tokenizer.encode(self.eval_prompts[0]))
+            
+            # Very rough FLOP estimate
+            flops = 6 * n_layers * hidden_size * hidden_size * seq_len
+        
+        return {"flops": flops, "parameters": sum(p.numel() for p in model.parameters())}
     
     def _run_comparison_experiments(self):
         """Run experiments with alternative pruning methods for comparison."""
