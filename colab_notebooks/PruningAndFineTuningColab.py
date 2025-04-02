@@ -105,9 +105,10 @@ print(f"Default backend: {jax.default_backend()}")
 class FineTuner:
     """Fine-tunes a pruned model to recover performance"""
     
-    def __init__(self, pruning_module, dataset_name="openwebtext", batch_size=4):
+    def __init__(self, pruning_module, dataset_name="openwebtext", dataset_config=None, batch_size=4):
         self.pruning_module = pruning_module
         self.dataset_name = dataset_name
+        self.dataset_config = dataset_config
         self.batch_size = batch_size
         self.max_seq_length = 128  # Modest sequence length for faster training
         self.train_state = None
@@ -127,21 +128,59 @@ class FineTuner:
         """Load and prepare the dataset for fine-tuning"""
         try:
             # Try to load a small portion of the dataset for faster loading
-            dataset = load_dataset(self.dataset_name, split="train[:5000]")
+            if self.dataset_config:
+                print(f"Loading dataset {self.dataset_name} with config {self.dataset_config}")
+                dataset = load_dataset(self.dataset_name, self.dataset_config, split="train[:5000]")
+            else:
+                print(f"Loading dataset {self.dataset_name}")
+                dataset = load_dataset(self.dataset_name, split="train[:5000]")
+                
+            print(f"Dataset loaded: {len(dataset)} examples")
             
             # Process dataset
             tokenizer = self.pruning_module.tokenizer
             
+            # Ensure tokenizer has pad_token
+            if tokenizer.pad_token is None:
+                if tokenizer.eos_token is not None:
+                    tokenizer.pad_token = tokenizer.eos_token
+                else:
+                    tokenizer.pad_token = tokenizer.eos_token = "[PAD]"
+                print(f"Set pad_token to {tokenizer.pad_token}")
+            
             def tokenize_function(examples):
                 # Tokenize the texts
-                tokenized = tokenizer(examples["text"])
+                if "text" in examples:
+                    texts = examples["text"]
+                else:
+                    # Try to find text field (wikitext has different format)
+                    keys = examples.keys()
+                    text_key = next((k for k in keys if "text" in k.lower()), None)
+                    if text_key:
+                        texts = examples[text_key]
+                    else:
+                        # If no text field found, concatenate all string fields
+                        texts = []
+                        for i in range(len(examples[next(iter(keys))])):
+                            example_text = " ".join(str(examples[k][i]) for k in keys 
+                                                if isinstance(examples[k][i], str))
+                            texts.append(example_text)
+                
+                tokenized = tokenizer(texts)
                 return tokenized
+            
+            # Remove columns that aren't strings
+            columns_to_remove = []
+            for col in dataset.column_names:
+                if isinstance(dataset[0][col], (int, float, bool)) or dataset[0][col] is None:
+                    continue
+                columns_to_remove.append(col)
             
             tokenized_dataset = dataset.map(
                 tokenize_function,
                 batched=True,
                 num_proc=1,
-                remove_columns=["text"]
+                remove_columns=columns_to_remove
             )
             
             # Create data loader
@@ -149,7 +188,7 @@ class FineTuner:
                 # Prepare batch of appropriate shape
                 batch = {k: np.array(v) for k, v in samples.items()}
                 
-                # Create 'labels' for the causal language modeling task
+                # Create 'labels' for the causal language modeling task - stored separately
                 batch["labels"] = batch["input_ids"].copy()
                 
                 # Get sequence lengths
@@ -185,16 +224,33 @@ class FineTuner:
         except Exception as e:
             print(f"Error preparing dataset: {e}")
             print("Falling back to synthetic data for training")
+            import traceback
+            traceback.print_exc()
             return self._prepare_synthetic_dataset()
     
     def _prepare_synthetic_dataset(self):
         """Create synthetic data for training when dataset loading fails"""
         tokenizer = self.pruning_module.tokenizer
         
+        # Ensure tokenizer has pad_token
+        if tokenizer.pad_token is None:
+            if tokenizer.eos_token is not None:
+                tokenizer.pad_token = tokenizer.eos_token
+            else:
+                tokenizer.pad_token = tokenizer.eos_token = "[PAD]"
+            print(f"Set pad_token to {tokenizer.pad_token}")
+        
         # Generate random token IDs (avoid special tokens)
         vocab_size = tokenizer.vocab_size
-        special_tokens = set([tokenizer.pad_token_id, tokenizer.eos_token_id, 
-                             tokenizer.bos_token_id, tokenizer.unk_token_id])
+        
+        # Get special token IDs (safely)
+        special_tokens = set()
+        for token_name in ['pad_token_id', 'eos_token_id', 'bos_token_id', 'unk_token_id']:
+            token_id = getattr(tokenizer, token_name, None)
+            if token_id is not None:
+                special_tokens.add(token_id)
+        
+        print(f"Creating synthetic dataset with vocab_size={vocab_size}, special_tokens={special_tokens}")
         
         # Create 100 samples of random token sequences
         samples = []
@@ -209,6 +265,9 @@ class FineTuner:
             for i, token_id in enumerate(token_ids):
                 if token_id in special_tokens:
                     token_ids[i] = (token_id + 1) % vocab_size
+                    # Make sure we're not just cycling through special tokens
+                    while token_ids[i] in special_tokens:
+                        token_ids[i] = (token_ids[i] + 1) % vocab_size
             
             # Create sample
             sample = {
@@ -245,6 +304,7 @@ class FineTuner:
             batch = {k: np.array(v) for k, v in batch.items()}
             batches.append(batch)
         
+        print(f"Created {len(batches)} synthetic batches")
         return batches
     
     def _create_train_state(self, params, learning_rate=5e-5):
@@ -605,8 +665,10 @@ class PruningFineTuningExperiment:
         # 3. Fine-tune the pruned model
         print("\n>> Stage 3: Fine-tuning the pruned model")
         
-        # Create fine-tuner
-        dataset_name = "wikitext"
+        # Create fine-tuner - use specific wikitext config and OpenWebText as fallback
+        dataset_name = "wikitext-2-v1"  # Specify the config name
+        dataset_config = "wikitext"
+        
         if self.env.in_colab and self.env.has_tpu:
             # TPUs can handle larger batch sizes
             batch_size = 16
@@ -615,7 +677,12 @@ class PruningFineTuningExperiment:
         else:
             batch_size = 4
             
-        fine_tuner = FineTuner(pruning_module, dataset_name=dataset_name, batch_size=batch_size)
+        fine_tuner = FineTuner(
+            pruning_module, 
+            dataset_name=dataset_config, 
+            dataset_config=dataset_name, 
+            batch_size=batch_size
+        )
         
         # Fine-tune model
         tuned_params, metrics = fine_tuner.fine_tune(
