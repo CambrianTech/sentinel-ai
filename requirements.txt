@@ -5,3 +5,9 @@ numpy>=1.26.4
 tqdm>=4.66.2
 matplotlib>=3.8.3
 accelerate>=0.28.0
+
+# Optional dependencies for M1/M2 Macs to avoid BLAS crashes
+# Comment out if not needed or experiencing installation issues
+jax>=0.5.0
+jaxlib>=0.5.0
+flax>=0.10.0
