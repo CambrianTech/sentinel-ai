@@ -30,7 +30,8 @@ from utils.pruning import (
     Environment, 
     PruningModule,
     ResultsManager,
-    FineTuner
+    FineTuner,
+    ImprovedFineTuner
 )
 
 
@@ -283,20 +284,53 @@ class CommandLineExperiment:
         else:
             batch_size = 4
         
-        # Initialize fine-tuner
-        fine_tuner = FineTuner(
-            pruning_module, 
-            dataset_name=dataset,
-            batch_size=batch_size
-        )
+        # Check if model name indicates this might be a large model (OPT-1.3B, etc.)
+        model_name = model.lower()
+        use_improved_tuner = any(x in model_name for x in ['opt', 'large', '1.3b', 'bloom'])
+        
+        if use_improved_tuner:
+            self.log(f"Using ImprovedFineTuner for model {model} to enhance stability")
+            # Initialize improved fine-tuner with better stability for large models
+            fine_tuner = ImprovedFineTuner(
+                pruning_module, 
+                dataset_name=dataset,
+                batch_size=batch_size
+            )
+        else:
+            # Use standard fine-tuner for smaller models
+            fine_tuner = FineTuner(
+                pruning_module, 
+                dataset_name=dataset,
+                batch_size=batch_size
+            )
+        
+        # Adjust learning rate for large models
+        learning_rate = 1e-5 if use_improved_tuner else 5e-5
         
         # Fine-tune model
-        tuned_params, metrics = fine_tuner.fine_tune(
-            pruned_params,
-            num_epochs=fine_tuning_epochs,
-            learning_rate=5e-5,
-            evaluate_interval=5
-        )
+        try:
+            tuned_params, metrics = fine_tuner.fine_tune(
+                pruned_params,
+                num_epochs=fine_tuning_epochs,
+                learning_rate=learning_rate,
+                evaluate_interval=5
+            )
+        except Exception as e:
+            self.log(f"Error during fine-tuning: {e}")
+            # If standard tuner fails, fall back to improved tuner
+            if not use_improved_tuner:
+                self.log("Falling back to ImprovedFineTuner after error")
+                fine_tuner = ImprovedFineTuner(
+                    pruning_module, 
+                    dataset_name=dataset,
+                    batch_size=max(1, batch_size // 2)  # Reduce batch size
+                )
+                tuned_params, metrics = fine_tuner.fine_tune(
+                    pruned_params,
+                    num_epochs=fine_tuning_epochs,
+                    learning_rate=1e-5,  # Lower learning rate for stability
+                    evaluate_interval=5
+                )
         
         # Evaluate fine-tuned model
         perplexity_tuned = pruning_module.evaluate_perplexity(tuned_params, prompt)
