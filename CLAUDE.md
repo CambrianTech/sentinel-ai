@@ -6,6 +6,23 @@
 - Validate notebook: `python notebooks/validate_notebook.py notebook_path`
 - Fix notebook metadata: `python notebooks/fix_notebook_metadata.py`
 - Test pruning: `python scripts/inference_with_pruning.py --strategy entropy --pruning_level 0.5 --prompt "Your text"`
+- Test model support: `python test_model_support.py --device {cpu,cuda} --verbose`
+
+## Multi-Model Support
+- Test GPT-2: `python main.py --model_name distilgpt2 --prompt "Your prompt here"`
+- Test OPT: `python main.py --model_name facebook/opt-125m --prompt "Your prompt here"`
+- Test Pythia: `python main.py --model_name EleutherAI/pythia-70m --prompt "Your prompt here"`
+- Test BLOOM: `python main.py --model_name bigscience/bloom-560m --prompt "Your prompt here"`
+- Test Llama: `python main.py --model_name meta-llama/Llama-2-7b-hf --prompt "Your prompt here"`
+- Generate samples: `python generate_samples.py`
+- Fine-tune pruned model: `python scripts/finetune_pruned_model.py --model_path PATH --dataset DATASET --output_path OUTPUT --enable_head_lr`
+- Test multi-model support: `python scripts/test_multi_model_support.py --models gpt2,opt,pythia,bloom`
+- Multi-model profiling: `./scripts/run_multi_model_profile.sh --models "gpt2,distilgpt2,bigscience/bloom-560m" --device cpu`
+
+## Cache Management
+- Clean all Hugging Face caches: `rm -rf ~/.cache/huggingface`
+- View cache contents: `huggingface-cli scan-cache`
+- Clean specific model: `rm -rf ~/.cache/huggingface/hub/models--MODEL_NAME`
 
 ## Code Style Guidelines
 - Imports: standard library → third-party → local modules
@@ -16,11 +33,12 @@
 - Organization: Keep functions single-purpose and modular
 
 ## Project Structure
-- Models in `models/`, controller logic in `controller/`, utilities in `utils/`
+- Models in `models/`, with model loaders for different architectures in `models/loaders/`
+- Controller logic in `controller/`, utilities in `utils/`
 - Main training logic in `train.py`, inference in `main.py`
 - Notebooks in `notebooks/` demonstrate various model behaviors and visualizations
-- Scripts in `scripts/` provide benchmarking and specialized tools
-- Documentation in `docs/` includes methodology and technical details
+- Scripts in `scripts/` provide benchmarking, fine-tuning, and specialized tools
+- Documentation in `docs/` includes methodology, fine-tuning guides, and technical details
 
 ## Branch Management
 1. Always create feature or bug branches from main:

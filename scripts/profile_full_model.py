@@ -42,8 +42,14 @@ def setup_args():
     # Model configuration
     parser.add_argument("--model_name", type=str, default="gpt2", 
                         help="Base model to use (default: gpt2)")
+    parser.add_argument("--model_family", type=str, choices=["gpt2", "bloom", "opt", "pythia", "llama"],
+                        help="Specify model family for specialized handling (auto-detected if not specified)")
     parser.add_argument("--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu",
                         help="Device to run on (default: cuda if available, else cpu)")
+    parser.add_argument("--multi_model_comparison", action="store_true",
+                        help="Test multiple model families for comparison (must specify models with --compare_models)")
+    parser.add_argument("--compare_models", type=str, default="gpt2,gpt2-medium",
+                        help="Comma-separated list of models to compare when using --multi_model_comparison")
     
     # Test parameters
     parser.add_argument("--sequence_length", type=int, default=64,
@@ -61,12 +67,16 @@ def setup_args():
     
     # Profiling options
     parser.add_argument("--profile_mode", type=str, default="basic", 
-                        choices=["basic", "detailed", "component"],
-                        help="Profiling detail level")
+                        choices=["basic", "detailed", "component", "all"],
+                        help="Profiling detail level (all = run all profiling types)")
     parser.add_argument("--disable_baseline", action="store_true",
                         help="Disable baseline model integration to isolate its impact")
     parser.add_argument("--disable_unet", action="store_true",
                         help="Disable UNet connections to isolate their impact")
+    parser.add_argument("--test_integration_points", action="store_true",
+                        help="Test different integration optimizations to isolate their impact")
+    parser.add_argument("--optimization_level", type=int, default=1, choices=[0, 1, 2, 3],
+                        help="Optimization level (0=None, 1=Default, 2=Aggressive, 3=Extreme)")
     
     # Output options
     parser.add_argument("--output_dir", type=str, default="profiling_results/full_model",
@@ -75,6 +85,8 @@ def setup_args():
                         help="Generate visualizations of profiling results")
     parser.add_argument("--trace_export", action="store_true",
                         help="Export Chrome trace files for detailed analysis")
+    parser.add_argument("--compare_with_previous", action="store_true",
+                        help="Compare with previously saved results to track improvements")
     
     return parser.parse_args()
 
@@ -370,15 +382,22 @@ def profile_component_breakdown(args, data):
     for model_type in ["original", "optimized"]:
         print(f"\nProfiling {model_type} model components...")
         
-        # Set model type
+        # Set model type and optimization level
         if model_type == "original":
             os.environ["USE_OPTIMIZED_MODEL"] = "0"
         else:  # optimized
             os.environ["USE_OPTIMIZED_MODEL"] = "1"
+            os.environ["OPTIMIZATION_LEVEL"] = str(args.optimization_level)
         
         # Load models
         baseline_model = load_baseline_model(args.model_name, args.device)
         model = load_adaptive_model(args.model_name, baseline_model, args.device)
+        
+        # Apply pruning if needed for component tests
+        # Testing with moderate pruning (30%) lets us see impacts more clearly
+        if model_type == "optimized":
+            pruned_model, _, _ = apply_pruning(model, 30)
+            model = pruned_model
         
         # Extract model components based on model type
         if hasattr(model, "blocks"):
@@ -397,26 +416,64 @@ def profile_component_breakdown(args, data):
             "embeddings": [],
             "attention": [],
             "ffn": [],
-            "ln": [],
+            "baseline_integration": [],
+            "unet_connection": [],
+            "layernorm": [],
             "other": []
         }
         
+        # Enable debug mode to collect timing stats if model supports it
+        if hasattr(model, "debug"):
+            model.debug = True
+            if hasattr(model, "reset_stats"):
+                model.reset_stats()
+        
+        # Apply to blocks too if they have debug flag
+        for block in blocks:
+            if hasattr(block, "debug"):
+                block.debug = True
+            if hasattr(block, "attn") and hasattr(block.attn, "profile_time"):
+                block.attn.profile_time = True
+        
         with torch.no_grad():
-            # Warmup
+            # Warmup with full generation to ensure caches are properly initialized
             _ = model.generate(
                 input_ids=input_ids,
                 attention_mask=attention_mask,
-                max_length=input_ids.size(1) + 5,  # Just a few tokens for warmup
+                max_length=input_ids.size(1) + 10,  # Just a few tokens for warmup
                 num_return_sequences=1,
                 do_sample=True,
                 temperature=0.7
             )
             
+            # Clear any warmup stats
+            if hasattr(model, "reset_stats"):
+                model.reset_stats()
+            
+            torch.cuda.synchronize()
+            torch.cuda.empty_cache()
+            
+            # Profile full forward pass with detailed breakdown
+            batch_size, seq_len = input_ids.shape
+            position_ids = torch.arange(seq_len, device=input_ids.device).unsqueeze(0)
+            
+            # Create causal attention mask
+            if seq_len <= 1024:
+                # Use pre-computed mask if model has one
+                if hasattr(model, "bias"):
+                    attn_mask = model.bias[:, :, :seq_len, :seq_len]
+                else:
+                    # Create standard causal mask
+                    attn_mask = torch.tril(torch.ones(seq_len, seq_len, device=input_ids.device))
+                attn_mask = (1.0 - attn_mask) * -10000.0
+            else:
+                # Create mask on-the-fly for longer sequences
+                attn_mask = torch.triu(torch.ones(seq_len, seq_len, device=input_ids.device) * -10000.0, diagonal=1)
+            
             # Profile embeddings
             with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA]) as prof:
                 # Get input embeddings
                 with record_function("embeddings"):
-                    position_ids = torch.arange(input_ids.size(1), device=input_ids.device).unsqueeze(0)
                     embeddings = model.wte(input_ids) + model.wpe(position_ids)
             
             # Extract times
@@ -427,67 +484,323 @@ def profile_component_breakdown(args, data):
             # Initialize hidden states
             hidden_states = embeddings
             
-            # Profile each transformer block
-            for i, block in enumerate(blocks):
-                block_times = {}
-                
-                # Profile attention
-                with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA]) as prof:
-                    with record_function("attention"):
-                        if hasattr(block, "attn"):
-                            # Direct attention access
-                            _ = block.attn(block.ln1(hidden_states))
-                        elif hasattr(block, "attention"):
-                            # Different attribute name
-                            _ = block.attention(block.ln1(hidden_states))
-                
-                # Extract times
-                for event in prof.key_averages():
-                    if event.key == "attention":
-                        block_times["attention"] = event.cuda_time_total / 1000  # Convert to ms
-                
-                # Profile FFN
-                with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA]) as prof:
-                    with record_function("ffn"):
-                        if hasattr(block, "ffn"):
-                            # Direct FFN access
-                            _ = block.ffn(block.ln2(hidden_states))
-                        elif hasattr(block, "mlp"):
-                            # Different attribute name
-                            _ = block.mlp(block.ln2(hidden_states))
-                
-                # Extract times
-                for event in prof.key_averages():
-                    if event.key == "ffn":
-                        block_times["ffn"] = event.cuda_time_total / 1000  # Convert to ms
-                
-                # Store block times
-                if "attention" in block_times:
-                    component_times["attention"].append(block_times["attention"])
-                if "ffn" in block_times:
-                    component_times["ffn"].append(block_times["ffn"])
+            # Encoder outputs for UNet connections
+            encoder_outputs = {}
             
-            # Update hidden states and continue
-            # Note: This is just for timing components, not actual inference
+            # Baseline outputs if using baseline integration
+            baseline_outputs = None
+            if model_type == "optimized" and hasattr(model, "_get_baseline_states"):
+                with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA]) as prof:
+                    with record_function("baseline_integration"):
+                        baseline_outputs = model._get_baseline_states(input_ids, attention_mask)
+                
+                # Record time for baseline integration
+                for event in prof.key_averages():
+                    if event.key == "baseline_integration":
+                        component_times["baseline_integration"].append(event.cuda_time_total / 1000)
+            
+            # Process through each block with profiling for each component
+            midpoint = len(blocks) // 2
+            
+            for i, block in enumerate(blocks):
+                # Track UNet encoder outputs
+                if i < midpoint:
+                    encoder_outputs[i] = hidden_states.clone()
+                
+                # Profile entire block forward to measure full block time
+                with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA]) as prof:
+                    with record_function(f"block_{i}_full"):
+                        # Get baseline hidden states for this layer if available
+                        baseline_states = None
+                        if baseline_outputs is not None and i in baseline_outputs:
+                            baseline_states = baseline_outputs[i]
+                        
+                        # Get encoder states for UNet skip connection if this is a decoder layer
+                        encoder_states = None
+                        if (hasattr(block, "use_skip_connection") and 
+                            hasattr(block, "skip_source") and 
+                            block.use_skip_connection and 
+                            block.skip_source in encoder_outputs):
+                            encoder_states = encoder_outputs[block.skip_source]
+                        
+                        # Process through the block - trace with nested records
+                        with record_function(f"block_{i}_all_components"):
+                            # Layer norm 1
+                            with record_function(f"block_{i}_ln1"):
+                                norm_hidden = block.ln1(hidden_states)
+                            
+                            # Attention
+                            with record_function(f"block_{i}_attention"):
+                                if hasattr(block, "attn"):
+                                    attn_output = block.attn(norm_hidden, attn_mask=attn_mask)
+                                elif hasattr(block, "attention"):
+                                    attn_output = block.attention(norm_hidden, attn_mask=attn_mask)
+                            
+                            # Add residual
+                            residual_out = hidden_states + attn_output
+                            
+                            # Process baseline integration if it exists
+                            if baseline_states is not None and hasattr(block, "use_baseline_integration") and block.use_baseline_integration:
+                                with record_function(f"block_{i}_baseline_integration"):
+                                    if hasattr(block, "ln_baseline") and hasattr(block, "baseline_adapter"):
+                                        adapted_baseline = block.baseline_adapter(block.ln_baseline(baseline_states))
+                                        gate_value = torch.sigmoid(block.baseline_gate)
+                                        residual_out = residual_out * (1 - gate_value) + adapted_baseline * gate_value
+                            
+                            # Process UNet connection if it exists
+                            if encoder_states is not None and hasattr(block, "use_skip_connection") and block.use_skip_connection:
+                                with record_function(f"block_{i}_unet_connection"):
+                                    if hasattr(block, "skip_fuse"):
+                                        combined = torch.cat([residual_out, encoder_states], dim=-1)
+                                        fusion_output = block.skip_fuse(combined)
+                                        residual_out = residual_out + fusion_output * block.skip_scale
+                            
+                            # Layer norm 2
+                            with record_function(f"block_{i}_ln2"):
+                                norm_hidden = block.ln2(residual_out)
+                            
+                            # FFN
+                            with record_function(f"block_{i}_ffn"):
+                                if hasattr(block, "ffn"):
+                                    ffn_output = block.ffn(norm_hidden)
+                                elif hasattr(block, "mlp"):
+                                    ffn_output = block.mlp(norm_hidden)
+                            
+                            # Final addition
+                            hidden_states = residual_out + ffn_output
+                
+                # Extract component times from the profile
+                for event in prof.key_averages():
+                    if "attention" in event.key:
+                        component_times["attention"].append(event.cuda_time_total / 1000)
+                    elif "ffn" in event.key:
+                        component_times["ffn"].append(event.cuda_time_total / 1000)
+                    elif "ln" in event.key:
+                        component_times["layernorm"].append(event.cuda_time_total / 1000)
+                    elif "baseline_integration" in event.key:
+                        component_times["baseline_integration"].append(event.cuda_time_total / 1000)
+                    elif "unet_connection" in event.key:
+                        component_times["unet_connection"].append(event.cuda_time_total / 1000)
+            
+            # Profile final layer norm and output projection
+            with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA]) as prof:
+                with record_function("final_ln"):
+                    hidden_states = model.ln_f(hidden_states)
+                
+                with record_function("lm_head"):
+                    logits = model.lm_head(hidden_states)
+            
+            # Extract times
+            for event in prof.key_averages():
+                if event.key == "final_ln":
+                    component_times["layernorm"].append(event.cuda_time_total / 1000)
+        
+        # Get stats from model if available
+        model_stats = {}
+        if hasattr(model, "stats") and model.stats.get("total_time", 0) > 0:
+            model_stats = model.stats.copy()
+        
+        # Get agency information if available
+        agency_stats = None
+        if hasattr(model, "get_agency_report"):
+            agency_stats = model.get_agency_report()
         
         # Calculate average times
         avg_times = {}
+        total_times = {}
+        percentages = {}
+        
         for component, times in component_times.items():
             if times:
                 avg_times[component] = sum(times) / len(times)
+                total_times[component] = sum(times)
             else:
                 avg_times[component] = 0
+                total_times[component] = 0
+        
+        # Calculate component percentages
+        total_time = sum(total_times.values())
+        if total_time > 0:
+            for component, time in total_times.items():
+                percentages[component] = (time / total_time) * 100
         
         # Store results
         results[model_type] = {
             "component_times": component_times,
-            "avg_times": avg_times
+            "avg_times": avg_times,
+            "total_times": total_times,
+            "percentages": percentages,
+            "model_stats": model_stats,
+            "agency_stats": agency_stats
         }
         
         # Free memory
         del model
         del baseline_model
         torch.cuda.empty_cache()
+    
+    return results
+
+
+def test_integration_optimizations(args, data):
+    """Test each integration optimization to isolate its impact."""
+    print("\n==== Testing Integration Optimizations ====")
+    
+    if not args.test_integration_points:
+        print("Skipping integration optimization tests (use --test_integration_points to run)")
+        return None
+    
+    # Optimization configurations to test
+    configs = [
+        {"name": "original", "optimized": False, "baseline": True, "unet": True, "level": 1},
+        {"name": "optimized_all", "optimized": True, "baseline": True, "unet": True, "level": args.optimization_level},
+        {"name": "opt_no_baseline", "optimized": True, "baseline": False, "unet": True, "level": args.optimization_level},
+        {"name": "opt_no_unet", "optimized": True, "baseline": True, "unet": False, "level": args.optimization_level},
+        {"name": "opt_minimal", "optimized": True, "baseline": False, "unet": False, "level": args.optimization_level}
+    ]
+    
+    # Pruning levels to test - focus on a smaller set for efficiency
+    pruning_levels = [0, 50]
+    
+    # Store results
+    results = {}
+    
+    for config in configs:
+        print(f"\nTesting {config['name']} configuration")
+        
+        # Set environment variables for this configuration
+        if config["optimized"]:
+            os.environ["USE_OPTIMIZED_MODEL"] = "1"
+            os.environ["OPTIMIZATION_LEVEL"] = str(config["level"])
+        else:
+            os.environ["USE_OPTIMIZED_MODEL"] = "0"
+        
+        config_results = {}
+        
+        for level in pruning_levels:
+            print(f"  - With {level}% pruning")
+            
+            # Load models
+            baseline_model = load_baseline_model(args.model_name, args.device)
+            model = load_adaptive_model(args.model_name, baseline_model, args.device)
+            
+            # Handle baseline integration
+            if not config["baseline"]:
+                # Disable baseline integration
+                if hasattr(model, "baseline_model"):
+                    model.baseline_model = None
+                    model.use_baseline_integration = False
+                elif hasattr(model, "model") and hasattr(model.model, "baseline_model"):
+                    model.model.baseline_model = None
+                    model.model.use_baseline_integration = False
+            
+            # Handle UNet connections
+            if not config["unet"]:
+                # Disable UNet connections
+                for block in (model.blocks if hasattr(model, "blocks") else 
+                             model.model.blocks if hasattr(model, "model") and hasattr(model.model, "blocks") else []):
+                    if hasattr(block, "use_skip_connection"):
+                        block.use_skip_connection = False
+            
+            # Apply pruning if needed
+            if level > 0:
+                model, pruned_count, pruned_heads = apply_pruning(model, level)
+            
+            # Extract inputs
+            input_ids = data["input_ids"]
+            attention_mask = data["attention_mask"]
+            
+            # Warmup
+            print("    Warming up...")
+            with torch.no_grad():
+                for _ in range(args.warmup):
+                    _ = model.generate(
+                        input_ids=input_ids,
+                        attention_mask=attention_mask,
+                        max_length=input_ids.size(1) + args.generated_tokens,
+                        num_return_sequences=1,
+                        do_sample=True,
+                        temperature=0.7
+                    )
+            
+            # Measure generation performance
+            generation_times = []
+            first_token_times = []
+            tokens_generated = []
+            
+            print(f"    Running {args.iterations} iterations...")
+            
+            for i in range(args.iterations):
+                # Clear CUDA cache if available
+                if args.device == "cuda" and torch.cuda.is_available():
+                    torch.cuda.synchronize()
+                    torch.cuda.empty_cache()
+                
+                # Start timing
+                start_time = time.time()
+                
+                with torch.no_grad():
+                    output_ids = model.generate(
+                        input_ids=input_ids,
+                        attention_mask=attention_mask,
+                        max_length=input_ids.size(1) + args.generated_tokens,
+                        num_return_sequences=1,
+                        do_sample=True,
+                        temperature=0.7
+                    )
+                
+                    # Record first token time (for first iteration only)
+                    if i == 0:
+                        first_token_time = time.time() - start_time
+                        first_token_times.append(first_token_time)
+                
+                # Ensure CUDA operations are completed
+                if args.device == "cuda" and torch.cuda.is_available():
+                    torch.cuda.synchronize()
+                
+                # Calculate total generation time
+                generation_time = time.time() - start_time
+                generation_times.append(generation_time)
+                tokens_generated.append(output_ids.size(1) - input_ids.size(1))
+                
+                print(f"      Iteration {i+1}: {generation_time:.4f}s ({output_ids.size(1) - input_ids.size(1)} tokens)")
+            
+            # Calculate average generation time
+            avg_generation_time = sum(generation_times) / len(generation_times)
+            avg_tokens = sum(tokens_generated) / len(tokens_generated)
+            tokens_per_second = avg_tokens / avg_generation_time
+            
+            print(f"    Average generation time: {avg_generation_time:.4f}s")
+            print(f"    Tokens per second: {tokens_per_second:.2f}")
+            
+            # Get stats from model if available
+            model_stats = {}
+            if hasattr(model, "stats") and model.stats.get("total_time", 0) > 0:
+                model_stats = model.stats.copy()
+            
+            # Get agency information if available
+            agency_stats = None
+            if hasattr(model, "get_agency_report"):
+                agency_stats = model.get_agency_report()
+            
+            # Store results
+            config_results[level] = {
+                "generation_times": generation_times,
+                "avg_generation_time": avg_generation_time,
+                "tokens_per_second": tokens_per_second,
+                "first_token_time": first_token_times[0] if first_token_times else None,
+                "model_stats": model_stats,
+                "agency_stats": agency_stats
+            }
+            
+            # Free memory
+            del model
+            del baseline_model
+            if args.device == "cuda" and torch.cuda.is_available():
+                torch.cuda.empty_cache()
+        
+        # Store results for this configuration
+        results[config["name"]] = config_results
     
     return results
 
@@ -506,6 +819,10 @@ def compare_pruning_levels(args, data):
     
     # Test each model type with each pruning level
     for model_type in ["original", "optimized"]:
+        # Set optimization level for optimized model
+        if model_type == "optimized":
+            os.environ["OPTIMIZATION_LEVEL"] = str(args.optimization_level)
+            
         for level in pruning_levels:
             print(f"\nTesting {model_type} model with {level}% pruning")
             
@@ -581,6 +898,143 @@ def visualize_results(results, args):
         
         plt.tight_layout()
         plt.savefig(os.path.join(output_dir, "model_loading_comparison.png"), dpi=150)
+        plt.close()
+        
+    # Multi-Model Comparison Visualizations
+    if "multi_model_comparison" in results and results["multi_model_comparison"]:
+        data = results["multi_model_comparison"]
+        
+        # Skip if no valid data
+        if not data:
+            return
+            
+        # Extract model names
+        model_names = list(data.keys())
+        
+        # Create figure for multi-model comparison
+        plt.figure(figsize=(15, 10))
+        
+        # 1. Parameter Count Comparison
+        plt.subplot(2, 2, 1)
+        
+        baseline_params = [data[model]["parameter_counts"]["baseline"] / 1000000 for model in model_names]  # Convert to millions
+        adaptive_params = [data[model]["parameter_counts"]["adaptive"] / 1000000 for model in model_names]
+        
+        x = np.arange(len(model_names))
+        width = 0.35
+        
+        plt.bar(x - width/2, baseline_params, width, label='Baseline', color="dodgerblue")
+        plt.bar(x + width/2, adaptive_params, width, label='Adaptive', color="green")
+        
+        plt.title('Parameter Count by Model')
+        plt.ylabel('Parameters (Millions)')
+        plt.xticks(x, model_names, rotation=45, ha='right')
+        plt.grid(axis='y', linestyle='--', alpha=0.7)
+        plt.legend()
+        
+        # Add parameter increase percentage annotations
+        for i, model in enumerate(model_names):
+            increase = data[model]["parameter_counts"]["increase_percentage"]
+            plt.annotate(f"+{increase:.1f}%", 
+                         xy=(i, adaptive_params[i]), 
+                         xytext=(0, 5),
+                         textcoords="offset points",
+                         ha='center', va='bottom',
+                         fontsize=8,
+                         color='darkgreen')
+        
+        # 2. Loading Time Comparison
+        plt.subplot(2, 2, 2)
+        
+        baseline_load = [data[model]["loading"]["baseline_model"]["load_time"] for model in model_names]
+        adaptive_load = [data[model]["loading"]["optimized_model"]["load_time"] for model in model_names]
+        
+        plt.bar(x - width/2, baseline_load, width, label='Baseline', color="dodgerblue")
+        plt.bar(x + width/2, adaptive_load, width, label='Adaptive', color="green")
+        
+        plt.title('Model Loading Time')
+        plt.ylabel('Time (seconds)')
+        plt.xticks(x, model_names, rotation=45, ha='right')
+        plt.grid(axis='y', linestyle='--', alpha=0.7)
+        plt.legend()
+        
+        # 3. Generation Speed Comparison
+        plt.subplot(2, 2, 3)
+        
+        gen_speed = [data[model]["inference"]["tokens_per_second"] for model in model_names]
+        
+        bars = plt.bar(model_names, gen_speed, color="coral")
+        plt.title('Generation Speed (Tokens/Second)')
+        plt.ylabel('Tokens per Second')
+        plt.xticks(rotation=45, ha='right')
+        plt.grid(axis='y', linestyle='--', alpha=0.7)
+        
+        # Add value labels
+        for bar in bars:
+            height = bar.get_height()
+            plt.text(bar.get_x() + bar.get_width()/2., height + 0.2,
+                    f"{height:.2f}", ha='center', va='bottom')
+        
+        # 4. First Token Latency
+        plt.subplot(2, 2, 4)
+        
+        latency = [data[model]["inference"]["first_token_time"] for model in model_names]
+        
+        bars = plt.bar(model_names, latency, color="purple")
+        plt.title('First Token Latency')
+        plt.ylabel('Time (seconds)')
+        plt.xticks(rotation=45, ha='right')
+        plt.grid(axis='y', linestyle='--', alpha=0.7)
+        
+        # Add value labels
+        for bar in bars:
+            height = bar.get_height()
+            plt.text(bar.get_x() + bar.get_width()/2., height + 0.02,
+                    f"{height:.4f}s", ha='center', va='bottom')
+        
+        plt.tight_layout()
+        plt.savefig(os.path.join(output_dir, "multi_model_comparison.png"), dpi=150)
+        plt.close()
+        
+        # Create a parameter growth figure specifically
+        plt.figure(figsize=(10, 6))
+        
+        # Sort models by parameter count for clearer visualization
+        sorted_idx = np.argsort(baseline_params)
+        sorted_models = [model_names[i] for i in sorted_idx]
+        sorted_baseline = [baseline_params[i] for i in sorted_idx]
+        sorted_adaptive = [adaptive_params[i] for i in sorted_idx]
+        sorted_increase = [data[model_names[i]]["parameter_counts"]["increase_percentage"] for i in sorted_idx]
+        
+        # Plot parameter counts
+        x = np.arange(len(sorted_models))
+        plt.bar(x - width/2, sorted_baseline, width, label='Baseline', color="dodgerblue")
+        plt.bar(x + width/2, sorted_adaptive, width, label='Adaptive', color="green")
+        
+        plt.title('Parameter Count by Model (Sorted by Size)')
+        plt.ylabel('Parameters (Millions)')
+        plt.xticks(x, sorted_models, rotation=45, ha='right')
+        plt.grid(axis='y', linestyle='--', alpha=0.7)
+        plt.legend()
+        
+        # Add parameter values and increase percentage
+        for i, (base, adaptive, increase) in enumerate(zip(sorted_baseline, sorted_adaptive, sorted_increase)):
+            plt.annotate(f"{base:.1f}M", 
+                         xy=(i - width/2, base), 
+                         xytext=(0, 5),
+                         textcoords="offset points",
+                         ha='center', va='bottom',
+                         fontsize=8)
+            
+            plt.annotate(f"{adaptive:.1f}M\n(+{increase:.1f}%)", 
+                         xy=(i + width/2, adaptive), 
+                         xytext=(0, 5),
+                         textcoords="offset points",
+                         ha='center', va='bottom',
+                         fontsize=8)
+        
+        plt.tight_layout()
+        plt.savefig(os.path.join(output_dir, "parameter_growth.png"), dpi=150)
         plt.close()
     
     # 2. Pruning Performance Comparison
@@ -677,34 +1131,49 @@ def visualize_results(results, args):
             return
         
         # Create figure
-        plt.figure(figsize=(12, 10))
+        plt.figure(figsize=(14, 12))
         
-        # Extract component data
-        components = ["embeddings", "attention", "ffn", "ln", "other"]
-        orig_times = [data["original"]["avg_times"].get(comp, 0) for comp in components]
-        opt_times = [data["optimized"]["avg_times"].get(comp, 0) for comp in components]
+        # Extract component data for original model
+        orig_data = data["original"]
         
-        # Filter out zero values
+        # Get more components from the optimized component breakdown
+        components = ["embeddings", "attention", "ffn", "baseline_integration", "unet_connection", "layernorm", "other"]
+        
+        # Get times from percentages for better visualization
+        if "percentages" in orig_data and "percentages" in data["optimized"]:
+            orig_times = [orig_data["percentages"].get(comp, 0) for comp in components]
+            opt_times = [data["optimized"]["percentages"].get(comp, 0) for comp in components]
+        else:
+            # Fall back to avg_times
+            orig_times = [orig_data["avg_times"].get(comp, 0) for comp in components]
+            opt_times = [data["optimized"]["avg_times"].get(comp, 0) for comp in components]
+        
+        # Filter out zero or very small values
         valid_components = []
         valid_orig = []
         valid_opt = []
         for i, comp in enumerate(components):
-            if orig_times[i] > 0 or opt_times[i] > 0:
+            if orig_times[i] > 0.1 or opt_times[i] > 0.1:
                 valid_components.append(comp)
                 valid_orig.append(orig_times[i])
                 valid_opt.append(opt_times[i])
         
-        # Plot component comparison
-        plt.subplot(2, 1, 1)
+        # Plot component comparison by percentage
+        plt.subplot(2, 2, 1)
         x = np.arange(len(valid_components))
         width = 0.35
         
         plt.bar(x - width/2, valid_orig, width, label='Original', color="dodgerblue")
         plt.bar(x + width/2, valid_opt, width, label='Optimized', color="green")
         
-        plt.ylabel('Time (ms)')
-        plt.title('Component Execution Time')
-        plt.xticks(x, valid_components)
+        if "percentages" in orig_data:
+            plt.ylabel('Time (%)')
+            plt.title('Component Time Distribution')
+        else:
+            plt.ylabel('Time (ms)')
+            plt.title('Component Execution Time')
+            
+        plt.xticks(x, [c.replace('_', ' ').title() for c in valid_components], rotation=45, ha='right')
         plt.grid(axis='y', linestyle='--', alpha=0.7)
         plt.legend()
         
@@ -717,11 +1186,12 @@ def visualize_results(results, args):
                 speedups.append(0)
         
         # Plot speedup by component
-        plt.subplot(2, 1, 2)
-        bars = plt.bar(valid_components, speedups, color="coral")
+        plt.subplot(2, 2, 2)
+        bars = plt.bar([c.replace('_', ' ').title() for c in valid_components], speedups, color="coral")
         plt.axhline(y=1.0, color='k', linestyle='--', alpha=0.3)
         plt.ylabel('Speedup Factor')
-        plt.title('Component Speedup (Optimized vs. Original)')
+        plt.title('Component Speedup (Original ÷ Optimized)')
+        plt.xticks(rotation=45, ha='right')
         plt.grid(axis='y', linestyle='--', alpha=0.7)
         
         # Add value labels
@@ -731,11 +1201,292 @@ def visualize_results(results, args):
                 plt.text(bar.get_x() + bar.get_width()/2., height + 0.05,
                         f"{height:.2f}x", ha='center', va='bottom')
         
+        # Plot component timing for each layer in optimized model
+        if "component_times" in data["optimized"]:
+            opt_data = data["optimized"]
+            
+            # Get attention and FFN times by layer
+            attn_times = opt_data["component_times"].get("attention", [])
+            ffn_times = opt_data["component_times"].get("ffn", [])
+            baseline_times = opt_data["component_times"].get("baseline_integration", [])
+            unet_times = opt_data["component_times"].get("unet_connection", [])
+            
+            # Only continue if we have layer-by-layer data
+            if attn_times or ffn_times:
+                plt.subplot(2, 2, 3)
+                
+                # Get max length for uniform arrays
+                max_len = max(len(attn_times), len(ffn_times))
+                
+                # Pad arrays if needed for plotting
+                attn_times = attn_times + [0] * (max_len - len(attn_times))
+                ffn_times = ffn_times + [0] * (max_len - len(ffn_times))
+                
+                # Plot by layer
+                layers = list(range(max_len))
+                plt.plot(layers, attn_times, 'o-', label="Attention", color="blue")
+                plt.plot(layers, ffn_times, 'o-', label="FFN", color="red")
+                
+                # Add baseline and unet if they exist
+                if baseline_times:
+                    baseline_times = baseline_times + [0] * (max_len - len(baseline_times))
+                    plt.plot(layers, baseline_times, 'o-', label="Baseline", color="purple")
+                
+                if unet_times:
+                    unet_times = unet_times + [0] * (max_len - len(unet_times))
+                    plt.plot(layers, unet_times, 'o-', label="UNet", color="orange")
+                
+                plt.title('Component Times by Layer')
+                plt.xlabel('Layer')
+                plt.ylabel('Time (ms)')
+                plt.grid(True, linestyle='--', alpha=0.7)
+                plt.legend()
+        
+        # Plot total time comparison
+        if "model_stats" in data["optimized"] and "model_stats" in data["original"]:
+            # Extract stats
+            opt_stats = data["optimized"]["model_stats"]
+            orig_stats = data["original"]["model_stats"]
+            
+            if opt_stats and orig_stats:
+                plt.subplot(2, 2, 4)
+                
+                # Get total time and component times
+                opt_total = opt_stats.get("total_time", 0)
+                orig_total = orig_stats.get("total_time", 0)
+                
+                # Get component percentages
+                opt_attn = opt_stats.get("attention_time", 0) / opt_total if opt_total else 0
+                opt_baseline = opt_stats.get("baseline_time", 0) / opt_total if opt_total else 0
+                opt_ffn = opt_stats.get("ffn_time", 0) / opt_total if opt_total else 0
+                
+                orig_attn = orig_stats.get("attention_time", 0) / orig_total if orig_total else 0
+                orig_baseline = orig_stats.get("baseline_time", 0) / orig_total if orig_total else 0
+                orig_ffn = orig_stats.get("ffn_time", 0) / orig_total if orig_total else 0
+                
+                # Normalize to percentages
+                opt_attn *= 100
+                opt_baseline *= 100
+                opt_ffn *= 100
+                orig_attn *= 100
+                orig_baseline *= 100
+                orig_ffn *= 100
+                
+                # Set up data
+                labels = ['Attention', 'Baseline', 'FFN', 'Other']
+                orig_vals = [orig_attn, orig_baseline, orig_ffn, 100 - (orig_attn + orig_baseline + orig_ffn)]
+                opt_vals = [opt_attn, opt_baseline, opt_ffn, 100 - (opt_attn + opt_baseline + opt_ffn)]
+                
+                x = np.arange(len(labels))
+                width = 0.35
+                
+                plt.bar(x - width/2, orig_vals, width, label='Original', color="dodgerblue")
+                plt.bar(x + width/2, opt_vals, width, label='Optimized', color="green")
+                
+                plt.ylabel('Time (%)')
+                plt.title('Time Distribution by Component')
+                plt.xticks(x, labels)
+                plt.grid(axis='y', linestyle='--', alpha=0.7)
+                plt.legend()
+        
         plt.tight_layout()
         plt.savefig(os.path.join(output_dir, "component_breakdown.png"), dpi=150)
         plt.close()
     
+    # 4. Integration Optimization Test Results
+    if "integration_tests" in results and results["integration_tests"]:
+        data = results["integration_tests"]
+        
+        # Create figure for comparing integration optimizations
+        plt.figure(figsize=(14, 10))
+        
+        # Get all configurations and pruning levels
+        configs = list(data.keys())
+        pruning_levels = list(data[configs[0]].keys())
+        
+        # Setup colors
+        colors = {
+            "original": "dodgerblue",
+            "optimized_all": "green",
+            "opt_no_baseline": "orange",
+            "opt_no_unet": "purple",
+            "opt_minimal": "red"
+        }
+        
+        # 1. Tokens per second by configuration
+        plt.subplot(2, 2, 1)
+        
+        # Get the tokens per second for each configuration at each pruning level
+        for config in configs:
+            tps_values = [data[config][level]["tokens_per_second"] for level in pruning_levels]
+            plt.plot(pruning_levels, tps_values, 'o-', 
+                    label=config.replace('_', ' ').title(), 
+                    color=colors.get(config, "gray"),
+                    linewidth=2)
+        
+        plt.title('Generation Speed by Configuration')
+        plt.xlabel('Pruning Level (%)')
+        plt.ylabel('Tokens per Second')
+        plt.grid(True, linestyle='--', alpha=0.7)
+        plt.legend()
+        
+        # 2. Speedup relative to original
+        plt.subplot(2, 2, 2)
+        
+        # Calculate speedup relative to original for each configuration
+        for config in configs:
+            if config == "original":
+                continue  # Skip original as it's the baseline
+                
+            speedups = []
+            for level in pruning_levels:
+                orig_tps = data["original"][level]["tokens_per_second"]
+                config_tps = data[config][level]["tokens_per_second"]
+                speedups.append(config_tps / orig_tps if orig_tps > 0 else 0)
+            
+            plt.plot(pruning_levels, speedups, 'o-', 
+                    label=config.replace('_', ' ').title(), 
+                    color=colors.get(config, "gray"),
+                    linewidth=2)
+        
+        plt.axhline(y=1.0, color='k', linestyle='--', alpha=0.3)
+        plt.title('Speedup Relative to Original')
+        plt.xlabel('Pruning Level (%)')
+        plt.ylabel('Speedup Factor')
+        plt.grid(True, linestyle='--', alpha=0.7)
+        plt.legend()
+        
+        # 3. First token latency
+        plt.subplot(2, 2, 3)
+        
+        # Get first token latency for each configuration at each pruning level
+        for config in configs:
+            latency_values = [data[config][level]["first_token_time"] for level in pruning_levels]
+            plt.plot(pruning_levels, latency_values, 'o-', 
+                    label=config.replace('_', ' ').title(), 
+                    color=colors.get(config, "gray"),
+                    linewidth=2)
+        
+        plt.title('First Token Latency by Configuration')
+        plt.xlabel('Pruning Level (%)')
+        plt.ylabel('Time (seconds)')
+        plt.grid(True, linestyle='--', alpha=0.7)
+        plt.legend()
+        
+        # 4. Bar chart comparison at specific pruning level
+        plt.subplot(2, 2, 4)
+        
+        # Choose a representative pruning level (e.g., 50%)
+        level = 50
+        if str(level) in pruning_levels:
+            level = str(level)
+        
+        # Get tokens per second at this level
+        tps_values = [data[config][level]["tokens_per_second"] for config in configs]
+        
+        # Create bar chart
+        x = np.arange(len(configs))
+        bars = plt.bar(x, tps_values, color=[colors.get(config, "gray") for config in configs])
+        
+        plt.title(f'Speed Comparison at {level}% Pruning')
+        plt.ylabel('Tokens per Second')
+        plt.xticks(x, [c.replace('_', ' ').title() for c in configs], rotation=45, ha='right')
+        plt.grid(axis='y', linestyle='--', alpha=0.7)
+        
+        # Add value labels
+        for bar in bars:
+            height = bar.get_height()
+            plt.text(bar.get_x() + bar.get_width()/2., height + 0.5,
+                    f"{height:.1f}", ha='center', va='bottom')
+        
+        plt.tight_layout()
+        plt.savefig(os.path.join(output_dir, "integration_optimizations.png"), dpi=150)
+        plt.close()
+    
     print(f"Visualizations saved to {output_dir}")
+
+
+def compare_multiple_models(args):
+    """Compare performance across multiple model architectures."""
+    print("\n==== Multi-Model Architecture Comparison ====")
+    
+    if not args.multi_model_comparison:
+        print("Skipping multi-model comparison (use --multi_model_comparison to run)")
+        return None
+    
+    # Parse model list
+    model_names = [name.strip() for name in args.compare_models.split(",")]
+    
+    # Ensure we have at least two models to compare
+    if len(model_names) < 2:
+        print("Error: Multi-model comparison requires at least two models")
+        print(f"Only found: {model_names}")
+        return None
+        
+    print(f"Comparing {len(model_names)} models: {', '.join(model_names)}")
+    
+    # Store results for each model
+    results = {}
+    model_families = {}
+    
+    # Test each model
+    for model_name in model_names:
+        print(f"\n--- Testing model: {model_name} ---")
+        
+        # Detect model family if not specified
+        model_family = args.model_family
+        if not model_family:
+            if "gpt2" in model_name.lower():
+                model_family = "gpt2"
+            elif "bloom" in model_name.lower():
+                model_family = "bloom"
+            elif "opt" in model_name.lower():
+                model_family = "opt"
+            elif "pythia" in model_name.lower() or "neox" in model_name.lower():
+                model_family = "pythia"
+            elif "llama" in model_name.lower():
+                model_family = "llama"
+            else:
+                model_family = "gpt2"  # Default to gpt2 handling
+                
+        print(f"Using model family handling: {model_family}")
+        model_families[model_name] = model_family
+                
+        # Record start time for overall profiling
+        start_time = time.time()
+        
+        # Set up a temporary modified args object for testing this model
+        temp_args = argparse.Namespace(**vars(args))
+        temp_args.model_name = model_name
+        temp_args.model_family = model_family
+        
+        # Prepare input data specific to this model
+        data = prepare_input_data(temp_args)
+        
+        # Profile model loading
+        loading_results = profile_model_loading(temp_args)
+        
+        # Only test one pruning level (0%) for comparative clarity
+        inference_results = profile_inference(temp_args, data, "optimized", 0)
+        
+        # Store results together
+        results[model_name] = {
+            "model_family": model_family,
+            "loading": loading_results,
+            "inference": inference_results,
+            "total_time": time.time() - start_time
+        }
+        
+        # Add parameter counts
+        results[model_name]["parameter_counts"] = {
+            "baseline": loading_results["baseline_model"]["parameter_count"],
+            "adaptive": loading_results["optimized_model"]["parameter_count"],
+            "increase_percentage": ((loading_results["optimized_model"]["parameter_count"] - 
+                                    loading_results["baseline_model"]["parameter_count"]) / 
+                                    loading_results["baseline_model"]["parameter_count"] * 100)
+        }
+        
+    return results
 
 
 def main():
@@ -749,18 +1500,57 @@ def main():
     # Store all results
     results = {}
     
-    # Profile model loading
-    results["model_loading"] = profile_model_loading(args)
+    # Set optimization level environment variable
+    os.environ["OPTIMIZATION_LEVEL"] = str(args.optimization_level)
     
-    # Prepare input data
-    data = prepare_input_data(args)
+    # Load previous results for comparison if requested
+    previous_results = None
+    if args.compare_with_previous:
+        results_file = os.path.join(args.output_dir, "full_model_profiling.json")
+        if os.path.exists(results_file):
+            try:
+                with open(results_file, "r") as f:
+                    previous_results = json.load(f)
+                print(f"Loaded previous results from {results_file} for comparison")
+            except Exception as e:
+                print(f"Error loading previous results: {e}")
     
-    # Compare pruning levels
-    results["pruning_comparison"] = compare_pruning_levels(args, data)
-    
-    # Profile component breakdown
-    if args.profile_mode == "component":
-        results["component_breakdown"] = profile_component_breakdown(args, data)
+    # If multi-model comparison is enabled, run that and exit
+    if args.multi_model_comparison:
+        results["multi_model_comparison"] = compare_multiple_models(args)
+    else:
+        # Regular profiling flow
+        # Profile model loading
+        results["model_loading"] = profile_model_loading(args)
+        
+        # Prepare input data
+        data = prepare_input_data(args)
+        
+        # Run profiling tests based on mode
+        if args.profile_mode in ["all", "basic"]:
+            # Compare pruning levels with basic generation metrics
+            results["pruning_comparison"] = compare_pruning_levels(args, data)
+        
+        if args.profile_mode in ["all", "component"]:
+            # Profile component breakdown to identify bottlenecks
+            results["component_breakdown"] = profile_component_breakdown(args, data)
+        
+        if args.profile_mode in ["all"] or args.test_integration_points:
+            # Test different integration optimizations
+            results["integration_tests"] = test_integration_optimizations(args, data)
+        
+    # Save timestamp for the results
+    results["timestamp"] = time.time()
+    results["args"] = {
+        "model_name": args.model_name,
+        "device": args.device,
+        "optimization_level": args.optimization_level,
+        "pruning_levels": args.pruning_levels,
+        "profile_mode": args.profile_mode,
+        "multi_model_comparison": args.multi_model_comparison,
+        "compare_models": args.compare_models if args.multi_model_comparison else None,
+        "model_family": args.model_family
+    }
     
     # Save results
     results_file = os.path.join(args.output_dir, "full_model_profiling.json")
@@ -769,6 +1559,8 @@ def main():
         filtered_results = {}
         for key, value in results.items():
             if isinstance(value, dict):
+                filtered_results[key] = value
+            elif key == "timestamp" or key == "args":
                 filtered_results[key] = value
         json.dump(filtered_results, f, indent=2)
     
@@ -780,7 +1572,47 @@ def main():
     # Print summary
     print("\n===== Profiling Summary =====")
     
-    # Loading time summary
+    # Multi-model comparison summary (if available)
+    if "multi_model_comparison" in results and results["multi_model_comparison"]:
+        data = results["multi_model_comparison"]
+        print("\nMulti-Model Comparison Summary:")
+        
+        # Table header
+        print("\n{:<15} | {:<10} | {:<12} | {:<12} | {:<15} | {:<15}".format(
+            "Model", "Family", "Base Params", "Adapt Params", "Param Growth", "Tokens/sec"))
+        print("-" * 90)
+        
+        # Sort models by parameter count for clearer presentation
+        model_names = list(data.keys())
+        model_names.sort(key=lambda x: data[x]["parameter_counts"]["baseline"])
+        
+        for model_name in model_names:
+            model_data = data[model_name]
+            family = model_data["model_family"]
+            baseline_params = model_data["parameter_counts"]["baseline"] / 1000000  # Convert to millions
+            adaptive_params = model_data["parameter_counts"]["adaptive"] / 1000000
+            param_growth = model_data["parameter_counts"]["increase_percentage"]
+            tokens_per_sec = model_data["inference"]["tokens_per_second"]
+            
+            print("{:<15} | {:<10} | {:<12.2f}M | {:<12.2f}M | {:<15.2f}% | {:<15.2f}".format(
+                model_name, family, baseline_params, adaptive_params, param_growth, tokens_per_sec))
+        
+        # Overall observations
+        print("\nKey observations:")
+        
+        # Calculate average parameter growth
+        avg_growth = sum(data[m]["parameter_counts"]["increase_percentage"] for m in model_names) / len(model_names)
+        print(f"  • Average parameter increase: {avg_growth:.2f}%")
+        
+        # Find fastest model
+        fastest_model = max(model_names, key=lambda m: data[m]["inference"]["tokens_per_second"])
+        print(f"  • Fastest generation: {fastest_model} ({data[fastest_model]['inference']['tokens_per_second']:.2f} tokens/sec)")
+        
+        # Find model with lowest latency
+        lowest_latency = min(model_names, key=lambda m: data[m]["inference"]["first_token_time"])
+        print(f"  • Lowest first token latency: {lowest_latency} ({data[lowest_latency]['inference']['first_token_time']:.4f}s)")
+    
+    # Regular loading time summary
     if "model_loading" in results:
         loading_data = results["model_loading"]
         print("\nModel Loading:")
@@ -788,6 +1620,12 @@ def main():
             model_name = model_type.split("_")[0].capitalize()
             print(f"  {model_name}: {loading_data[model_type]['load_time']:.2f}s, "
                  f"{loading_data[model_type]['parameter_count']:,} parameters")
+            
+            # Compare with previous if available
+            if previous_results and "model_loading" in previous_results:
+                prev_load_time = previous_results["model_loading"][model_type]["load_time"]
+                change = (loading_data[model_type]["load_time"] - prev_load_time) / prev_load_time * 100
+                print(f"    {'↓' if change < 0 else '↑'} {abs(change):.1f}% from previous")
     
     # Pruning comparison summary
     if "pruning_comparison" in results:
@@ -808,6 +1646,20 @@ def main():
                     opt_speed = pruning_data["optimized"][level_key]["tokens_per_second"]
                     speedup = opt_speed / orig_speed
                     print(f"  Level {level}%: {speedup:.2f}x speedup ({opt_speed:.2f} vs {orig_speed:.2f} tokens/sec)")
+                    
+                    # Compare with previous if available
+                    if (previous_results and "pruning_comparison" in previous_results and 
+                        "optimized" in previous_results["pruning_comparison"] and 
+                        level_key in previous_results["pruning_comparison"]["optimized"]):
+                        
+                        prev_opt_speed = previous_results["pruning_comparison"]["optimized"][level_key]["tokens_per_second"]
+                        change = (opt_speed - prev_opt_speed) / prev_opt_speed * 100
+                        print(f"    Optimized: {'↑' if change > 0 else '↓'} {abs(change):.1f}% from previous")
+                        
+                        prev_orig_speed = previous_results["pruning_comparison"]["original"][level_key]["tokens_per_second"]
+                        prev_speedup = prev_opt_speed / prev_orig_speed
+                        speedup_change = (speedup - prev_speedup) / prev_speedup * 100
+                        print(f"    Speedup: {'↑' if speedup_change > 0 else '↓'} {abs(speedup_change):.1f}% from previous")
         except (KeyError, StopIteration, TypeError) as e:
             print(f"  Unable to print pruning summary: {e}")
     
@@ -815,7 +1667,27 @@ def main():
     if "component_breakdown" in results and results["component_breakdown"]:
         component_data = results["component_breakdown"]
         print("\nComponent Breakdown:")
-        components = ["attention", "ffn", "embeddings"]
+        
+        # Print component percentages if available
+        if ("percentages" in component_data["optimized"] and 
+            "percentages" in component_data["original"]):
+            
+            print("  Time Distribution (%):")
+            opt_pct = component_data["optimized"]["percentages"]
+            orig_pct = component_data["original"]["percentages"]
+            
+            # List components by importance
+            components = ["attention", "ffn", "baseline_integration", "unet_connection", "layernorm", "embeddings"]
+            
+            for comp in components:
+                if comp in opt_pct or comp in orig_pct:
+                    orig_val = orig_pct.get(comp, 0)
+                    opt_val = opt_pct.get(comp, 0)
+                    print(f"  {comp.replace('_', ' ').title()}: {opt_val:.1f}% (optimized) vs {orig_val:.1f}% (original)")
+        
+        # Print speedups
+        print("\n  Component Speedups:")
+        components = ["attention", "ffn", "baseline_integration", "embeddings"]
         for comp in components:
             if comp in component_data["original"]["avg_times"] and comp in component_data["optimized"]["avg_times"]:
                 orig_time = component_data["original"]["avg_times"][comp]
@@ -823,6 +1695,59 @@ def main():
                 if orig_time > 0:
                     speedup = orig_time / opt_time if opt_time > 0 else 0
                     print(f"  {comp.capitalize()}: {speedup:.2f}x speedup")
+    
+    # Integration optimization tests summary
+    if "integration_tests" in results and results["integration_tests"]:
+        integration_data = results["integration_tests"]
+        print("\nIntegration Optimization Tests:")
+        
+        # Pruning level to focus on for detailed results
+        focus_level = "50"
+        if focus_level not in next(iter(integration_data.values())):
+            focus_level = list(next(iter(integration_data.values())).keys())[0]
+        
+        # Get configurations and sort by performance
+        configs = list(integration_data.keys())
+        configs_by_speed = sorted(
+            configs, 
+            key=lambda c: integration_data[c][focus_level]["tokens_per_second"],
+            reverse=True
+        )
+        
+        print(f"\n  Performance at {focus_level}% pruning (sorted by speed):")
+        for config in configs_by_speed:
+            speed = integration_data[config][focus_level]["tokens_per_second"]
+            # Calculate speedup over original
+            if config != "original":
+                orig_speed = integration_data["original"][focus_level]["tokens_per_second"]
+                speedup = speed / orig_speed
+                print(f"  {config.replace('_', ' ').title()}: {speed:.2f} tokens/sec ({speedup:.2f}x original)")
+            else:
+                print(f"  {config.replace('_', ' ').title()}: {speed:.2f} tokens/sec (baseline)")
+        
+        # Print most significant findings
+        if "optimized_all" in integration_data and "opt_minimal" in integration_data:
+            full_opt_speed = integration_data["optimized_all"][focus_level]["tokens_per_second"]
+            minimal_opt_speed = integration_data["opt_minimal"][focus_level]["tokens_per_second"]
+            
+            print("\n  Key Insights:")
+            if minimal_opt_speed > full_opt_speed:
+                diff_pct = (minimal_opt_speed - full_opt_speed) / full_opt_speed * 100
+                print(f"  • Minimal optimizations are {diff_pct:.1f}% faster than full optimizations")
+                print(f"  → Consider removing baseline integration and UNet for better performance")
+            elif full_opt_speed > minimal_opt_speed:
+                diff_pct = (full_opt_speed - minimal_opt_speed) / minimal_opt_speed * 100
+                print(f"  • Full optimizations are {diff_pct:.1f}% faster than minimal optimizations")
+                print(f"  → The integration features are providing performance benefits")
+        
+        if "opt_no_baseline" in integration_data and "opt_no_unet" in integration_data:
+            no_baseline_speed = integration_data["opt_no_baseline"][focus_level]["tokens_per_second"]
+            no_unet_speed = integration_data["opt_no_unet"][focus_level]["tokens_per_second"]
+            
+            if no_baseline_speed > no_unet_speed:
+                print(f"  • Removing baseline integration has more impact than removing UNet connections")
+            else:
+                print(f"  • Removing UNet connections has more impact than removing baseline integration")
 
 
 if __name__ == "__main__":

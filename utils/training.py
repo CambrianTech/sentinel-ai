@@ -5,7 +5,7 @@ import torch
 import torch.nn.functional as F
 from torch.utils.data import DataLoader, TensorDataset
 from tqdm import tqdm
-from .train_utils import compute_loss, evaluate_model, adjust_learning_rates, prune_inactive_heads, count_active_heads, count_trainable_params
+from .train_utils import compute_loss, compute_perplexity, evaluate_model, adjust_learning_rates, prune_inactive_heads, count_active_heads, count_trainable_params
 from .checkpoint import save_checkpoint
 
 from .head_metrics import (
