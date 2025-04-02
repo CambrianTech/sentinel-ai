@@ -19,7 +19,6 @@ flowchart TD
     classDef controller fill:#ff8c00,stroke:#ff8c00,stroke-width:1px,color:#fff
     classDef attention fill:#9370db,stroke:#9370db,stroke-width:1px,color:#fff
     classDef embedding fill:#666,stroke:#666,stroke-width:1px,color:#fff
-    classDef header fill:none,stroke:none,color:#fff,font-weight:bold
     
     %% Main Architecture Components
     adapterLayer["MODEL ADAPTER LAYER"]
@@ -73,7 +72,6 @@ flowchart TD
     controller --> input
     
     %% Styling
-    header:::header
     adapterLayer:::adapter
     output:::standard
     transformerBlocks:::highlight
@@ -140,7 +138,6 @@ flowchart TD
     gate --> attention
     
     %% Styling
-    header:::header
     signals:::agency
     stateProcessing:::state
     monitor:::agency
@@ -186,7 +183,6 @@ flowchart TD
     original --> bloom & llama
     
     %% Styling
-    header:::header
     interface:::interface
     adapter:::adapter
     original:::original
@@ -247,7 +243,6 @@ flowchart TD
     block1 & block2 & block3 --> inputEmbed
     
     %% Styling
-    header:::header
     outputEmbed & inputEmbed:::embedding
     decoderBlocks:::decoder
     skipConnections:::skip
@@ -497,7 +492,6 @@ flowchart TD
     update --> optimization
     
     %% Styling
-    header:::header
     metrics:::metrics
     reward:::reward
     policy:::policy
@@ -549,7 +543,6 @@ flowchart TD
     dropout --> output
     
     %% Styling
-    header:::header
     residual & norm:::layer
     attention:::attention
     ffn:::ffn
