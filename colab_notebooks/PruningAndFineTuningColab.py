@@ -30,7 +30,7 @@
 
 # %%
 # Clone the repository but make sure it's not in the Python path yet
-!git clone -b feature/colab-overnight https://github.com/CambrianTech/sentinel-ai.git
+!git clone https://github.com/CambrianTech/sentinel-ai.git
 # Don't cd into it yet
 
 # %%
