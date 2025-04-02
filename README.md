@@ -22,7 +22,6 @@ flowchart TD
     classDef header fill:none,stroke:none,color:#fff,font-weight:bold
     
     %% Main Architecture Components
-    header["SENTINEL-AI ARCHITECTURE"]
     adapterLayer["MODEL ADAPTER LAYER"]
     output["OUTPUT LAYER"]
     transformerBlocks["TRANSFORMER DECODER BLOCKS"]
@@ -102,7 +101,6 @@ flowchart TD
     classDef gate fill:#ff8c00,stroke:#ff8c00,stroke-width:1px,color:#fff
     
     %% Main Components
-    header["ATTENTION HEAD WITH AGENCY"]
     signals["AGENCY SIGNALS"]
     stateProcessing["STATE PROCESSING"]
     monitor["CONSENT VIOLATION<br/>MONITORING"]
@@ -168,7 +166,6 @@ flowchart TD
     classDef original fill:#2e8b57,stroke:#2e8b57,stroke-width:1px,color:#fff
     
     %% Main Components
-    header["HYBRID ADAPTER PATTERN"]
     interface["SENTINEL-AI INTERFACE"]
     adapter["MODEL-SPECIFIC ADAPTER"]
     original["ORIGINAL MODEL INTERNALS"]
@@ -212,7 +209,6 @@ flowchart TD
     classDef encoder fill:#2e8b57,stroke:#2e8b57,stroke-width:1px,color:#fff
     
     %% Main Components
-    header["U-NET INSPIRED ARCHITECTURE"]
     outputEmbed["OUTPUT EMBEDDING"]
     decoderBlocks["DECODER BLOCKS"]
     skipConnections["U-NET SKIP CONNECTIONS"]
@@ -485,7 +481,6 @@ flowchart TD
     classDef optimization fill:#9370db,stroke:#9370db,stroke-width:1px,color:#fff
     
     %% Main Components
-    header["REINFORCEMENT LEARNING CONTROLLER"]
     metrics["VALIDATION METRICS<br/>COLLECTOR"]
     reward["REWARD CALCULATION<br/>reward = perf_improvement + efficiency_factor"]
     policy["POLICY NETWORK<br/>(Learns pruning patterns)"]
@@ -524,7 +519,6 @@ flowchart TD
     classDef head fill:#ff8c00,stroke:#ff8c00,stroke-width:1px,color:#fff
     
     %% Main Components
-    header["ADAPTIVE TRANSFORMER BLOCK"]
     residual["RESIDUAL CONNECTION"]
     norm["LAYER NORMALIZATION"]
     attention["MULTI-HEAD ATTENTION"]
