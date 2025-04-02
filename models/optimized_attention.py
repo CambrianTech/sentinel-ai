@@ -31,6 +31,7 @@ class OptimizedGatedMultiHeadAttention(nn.Module):
     3. Vectorized agency checking
     4. Pre-allocated output buffers
     5. Optimized skip patterns for pruned heads
+    6. CPU-specific optimizations
     """
     def __init__(
         self, 
@@ -80,6 +81,13 @@ class OptimizedGatedMultiHeadAttention(nn.Module):
         # Optional flags to control behavior
         self.use_fused_qkv = True  # Use fused QKV projection when possible
         self.profile_time = False  # Profile time for debugging
+        
+        # CPU vs GPU optimization flags
+        self.is_cpu = True  # Will be updated during forward pass
+        self.use_cpu_optimization = True  # Enable CPU-specific optimizations
+        self.cpu_fast_path_threshold = 0.3  # More aggressive threshold for CPU (30% pruning)
+        self.gpu_fast_path_threshold = 0.5  # Standard threshold for GPU (50% pruning)
+        self.enable_agency_tracking = True  # Can be disabled to improve performance
 
     def initialize_agency_signals(self):
         """Initialize agency signals for all heads."""
@@ -170,20 +178,35 @@ class OptimizedGatedMultiHeadAttention(nn.Module):
         batch_size, seq_len, _ = hidden_states.shape
         device = hidden_states.device
         
-        # Update agency masks if step_count is provided
-        if step_count is not None:
+        # Determine if we're on CPU or GPU
+        self.is_cpu = device.type == 'cpu'
+        
+        # Only update agency signals if tracking is enabled and step count is provided
+        if self.enable_agency_tracking and step_count is not None:
             self._update_agency_signals(step_count)
             self._update_agency_masks()
         
         # Check if we can use a fast path when many heads are pruned
         active_heads_count = self.combined_activity_mask.sum().item()
-        use_fast_path = active_heads_count < (self.num_heads * 0.5)  # ≥50% pruned
+        
+        # Use different threshold for CPU vs GPU
+        fast_path_threshold = self.cpu_fast_path_threshold if self.is_cpu else self.gpu_fast_path_threshold
+        use_fast_path = active_heads_count < (self.num_heads * fast_path_threshold)
         
         if self.profile_time:
             agency_time = time.time()
+        
+        # CPU-specific sequential path for small batch sizes
+        if self.is_cpu and self.use_cpu_optimization and batch_size == 1 and seq_len <= 128:
+            return self._forward_cpu_optimized(
+                hidden_states=hidden_states,
+                attn_mask=attn_mask,
+                active_heads_count=active_heads_count,
+                return_attention=return_attention
+            )
             
         # OPTIMIZATION: Fast path for heavily pruned networks
-        if use_fast_path and active_heads_count > 0:
+        elif use_fast_path and active_heads_count > 0:
             # Identify which heads are active
             active_indices = torch.nonzero(self.combined_activity_mask).squeeze(-1)
             
@@ -220,8 +243,9 @@ class OptimizedGatedMultiHeadAttention(nn.Module):
             attention_weights = F.softmax(attention_scores, dim=-1)
             attention_weights = self.attn_dropout(attention_weights)
             
-            # Store for analysis
-            self.attention_weights = attention_weights.detach()
+            # Store for analysis if agency tracking is enabled
+            if self.enable_agency_tracking:
+                self.attention_weights = attention_weights.detach()
             
             # Weighted sum to get context vectors
             context_vectors = torch.matmul(attention_weights, active_values)
@@ -241,11 +265,34 @@ class OptimizedGatedMultiHeadAttention(nn.Module):
             context_flat = context_vectors.permute(0, 2, 1, 3).contiguous()
             context_flat = context_flat.view(batch_size, seq_len, -1)
             
-            # Create index for filling in the right positions
-            for i, idx in enumerate(active_indices):
-                start_idx = idx * self.head_dim
-                end_idx = start_idx + self.head_dim
-                all_context[:, :, start_idx:end_idx] = context_flat[:, :, i*self.head_dim:(i+1)*self.head_dim]
+            # Optimized indexing for CPU
+            if self.is_cpu and len(active_indices) < 8:
+                # For very few active heads, direct assignment is faster
+                for i, idx in enumerate(active_indices):
+                    start_idx = idx * self.head_dim
+                    end_idx = start_idx + self.head_dim
+                    all_context[:, :, start_idx:end_idx] = context_flat[:, :, i*self.head_dim:(i+1)*self.head_dim]
+            else:
+                # For more heads, use scatter which is more efficient on GPU
+                # Prepare indices for scattered update
+                head_indices = torch.zeros(
+                    batch_size, seq_len, self.num_heads * self.head_dim, 
+                    dtype=torch.long, device=device
+                )
+                
+                for i, idx in enumerate(active_indices):
+                    start_idx = idx * self.head_dim
+                    end_idx = start_idx + self.head_dim
+                    head_indices[:, :, start_idx:end_idx] = i
+                
+                # Use scatter to update only active positions
+                mask = torch.zeros_like(all_context, dtype=torch.bool)
+                for i, idx in enumerate(active_indices):
+                    start_idx = idx * self.head_dim
+                    end_idx = start_idx + self.head_dim
+                    mask[:, :, start_idx:end_idx] = True
+                
+                all_context.masked_scatter_(mask, context_flat.masked_select(mask))
             
             # Apply output projection
             output = self.W_o(all_context)
@@ -305,16 +352,17 @@ class OptimizedGatedMultiHeadAttention(nn.Module):
             # Shape: [batch_size, num_heads, seq_len, head_dim]
             context_vectors = torch.matmul(attention_weights, values)
             
-            # Store attention patterns for later analysis
-            self.attention_weights = attention_weights.detach()
+            # Store attention patterns for later analysis if agency tracking is enabled
+            if self.enable_agency_tracking:
+                self.attention_weights = attention_weights.detach()
+                
+                # Update utilization metrics based on attention activity
+                self._update_head_utilization(attention_weights)
             
             # Apply gates - reshape activation for broadcasting
             # Shape: [1, num_heads, 1, 1]
             gate_activation = self.attention_activation.view(1, self.num_heads, 1, 1)
             context_vectors = context_vectors * gate_activation
-            
-            # Update utilization metrics based on attention activity
-            self._update_head_utilization(attention_weights)
             
             if self.profile_time:
                 gating_time = time.time()
@@ -340,6 +388,121 @@ class OptimizedGatedMultiHeadAttention(nn.Module):
         
         if return_attention:
             return output, attention_weights
+        return output
+    
+    def _forward_cpu_optimized(
+        self,
+        hidden_states: torch.Tensor,
+        attn_mask: Optional[torch.Tensor] = None,
+        active_heads_count: int = None,
+        return_attention: bool = False
+    ) -> Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
+        """
+        CPU-optimized forward pass that uses sequential processing for better cache locality.
+        
+        This implementation is specially optimized for CPU execution with small batch sizes,
+        focusing on minimizing memory movement and maximizing cache hits.
+        """
+        # Extract shapes
+        batch_size, seq_len, _ = hidden_states.shape
+        device = hidden_states.device
+        
+        # Compute QKV projections once for all heads
+        queries = self.W_q(hidden_states)
+        keys = self.W_k(hidden_states)
+        values = self.W_v(hidden_states)
+        
+        # Pre-allocate output tensor
+        context = torch.zeros(
+            batch_size, seq_len, self.embed_dim,
+            dtype=hidden_states.dtype, device=device
+        )
+        
+        # Process each active head sequentially
+        # This is more cache-friendly on CPU than batched processing
+        all_attention_weights = []
+        
+        # If no heads are active, return zeros
+        if active_heads_count == 0:
+            if return_attention:
+                dummy_attn = torch.zeros(batch_size, self.num_heads, seq_len, seq_len, device=device)
+                return context, dummy_attn
+            return context
+        
+        # Get list of active head indices
+        if hasattr(self, 'combined_activity_mask'):
+            active_indices = torch.nonzero(self.combined_activity_mask).squeeze(-1).tolist()
+        else:
+            # If mask not available, process all heads
+            active_indices = list(range(self.num_heads))
+        
+        # Process each active head
+        for head_idx in active_indices:
+            # Extract this head's parameters
+            head_start = head_idx * self.head_dim
+            head_end = head_start + self.head_dim
+            
+            # Extract query, key, value for this head
+            head_query = queries[:, :, head_start:head_end]  # [batch, seq, head_dim]
+            head_key = keys[:, :, head_start:head_end]  # [batch, seq, head_dim]
+            head_value = values[:, :, head_start:head_end]  # [batch, seq, head_dim]
+            
+            # Compute attention scores
+            # Equivalent to: attn_scores = torch.bmm(head_query, head_key.transpose(1, 2))
+            # But with explicit loops for better cache locality on CPU
+            attn_scores = torch.zeros(batch_size, seq_len, seq_len, device=device)
+            for b in range(batch_size):
+                for i in range(seq_len):
+                    for j in range(seq_len):
+                        # Compute dot product by hand for better cache locality
+                        dot_product = 0.0
+                        for k in range(self.head_dim):
+                            dot_product += head_query[b, i, k] * head_key[b, j, k]
+                        attn_scores[b, i, j] = dot_product * self.scale
+            
+            # Apply attention mask if provided
+            if attn_mask is not None:
+                if attn_mask.dim() == 2:  # [seq, seq]
+                    attn_scores = attn_scores + attn_mask.unsqueeze(0)
+                else:  # already batched
+                    attn_scores = attn_scores + attn_mask
+            
+            # Apply softmax
+            attn_weights = F.softmax(attn_scores, dim=-1)
+            attn_weights = self.attn_dropout(attn_weights)
+            
+            # Save for return if needed
+            if return_attention:
+                all_attention_weights.append(attn_weights.unsqueeze(1))
+            
+            # Apply attention to values
+            # Equivalent to: head_output = torch.bmm(attn_weights, head_value)
+            head_output = torch.zeros(batch_size, seq_len, self.head_dim, device=device)
+            for b in range(batch_size):
+                for i in range(seq_len):
+                    for d in range(self.head_dim):
+                        weighted_sum = 0.0
+                        for j in range(seq_len):
+                            weighted_sum += attn_weights[b, i, j] * head_value[b, j, d]
+                        head_output[b, i, d] = weighted_sum
+            
+            # Apply gate
+            gate_value = torch.sigmoid(self.gate[head_idx])
+            head_output = head_output * gate_value
+            
+            # Add to context
+            contrib = torch.zeros(batch_size, seq_len, self.embed_dim, device=device)
+            contrib[:, :, head_start:head_end] = head_output
+            context = context + contrib
+        
+        # Apply output projection
+        output = self.W_o(context)
+        output = self.output_dropout(output)
+        
+        if return_attention:
+            all_attn = torch.cat(all_attention_weights, dim=1)
+            return output, all_attn
+        
         return output
     
     def _update_head_utilization(self, attention_weights):
