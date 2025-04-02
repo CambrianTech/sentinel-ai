@@ -28,32 +28,26 @@
 !pip install -q jax jaxlib flax transformers datasets matplotlib numpy pandas seaborn tqdm optax
 
 # %%
-# Clone the repository
-!git clone -b feature/colab-overnight https://github.com/CambrianTech/sentinel-ai.git
-%cd sentinel-ai
-
-# %%
-# Fix dataset import in Colab - IMPORTANT!
-# When in Colab, we need to make sure we import from huggingface datasets,
-# not our local datasets package
-
+# Import the Hugging Face datasets library FIRST, before doing anything else
+# This is critical to avoid import conflicts with our local datasets module
 import sys
-import os
-
-# Completely remove sentinel-ai directory from sys.path
-sys.path = [p for p in sys.path if 'sentinel-ai' not in p and p != '']
+original_path = list(sys.path)
 
 # Force install the huggingface datasets library to be safe
 !pip install -q datasets
 
-# Now, import dependencies from the HF datasets library first
-from datasets import load_dataset
-
-# Check that we're using the correct datasets package
+# Import the datasets module before we modify the path
 import datasets
-print(f"Using datasets from: {datasets.__file__}")
+from datasets import load_dataset
+print(f"Imported datasets from: {datasets.__file__}")
 
-# Now we can add our repository to the path
+# %%
+# Clone the repository and configure paths
+!git clone -b feature/colab-overnight https://github.com/CambrianTech/sentinel-ai.git
+%cd sentinel-ai
+
+# Reset sys.path and then add the repository directory at the end
+sys.path = original_path
 sys.path.append(".")  # Make sure the repo root is in the path
 
 # %%
