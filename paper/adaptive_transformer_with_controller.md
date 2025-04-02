@@ -443,8 +443,6 @@ These comprehensive results empirically validate the theoretical predictions of 
 
 ### 5.5 Preliminary Results on Pruning
 
-<div style="page-break-after: always;"></div>
-
 ```mermaid
 flowchart TD
     classDef standard fill:#333,stroke:#333,stroke-width:1px,color:#fff
@@ -515,8 +513,6 @@ The combination of pruning and agency mechanisms shows compounding benefits, as 
 Our repository structure facilitates ease of experimentation, allowing straightforward loading of pretrained models and datasets, training via notebooks or Colab scripts, and comprehensive logging and checkpointing.
 
 ### 6.1 Hybrid Adapter Architecture
-
-<div style="page-break-after: always;"></div>
 
 ```mermaid
 flowchart TD
