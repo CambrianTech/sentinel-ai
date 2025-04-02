@@ -1,38 +1,41 @@
-#!/usr/bin/env python
-# -*- coding: utf-8 -*-
-
+#!/usr/bin/env python3
 """
-Colab Wrapper for Pruning Efficacy Comparison
+Colab-ready Script for Running Pure Pruning Benchmark
 
-This script:
-1. Sets up a Google Colab environment
-2. Clones the Sentinel-AI repository
-3. Installs dependencies 
-4. Runs the pruning comparison experiment with optimal settings for T4 GPU
+This script is designed to run the pure pruning benchmark in Google Colab,
+with all the necessary setup and integration features.
 
-Usage:
-1. Upload this script to Google Colab
-2. Run all cells
-3. Results will be saved to Google Drive if mounted
+Features:
+- Automatic Google Drive integration
+- GPU detection and optimization
+- Repository cloning and setup
+- Results visualization
+- Progress tracking
 
-Note: This script is designed to be run in a Google Colab notebook with T4 GPU.
+Usage in Colab:
+1. !git clone https://github.com/yourusername/sentinel-ai.git
+2. %cd sentinel-ai
+3. !python scripts/pruning_comparison/run_pruning_comparison_colab.py
 """
-
-# @title Setup Environment
-# @markdown Run this cell to set up the environment for pruning comparison
 
 import os
 import sys
 import time
 import subprocess
 import warnings
+import json
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+from datetime import datetime
 warnings.filterwarnings('ignore')
 
 # Check if running in Colab
 IN_COLAB = 'google.colab' in sys.modules
 if not IN_COLAB:
     print("This script is designed to be run in Google Colab")
-    print("For local execution, use the pruning_agency_comparison.py script directly")
+    print("For local execution, use the pure_pruning_benchmark.py script directly")
+    sys.exit(1)
 
 # Check for GPU
 if IN_COLAB:
@@ -46,360 +49,425 @@ if IN_COLAB:
         print("Go to Runtime > Change runtime type and select GPU")
         raise SystemError("No GPU detected")
 
-# Clone the repository if needed
-if not os.path.exists('sentinel-ai'):
-    print("Cloning Sentinel-AI repository...")
+# Setup the environment
+print("Setting up the environment...")
+!pip install -q torch transformers matplotlib seaborn tqdm pandas numpy fvcore
+!pip install -q datasets
+
+# Add project to Python path
+import sys
+sys.path.insert(0, os.getcwd())
+
+# Create all necessary directories
+os.makedirs("pure_pruning_results", exist_ok=True)
+
+# Define the Colab interface widgets
+from IPython.display import display, HTML, clear_output
+import ipywidgets as widgets
+
+def create_ui():
+    """Create the UI for the benchmark configuration."""
+    title_html = HTML(
+        """
+        <h1 style="color:#4CAF50; text-align:center;">
+            Pure Pruning Benchmark for Sentinel-AI
+        </h1>
+        <p style="text-align:center; font-size:1.2em;">
+            This notebook runs a comprehensive benchmark to measure the efficiency 
+            benefits of pruning in isolation from agency features
+        </p>
+        <hr>
+        """
+    )
+    display(title_html)
     
-    # Clone the repo
-    !git clone https://github.com/CambrianTech/sentinel-ai.git
+    # Model Configuration
+    model_dropdown = widgets.Dropdown(
+        options=['distilgpt2', 'gpt2', 'gpt2-medium'],
+        value='distilgpt2',
+        description='Model:',
+        style={'description_width': 'initial'},
+        layout=widgets.Layout(width='50%')
+    )
     
-    # Move into the directory
-    %cd sentinel-ai
-else:
-    # Move into the directory if not already there
-    if 'sentinel-ai' not in os.getcwd():
-        %cd sentinel-ai
+    # Training Configuration
+    pruning_strategy = widgets.Dropdown(
+        options=['gradual', 'one_shot', 'iterative'],
+        value='gradual',
+        description='Pruning Strategy:',
+        style={'description_width': 'initial'},
+        layout=widgets.Layout(width='50%')
+    )
     
-    # Pull latest changes
-    print("Updating Sentinel-AI repository...")
-    !git pull
-
-# Install dependencies
-print("Installing dependencies...")
-!pip install -q torch transformers matplotlib seaborn numpy psutil
-
-# @title Configure and Run Pruning Comparison
-# @markdown Adjust these parameters for your experiment
-
-# @markdown ### Model Configuration
-model_name = "gpt2"  # @param ["gpt2", "distilgpt2"]
-device = "cuda"  # @param ["cuda", "cpu"]
-precision = "float16"  # @param ["float32", "float16", "bfloat16"]
-
-# @markdown ### Pruning Configuration
-pruning_method = "entropy"  # @param ["entropy", "random", "magnitude"]
-pruning_levels = "0,10,20,30,40,50,60,70"  # @param {type:"string"}
-
-# @markdown ### Generation Parameters
-num_tokens = 50  # @param {type:"slider", min:10, max:200, step:10}
-temperatures = "0.7,1.0"  # @param {type:"string"}
-max_prompts = 5  # @param {type:"slider", min:1, max:20, step:1}
-
-# @markdown ### Experiment Configuration
-iterations = 3  # @param {type:"slider", min:1, max:10, step:1}
-save_outputs = True  # @param {type:"boolean"}
-memory_logging = True  # @param {type:"boolean"}
-
-# Create command
-cmd = [
-    "python", "scripts/pruning_comparison/pruning_agency_comparison.py",
-    f"--model_name={model_name}",
-    f"--device={device}",
-    f"--precision={precision}",
-    f"--pruning_method={pruning_method}",
-    f"--pruning_levels={pruning_levels}",
-    f"--num_tokens={num_tokens}",
-    f"--temperatures={temperatures}",
-    f"--max_prompts={max_prompts}",
-    f"--iterations={iterations}"
-]
-
-if save_outputs:
-    cmd.append("--save_outputs")
+    pruning_method = widgets.Dropdown(
+        options=['entropy', 'random', 'magnitude'],
+        value='entropy',
+        description='Pruning Method:',
+        style={'description_width': 'initial'},
+        layout=widgets.Layout(width='50%')
+    )
     
-if memory_logging:
-    cmd.append("--memory_logging")
+    target_sparsity = widgets.FloatSlider(
+        value=0.3,
+        min=0.1,
+        max=0.8,
+        step=0.1,
+        description='Target Sparsity:',
+        style={'description_width': 'initial'},
+        layout=widgets.Layout(width='50%')
+    )
     
-# Print and execute command
-print("Running pruning comparison with command:")
-print(" ".join(cmd))
-print("\n" + "="*80 + "\n")
-
-start_time = time.time()
-# Add a patching step before running
-print("Patching imports for compatibility...")
-pruning_agency_file = "scripts/pruning_comparison/pruning_agency_comparison.py"
-
-# Ensure directories exist
-os.makedirs(os.path.dirname(pruning_agency_file), exist_ok=True)
-
-# Check if file exists
-if not os.path.exists(pruning_agency_file):
-    print(f"Warning: {pruning_agency_file} does not exist. We will search for it...")
-    # Try to find it in the current directory structure
-    import glob
-    matching_files = glob.glob("**/pruning_agency_comparison.py", recursive=True)
-    if matching_files:
-        pruning_agency_file = matching_files[0]
-        print(f"Found script at: {pruning_agency_file}")
-    else:
-        print("Could not find pruning_agency_comparison.py, will need to create it")
-        # Create directories if needed
-        os.makedirs(os.path.dirname(pruning_agency_file), exist_ok=True)
-
-# Check if we need to create or patch the file
-if os.path.exists(pruning_agency_file):
-    # Check if patching is needed
-    with open(pruning_agency_file, "r") as f:
-        content = f.read()
+    epochs = widgets.IntSlider(
+        value=10,
+        min=5,
+        max=30,
+        step=5,
+        description='Training Epochs:',
+        style={'description_width': 'initial'},
+        layout=widgets.Layout(width='50%')
+    )
     
-    # Add improved path handling
-    if "possible_paths = glob.glob" not in content:
-        if "try:" in content and "except NameError:" in content:
-            print(f"File {pruning_agency_file} has correct imports but we'll enhance them")
-            
-            # Find the existing try/except block
-            try_pos = content.find("try:")
-            end_except_pos = content.find("print(\"Warning: Could not determine repository root path. Import errors may occur.\")")
-            if try_pos > 0 and end_except_pos > try_pos:
-                # Get the code before and after the try/except block
-                before_try = content[:try_pos]
-                after_except = content[end_except_pos + len("print(\"Warning: Could not determine repository root path. Import errors may occur.\")") + 1:]
-                
-                # Create enhanced try/except block
-                enhanced_try_except = """try:
-    # When running as a script with __file__ available
-    sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
-except NameError:
-    # In Colab or interactive environments where __file__ isn't defined
-    # First check if we're in the repo root or one level down
-    if os.path.exists("models") and os.path.exists("utils"):
-        # We're already in the root directory
-        sys.path.insert(0, os.path.abspath("."))
-    elif os.path.exists("../models") and os.path.exists("../utils"):
-        # We're one level down from root
-        sys.path.insert(0, os.path.abspath(".."))
-    elif os.path.exists("sentinel-ai/models") and os.path.exists("sentinel-ai/utils"):
-        # We're in the parent directory of the repo (typical Colab setup)
-        sys.path.insert(0, os.path.abspath("sentinel-ai"))
-    else:
-        # Additional fallback paths for Colab - check common locations
-        import glob
-        possible_paths = glob.glob("*/models") + glob.glob("*/*/models")
-        if possible_paths:
-            # Use the first directory that has models
-            repo_path = os.path.dirname(possible_paths[0])
-            print(f"Found models directory at {repo_path}, adding to path")
-            sys.path.insert(0, os.path.abspath(repo_path))
-        else:
-            print("Warning: Could not determine repository root path. Import errors may occur.")"""
-                
-                # Combine everything
-                content = before_try + enhanced_try_except + after_except
-                
-                with open(pruning_agency_file, "w") as f:
-                    f.write(content)
-                print(f"✓ Enhanced {pruning_agency_file} with better path handling for Colab")
-            else:
-                print(f"Could not find try/except block in {pruning_agency_file}")
-        else:
-            # Patch the file to handle __file__ in Colab
-            content = content.replace(
-                "# Add root directory to path\nsys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), \"../..\")))",
-                """# Add root directory to path
-try:
-    # When running as a script with __file__ available
-    sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
-except NameError:
-    # In Colab or interactive environments where __file__ isn't defined
-    # First check if we're in the repo root or one level down
-    if os.path.exists("models") and os.path.exists("utils"):
-        # We're already in the root directory
-        sys.path.insert(0, os.path.abspath("."))
-    elif os.path.exists("../models") and os.path.exists("../utils"):
-        # We're one level down from root
-        sys.path.insert(0, os.path.abspath(".."))
-    elif os.path.exists("sentinel-ai/models") and os.path.exists("sentinel-ai/utils"):
-        # We're in the parent directory of the repo (typical Colab setup)
-        sys.path.insert(0, os.path.abspath("sentinel-ai"))
-    else:
-        # Additional fallback paths for Colab - check common locations
-        import glob
-        possible_paths = glob.glob("*/models") + glob.glob("*/*/models")
-        if possible_paths:
-            # Use the first directory that has models
-            repo_path = os.path.dirname(possible_paths[0])
-            print(f"Found models directory at {repo_path}, adding to path")
-            sys.path.insert(0, os.path.abspath(repo_path))
-        else:
-            print("Warning: Could not determine repository root path. Import errors may occur.")"""
-            )
-            
-            with open(pruning_agency_file, "w") as f:
-                f.write(content)
-            print(f"✓ Patched {pruning_agency_file} to work in Colab")
-    else:
-        print(f"✓ File {pruning_agency_file} already has enhanced imports")
-
-# Make sure model_dtype is defined
-with open(pruning_agency_file, "r") as f:
-    content = f.read()
-
-if "model_dtype = next(model.parameters()).dtype" not in content:
-    # Find the correct spot to add it
-    insert_point = content.find("# IMPORTANT: input_ids should always be integers (Long/Int)")
-    if insert_point > 0:
-        insert_point = content.find("# Only convert attention mask if needed", insert_point)
-        if insert_point > 0:
-            # Find the end of the line
-            line_end = content.find("\n", insert_point)
-            if line_end > 0:
-                modified_content = content[:line_end+1] + "                model_dtype = next(model.parameters()).dtype\n" + content[line_end+1:]
-                with open(pruning_agency_file, "w") as f:
-                    f.write(modified_content)
-                print(f"✓ Added model_dtype definition to {pruning_agency_file}")
-            else:
-                print(f"Could not find line end in {pruning_agency_file}")
-        else:
-            print(f"Could not find insertion point for model_dtype in {pruning_agency_file}")
-    else:
-        print(f"Could not find IMPORTANT comment in {pruning_agency_file}")
-else:
-    print(f"✓ File {pruning_agency_file} already has model_dtype defined")
-
-# Now run the command
-!{" ".join(cmd)}
-end_time = time.time()
-
-print(f"\nExperiment completed in {end_time - start_time:.2f} seconds")
-
-# @title Display Visualizations
-# @markdown Run this cell to display the experiment results
-import glob
-import json
-import matplotlib.pyplot as plt
-from IPython.display import display, Image
-from pathlib import Path
-
-def display_results():
-    # Find the latest run directory
-    latest_runs = sorted(glob.glob("validation_results/pruning_agency/run_*"))
-    if not latest_runs:
-        print("No results found. Run the experiment first.")
-        return
+    # Advanced options
+    advanced_options = widgets.Accordion(
+        children=[
+            widgets.VBox([
+                widgets.FloatText(
+                    value=5e-5,
+                    description='Learning Rate:',
+                    style={'description_width': 'initial'},
+                    layout=widgets.Layout(width='50%')
+                ),
+                widgets.FloatText(
+                    value=1e-5,
+                    description='Post-Pruning LR:',
+                    style={'description_width': 'initial'},
+                    layout=widgets.Layout(width='50%')
+                ),
+                widgets.IntText(
+                    value=4,
+                    description='Batch Size:',
+                    style={'description_width': 'initial'},
+                    layout=widgets.Layout(width='50%')
+                ),
+                widgets.Checkbox(
+                    value=True,
+                    description='Measure FLOPs (requires fvcore)',
+                    style={'description_width': 'initial'}
+                ),
+                widgets.Checkbox(
+                    value=True,
+                    description='Compare with other pruning methods',
+                    style={'description_width': 'initial'}
+                )
+            ])
+        ],
+        selected_index=None
+    )
+    advanced_options.set_title(0, 'Advanced Options')
+    
+    # Drive mounting options
+    drive_options = widgets.Accordion(
+        children=[
+            widgets.VBox([
+                widgets.Checkbox(
+                    value=True,
+                    description='Mount Google Drive',
+                    style={'description_width': 'initial'}
+                ),
+                widgets.Text(
+                    value='SentinelAI_Results',
+                    description='Drive Folder:',
+                    style={'description_width': 'initial'},
+                    layout=widgets.Layout(width='50%')
+                )
+            ])
+        ],
+        selected_index=None
+    )
+    drive_options.set_title(0, 'Google Drive Integration')
+    
+    # Run button
+    run_button = widgets.Button(
+        description='Run Benchmark',
+        button_style='success',
+        layout=widgets.Layout(width='30%')
+    )
+    
+    # Create the UI layout
+    display(widgets.VBox([
+        widgets.HTML("<h3>Model Configuration</h3>"),
+        model_dropdown,
+        widgets.HTML("<h3>Pruning Configuration</h3>"),
+        pruning_strategy,
+        pruning_method,
+        target_sparsity,
+        epochs,
+        advanced_options,
+        drive_options,
+        widgets.HTML("<br>"),
+        run_button
+    ]))
+    
+    # Button click handler
+    def on_run_button_clicked(b):
+        # Extract all configuration values
+        config = {
+            'model_name': model_dropdown.value,
+            'pruning_strategy': pruning_strategy.value,
+            'pruning_method': pruning_method.value,
+            'target_sparsity': target_sparsity.value,
+            'epochs': epochs.value,
+            'learning_rate': advanced_options.children[0].children[0].value,
+            'post_pruning_lr': advanced_options.children[0].children[1].value,
+            'batch_size': advanced_options.children[0].children[2].value,
+            'measure_flops': advanced_options.children[0].children[3].value,
+            'compare_methods': advanced_options.children[0].children[4].value,
+            'mount_drive': drive_options.children[0].children[0].value,
+            'drive_folder': drive_options.children[0].children[1].value
+        }
         
-    latest_run = latest_runs[-1]
-    print(f"Displaying results from: {latest_run}")
-    
-    # Display temperature-specific visualizations
-    temp_dirs = glob.glob(f"{latest_run}/temp_*")
-    if temp_dirs:
-        # Temperature-specific visualizations exist
-        for temp_dir in sorted(temp_dirs):
-            temp = Path(temp_dir).name.replace("temp_", "")
-            print(f"\n== Results for temperature {temp} ==")
-            
-            # Show comprehensive summary
-            comp_summary = f"{temp_dir}/comprehensive_summary.png"
-            if os.path.exists(comp_summary):
-                display(Image(comp_summary))
-            
-            # Show relative improvement
-            rel_improvement = f"{temp_dir}/relative_improvement.png"
-            if os.path.exists(rel_improvement):
-                display(Image(rel_improvement))
+        # Clear output and show configuration
+        clear_output()
+        display(HTML(
+            f"""
+            <h2 style="color:#4CAF50; text-align:center;">
+                Running Pure Pruning Benchmark
+            </h2>
+            <div style="text-align:center; padding: 10px; background-color: #f5f5f5; border-radius: 10px; margin: 10px;">
+                <p><b>Model:</b> {config['model_name']}</p>
+                <p><b>Pruning Strategy:</b> {config['pruning_strategy']}</p>
+                <p><b>Pruning Method:</b> {config['pruning_method']}</p>
+                <p><b>Target Sparsity:</b> {config['target_sparsity']}</p>
+                <p><b>Epochs:</b> {config['epochs']}</p>
+            </div>
+            <p style="text-align:center; color:#666;">
+                Please wait while the benchmark runs...
+            </p>
+            """
+        ))
         
-        # Display temperature comparison charts
-        print("\n== Temperature Comparisons ==")
-        temp_comparison = f"{latest_run}/temperature_improvement_comparison.png"
-        if os.path.exists(temp_comparison):
-            display(Image(temp_comparison))
+        # Run the benchmark with this configuration
+        run_benchmark(config)
+    
+    run_button.on_click(on_run_button_clicked)
+
+def run_benchmark(config):
+    """Run the actual benchmark with the provided configuration."""
+    # Set up Google Drive if requested
+    if config['mount_drive']:
+        from google.colab import drive
+        drive.mount('/content/drive')
+        
+        # Create folder if it doesn't exist
+        drive_path = f"/content/drive/My Drive/{config['drive_folder']}"
+        os.makedirs(drive_path, exist_ok=True)
+        print(f"✅ Mounted Google Drive. Results will be saved to: {drive_path}")
+    
+    # Import the pure pruning benchmark
+    print("Importing pure pruning benchmark module...")
+    from scripts.pure_pruning_benchmark import PruningBenchmark, parse_args
+    
+    # Create mock args to initialize the benchmark
+    mock_args = parse_args([
+        '--model_name', config['model_name'],
+        '--pruning_strategy', config['pruning_strategy'],
+        '--pruning_method', config['pruning_method'],
+        '--target_sparsity', str(config['target_sparsity']),
+        '--epochs', str(config['epochs']),
+        '--learning_rate', str(config['learning_rate']),
+        '--post_pruning_lr', str(config['post_pruning_lr']),
+        '--batch_size', str(config['batch_size']),
+        '--dataset', 'wikitext',
+        '--max_length', '128',
+        '--device', 'cuda',
+        '--output_dir', './pure_pruning_results'
+    ])
+    
+    if config['measure_flops']:
+        mock_args.measure_flops = True
+    
+    if config['compare_methods']:
+        mock_args.compare_methods = True
+    
+    # Create timer for tracking
+    start_time = time.time()
+    
+    # Create and run the benchmark
+    print("Initializing benchmark...")
+    benchmark = PruningBenchmark(mock_args)
+    benchmark.setup()
+    
+    # Run the benchmark with progress tracking
+    print("🚀 Starting benchmark. This may take a while...")
+    benchmark.run()
+    
+    # Calculate total time
+    total_time = time.time() - start_time
+    hours, remainder = divmod(total_time, 3600)
+    minutes, seconds = divmod(remainder, 60)
+    
+    print(f"✅ Benchmark completed in {int(hours)}h {int(minutes)}m {int(seconds)}s")
+    
+    # Generate additional visualizations for Colab
+    create_colab_visualizations(benchmark.output_dir)
+    
+    # Copy results to Drive if requested
+    if config['mount_drive']:
+        drive_path = f"/content/drive/My Drive/{config['drive_folder']}"
+        benchmark_name = os.path.basename(benchmark.output_dir)
+        target_path = os.path.join(drive_path, benchmark_name)
+        
+        print(f"Copying results to Google Drive: {target_path}")
+        !cp -r {benchmark.output_dir}/* {target_path}/
+        print("✅ Results successfully copied to Google Drive")
+    
+    # Display summary of results
+    display_summary(benchmark.output_dir)
+
+def create_colab_visualizations(output_dir):
+    """Create additional visualizations specifically for Colab."""
+    try:
+        # Load benchmark report
+        report_path = os.path.join(output_dir, "benchmark_report.md")
+        with open(report_path, 'r') as f:
+            report_content = f.read()
+        
+        # Load metrics
+        metrics_dir = os.path.join(output_dir, "metrics")
+        metrics_files = [f for f in os.listdir(metrics_dir) if f.endswith('.json')]
+        
+        if not metrics_files:
+            print("No metrics found to visualize")
+            return
             
-        heatmap = f"{latest_run}/improvement_heatmap.png"
-        if os.path.exists(heatmap):
-            display(Image(heatmap))
-    else:
-        # Single temperature visualizations (older format)
-        print("\n== Results ==")
-        for img_path in glob.glob(f"{latest_run}/*.png"):
-            display(Image(img_path))
-    
-    # Print key findings if results file exists
-    results_file = f"{latest_run}/pruning_comparison_results.json"
-    if os.path.exists(results_file):
-        with open(results_file, "r") as f:
-            try:
-                results = json.load(f)
+        metrics_path = os.path.join(metrics_dir, metrics_files[0])
+        with open(metrics_path, 'r') as f:
+            metrics = json.load(f)
+        
+        # Create interactive visualizations
+        plt.figure(figsize=(14, 10))
+        
+        # 1. Pruning progress visualization
+        epochs = sorted([int(e) for e in metrics.get("epochs", [])])
+        
+        if "active_heads_percentage" in metrics:
+            active_heads = [metrics["active_heads_percentage"].get(str(e), None) for e in epochs]
+            active_heads = [x for x in active_heads if x is not None]
+            
+            if active_heads:
+                plt.subplot(2, 2, 1)
+                plt.plot(epochs[:len(active_heads)], active_heads, 'o-', color='#2196F3', linewidth=2)
+                plt.title("Pruning Progress", fontsize=14)
+                plt.xlabel("Epoch", fontsize=12)
+                plt.ylabel("Active Heads (%)", fontsize=12)
+                plt.grid(True, linestyle='--', alpha=0.7)
+        
+        # 2. Perplexity over time
+        if "perplexity" in metrics:
+            perplexity = [metrics["perplexity"].get(str(e), None) for e in epochs]
+            perplexity = [x for x in perplexity if x is not None]
+            
+            if perplexity:
+                plt.subplot(2, 2, 2)
+                plt.plot(epochs[:len(perplexity)], perplexity, 'o-', color='#FF5722', linewidth=2)
+                plt.title("Perplexity Over Time", fontsize=14)
+                plt.xlabel("Epoch", fontsize=12)
+                plt.ylabel("Perplexity", fontsize=12)
+                plt.grid(True, linestyle='--', alpha=0.7)
+        
+        # 3. Inference latency
+        if "inference_latency" in metrics:
+            latency = [metrics["inference_latency"].get(str(e), None) for e in epochs]
+            latency = [x for x in latency if x is not None]
+            
+            if latency:
+                plt.subplot(2, 2, 3)
+                plt.plot(epochs[:len(latency)], latency, 'o-', color='#4CAF50', linewidth=2)
+                plt.title("Inference Latency", fontsize=14)
+                plt.xlabel("Epoch", fontsize=12)
+                plt.ylabel("ms/token", fontsize=12)
+                plt.grid(True, linestyle='--', alpha=0.7)
+        
+        # 4. Text quality metrics
+        if "lexical_diversity" in metrics and "repetition_score" in metrics:
+            diversity = [metrics["lexical_diversity"].get(str(e), None) for e in epochs]
+            repetition = [metrics["repetition_score"].get(str(e), None) for e in epochs]
+            
+            diversity = [x for x in diversity if x is not None]
+            repetition = [x for x in repetition if x is not None]
+            
+            if diversity and repetition:
+                plt.subplot(2, 2, 4)
                 
-                print("\n== Key Findings ==")
-                # Check if new format with temperatures
-                temp_keys = [k for k in results.keys() if k.startswith("temperature_")]
+                # Align the arrays to the same length
+                min_len = min(len(diversity), len(repetition))
                 
-                if temp_keys:
-                    # New format with temperatures
-                    for temp_key in temp_keys:
-                        temp = float(temp_key.split("_")[1])
-                        print(f"\nTemperature {temp}:")
-                        
-                        pruning_levels = sorted([
-                            int(l) for l in results[temp_key]["baseline"].keys() 
-                            if l.isdigit() and int(l) > 0
-                        ])
-                        
-                        for level in pruning_levels:
-                            try:
-                                baseline_speed = results[temp_key]["baseline"][str(level)]["tokens_per_second"]["mean"]
-                                agency_speed = results[temp_key]["agency"][str(level)]["tokens_per_second"]["mean"]
-                                
-                                baseline_ppl = results[temp_key]["baseline"][str(level)]["perplexity"]["mean"]
-                                agency_ppl = results[temp_key]["agency"][str(level)]["perplexity"]["mean"]
-                                
-                                speed_imp = ((agency_speed / baseline_speed) - 1) * 100
-                                quality_imp = ((baseline_ppl / agency_ppl) - 1) * 100
-                                
-                                print(f"  At {level}% pruning: Agency is {speed_imp:.1f}% faster and {quality_imp:.1f}% better quality")
-                            except (KeyError, TypeError) as e:
-                                # Skip levels with missing data
-                                continue
-                else:
-                    # Old format without temperatures
-                    print("\nAggregate results:")
-                    
-                    pruning_levels = sorted([
-                        int(l) for l in results["baseline"].keys() 
-                        if l.isdigit() and int(l) > 0
-                    ])
-                    
-                    for level in pruning_levels:
-                        try:
-                            baseline_speed = results["baseline"][str(level)]["tokens_per_second"]
-                            agency_speed = results["agency"][str(level)]["tokens_per_second"]
-                            
-                            baseline_ppl = results["baseline"][str(level)]["perplexity"]
-                            agency_ppl = results["agency"][str(level)]["perplexity"]
-                            
-                            speed_imp = ((agency_speed / baseline_speed) - 1) * 100
-                            quality_imp = ((baseline_ppl / agency_ppl) - 1) * 100
-                            
-                            print(f"  At {level}% pruning: Agency is {speed_imp:.1f}% faster and {quality_imp:.1f}% better quality")
-                        except (KeyError, TypeError) as e:
-                            # Skip levels with missing data
-                            continue
-            except json.JSONDecodeError:
-                print("Error parsing results file.")
+                plt.plot(epochs[:min_len], diversity[:min_len], 'o-', color='#9C27B0', 
+                         linewidth=2, label="Diversity (higher is better)")
+                plt.plot(epochs[:min_len], repetition[:min_len], 'o-', color='#FFC107', 
+                         linewidth=2, label="Repetition (lower is better)")
+                
+                plt.title("Text Quality Metrics", fontsize=14)
+                plt.xlabel("Epoch", fontsize=12)
+                plt.ylabel("Score", fontsize=12)
+                plt.grid(True, linestyle='--', alpha=0.7)
+                plt.legend()
+        
+        plt.tight_layout()
+        
+        # Save the interactive visualizations
+        plt.savefig(os.path.join(output_dir, "colab_visualizations.png"), dpi=150)
+        plt.close()
+        
+        print("✅ Created additional visualizations for Colab")
+        
+    except Exception as e:
+        print(f"Error creating visualizations: {e}")
+        return None
 
-# Call the function to display results
-display_results()
-
-# @title Save Results to Google Drive (Optional)
-# @markdown Run this after the experiment completes to save results to Google Drive
-mount_drive = False  # @param {type:"boolean"}
-drive_folder = "Sentinel_AI_Results"  # @param {type:"string"}
-
-if mount_drive:
-    from google.colab import drive
-    drive.mount('/content/drive')
+def display_summary(output_dir):
+    """Display a summary of the benchmark results."""
+    # Load benchmark report
+    report_path = os.path.join(output_dir, "benchmark_report.md")
+    with open(report_path, 'r') as f:
+        report_content = f.read()
     
-    # Create folder if it doesn't exist
-    drive_path = f"/content/drive/My Drive/{drive_folder}"
-    os.makedirs(drive_path, exist_ok=True)
+    # Display report as HTML
+    from IPython.display import Markdown
+    display(Markdown(report_content))
     
-    # Copy results to Drive
-    latest_results = sorted(glob.glob("validation_results/pruning_agency/run_*"))
-    if latest_results:
-        latest = latest_results[-1]
-        print(f"Copying results to Google Drive: {drive_path}")
-        !cp -r {latest} {drive_path}/pruning_results_{time.strftime("%Y%m%d_%H%M%S")}
-        print("Results successfully copied to Google Drive")
-    else:
-        print("No results found to copy. Run the experiment first.")
+    # Display visualizations
+    dashboard_path = os.path.join(output_dir, "summary_dashboard.png")
+    if os.path.exists(dashboard_path):
+        from IPython.display import Image
+        display(Image(dashboard_path))
+    
+    # Additional visualizations
+    colab_viz_path = os.path.join(output_dir, "colab_visualizations.png")
+    if os.path.exists(colab_viz_path):
+        from IPython.display import Image
+        display(Image(colab_viz_path))
+    
+    # If method comparison was done, show those results
+    comparison_dir = os.path.join(output_dir, "method_comparison")
+    if os.path.exists(comparison_dir):
+        radar_path = os.path.join(comparison_dir, "radar_comparison.png")
+        if os.path.exists(radar_path):
+            display(HTML("<h3>Pruning Methods Comparison</h3>"))
+            from IPython.display import Image
+            display(Image(radar_path))
+
+def main():
+    """Main function to run when the script is executed."""
+    # Display a welcome message
+    print("="*80)
+    print("Pure Pruning Benchmark for Sentinel-AI".center(80))
+    print("Colab Integration Version".center(80))
+    print("="*80)
+    print("\nSetting up the interface...")
+    
+    # Create and display the UI
+    create_ui()
+
+if __name__ == "__main__":
+    main()
