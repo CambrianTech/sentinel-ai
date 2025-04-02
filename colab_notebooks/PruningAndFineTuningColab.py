@@ -29,7 +29,7 @@
 
 # %%
 # Clone the repository
-!git clone https://github.com/CambrianTech/sentinel-ai.git
+!git clone -b feature/colab-overnight https://github.com/CambrianTech/sentinel-ai.git
 %cd sentinel-ai
 
 # %%
