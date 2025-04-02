@@ -38,13 +38,20 @@
 # not our local datasets package
 
 import sys
+import os
 
-# First, remove our repository directory from Python's module search path
-if sys.path and sys.path[0] == '':
-    sys.path.pop(0)
+# Completely remove sentinel-ai directory from sys.path
+sys.path = [p for p in sys.path if 'sentinel-ai' not in p and p != '']
+
+# Force install the huggingface datasets library to be safe
+!pip install -q datasets
 
 # Now, import dependencies from the HF datasets library first
 from datasets import load_dataset
+
+# Check that we're using the correct datasets package
+import datasets
+print(f"Using datasets from: {datasets.__file__}")
 
 # Now we can add our repository to the path
 sys.path.append(".")  # Make sure the repo root is in the path
