@@ -264,30 +264,40 @@ class FineTuner:
         """Loss function for the language modeling task"""
         model = self.pruning_module.model
         
-        # Get logits from model
-        outputs = model(**batch, params=params, train=True)
-        logits = outputs.logits
+        # Extract labels from batch but don't pass them to the model
+        labels = batch.pop("labels", None)
         
-        # Get labels and create masks
-        labels = batch["labels"]
-        
-        # Create loss mask (don't compute loss for padding tokens)
-        loss_mask = (labels != self.pruning_module.tokenizer.pad_token_id)
-        
-        # Shift logits and labels for next token prediction
-        shift_logits = logits[:, :-1]
-        shift_labels = labels[:, 1:]
-        shift_mask = loss_mask[:, 1:]
-        
-        # Calculate cross entropy loss
-        loss = optax.softmax_cross_entropy_with_integer_labels(
-            shift_logits, shift_labels
-        )
-        
-        # Apply mask and calculate mean
-        loss = (loss * shift_mask).sum() / shift_mask.sum()
-        
-        return loss
+        # Handle different model architectures
+        try:
+            # Get logits from model (without labels as a parameter)
+            outputs = model(**batch, params=params, train=True)
+            logits = outputs.logits
+            
+            # Add labels back to batch for next iteration
+            batch["labels"] = labels
+            
+            # Create loss mask (don't compute loss for padding tokens)
+            loss_mask = (labels != self.pruning_module.tokenizer.pad_token_id)
+            
+            # Shift logits and labels for next token prediction
+            shift_logits = logits[:, :-1]
+            shift_labels = labels[:, 1:]
+            shift_mask = loss_mask[:, 1:]
+            
+            # Calculate cross entropy loss
+            loss = optax.softmax_cross_entropy_with_integer_labels(
+                shift_logits, shift_labels
+            )
+            
+            # Apply mask and calculate mean
+            loss = (loss * shift_mask).sum() / shift_mask.sum()
+            
+            return loss
+        except Exception as e:
+            print(f"Model inference error: {e}")
+            # Add labels back to batch
+            batch["labels"] = labels
+            raise
     
     def _train_step(self, state, batch):
         """Single training step"""
@@ -330,29 +340,34 @@ class FineTuner:
             
             for step, batch in progress_bar:
                 # Train step
-                self.train_state, loss = self._train_step(self.train_state, batch)
-                total_steps += 1
-                epoch_losses.append(loss.item())
-                
-                # Update progress bar
-                progress_bar.set_description(f"{epoch_desc} - Loss: {loss.item():.4f}")
-                
-                # Evaluate periodically
-                if total_steps % evaluate_interval == 0:
-                    # Generate dummy text to check progress
-                    prompt = "Artificial intelligence will transform"
-                    try:
-                        generated = self.pruning_module.generate_text(
-                            self.train_state.params, prompt, max_length=30
-                        )
-                        perplexity = self.pruning_module.evaluate_perplexity(
-                            self.train_state.params, prompt
-                        )
-                        perplexity_history.append((total_steps, perplexity))
-                        print(f"\nStep {total_steps} - Perplexity: {perplexity:.4f}")
-                        print(f"Generated: {generated}")
-                    except Exception as e:
-                        print(f"Error evaluating model: {e}")
+                try:
+                    self.train_state, loss = self._train_step(self.train_state, batch)
+                    total_steps += 1
+                    epoch_losses.append(loss.item())
+                    
+                    # Update progress bar
+                    progress_bar.set_description(f"{epoch_desc} - Loss: {loss.item():.4f}")
+                    
+                    # Evaluate periodically
+                    if total_steps % evaluate_interval == 0:
+                        # Generate dummy text to check progress
+                        prompt = "Artificial intelligence will transform"
+                        try:
+                            generated = self.pruning_module.generate_text(
+                                self.train_state.params, prompt, max_length=30
+                            )
+                            perplexity = self.pruning_module.evaluate_perplexity(
+                                self.train_state.params, prompt
+                            )
+                            perplexity_history.append((total_steps, perplexity))
+                            print(f"\nStep {total_steps} - Perplexity: {perplexity:.4f}")
+                            print(f"Generated: {generated}")
+                        except Exception as e:
+                            print(f"Error evaluating model: {e}")
+                except Exception as e:
+                    print(f"Error in training step: {e}")
+                    # Continue to next batch
+                    continue
             
             # End of epoch metrics
             epoch_loss = sum(epoch_losses) / len(epoch_losses) if epoch_losses else 0
