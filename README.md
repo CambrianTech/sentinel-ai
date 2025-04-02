@@ -11,6 +11,8 @@ Welcome to **Sentinel-AI**, a modular research framework for transformers that c
 
 > This system evolves from compact models into large, expressive ones by **dynamically growing** its structure in response to data complexity, while respecting the **agency** and **consent** of its components. This makes it ideal for ethical AI applications, edge devices, progressive scaling, and long-term continual learning.
 
+## System Architecture Overview
+
 ```mermaid
 flowchart TD
     classDef standard fill:#333,stroke:#333,stroke-width:1px,color:#fff
@@ -19,10 +21,8 @@ flowchart TD
     classDef controller fill:#ff8c00,stroke:#ff8c00,stroke-width:1px,color:#fff
     classDef attention fill:#9370db,stroke:#9370db,stroke-width:1px,color:#fff
     classDef embedding fill:#666,stroke:#666,stroke-width:1px,color:#fff
-    classDef header fill:none,stroke:none,color:#fff,font-weight:bold
     
     %% Main Architecture Components
-    header["SENTINEL-AI ARCHITECTURE"]
     adapterLayer["MODEL ADAPTER LAYER"]
     output["OUTPUT LAYER"]
     transformerBlocks["TRANSFORMER DECODER BLOCKS"]
@@ -74,7 +74,6 @@ flowchart TD
     controller --> input
     
     %% Styling
-    header:::header
     adapterLayer:::adapter
     output:::standard
     transformerBlocks:::highlight
@@ -102,7 +101,6 @@ flowchart TD
     classDef gate fill:#ff8c00,stroke:#ff8c00,stroke-width:1px,color:#fff
     
     %% Main Components
-    header["ATTENTION HEAD WITH AGENCY"]
     signals["AGENCY SIGNALS"]
     stateProcessing["STATE PROCESSING"]
     monitor["CONSENT VIOLATION<br/>MONITORING"]
@@ -142,7 +140,6 @@ flowchart TD
     gate --> attention
     
     %% Styling
-    header:::header
     signals:::agency
     stateProcessing:::state
     monitor:::agency
@@ -168,7 +165,6 @@ flowchart TD
     classDef original fill:#2e8b57,stroke:#2e8b57,stroke-width:1px,color:#fff
     
     %% Main Components
-    header["HYBRID ADAPTER PATTERN"]
     interface["SENTINEL-AI INTERFACE"]
     adapter["MODEL-SPECIFIC ADAPTER"]
     original["ORIGINAL MODEL INTERNALS"]
@@ -189,7 +185,6 @@ flowchart TD
     original --> bloom & llama
     
     %% Styling
-    header:::header
     interface:::interface
     adapter:::adapter
     original:::original
@@ -212,7 +207,6 @@ flowchart TD
     classDef encoder fill:#2e8b57,stroke:#2e8b57,stroke-width:1px,color:#fff
     
     %% Main Components
-    header["U-NET INSPIRED ARCHITECTURE"]
     outputEmbed["OUTPUT EMBEDDING"]
     decoderBlocks["DECODER BLOCKS"]
     skipConnections["U-NET SKIP CONNECTIONS"]
@@ -251,7 +245,6 @@ flowchart TD
     block1 & block2 & block3 --> inputEmbed
     
     %% Styling
-    header:::header
     outputEmbed & inputEmbed:::embedding
     decoderBlocks:::decoder
     skipConnections:::skip
@@ -485,7 +478,6 @@ flowchart TD
     classDef optimization fill:#9370db,stroke:#9370db,stroke-width:1px,color:#fff
     
     %% Main Components
-    header["REINFORCEMENT LEARNING CONTROLLER"]
     metrics["VALIDATION METRICS<br/>COLLECTOR"]
     reward["REWARD CALCULATION<br/>reward = perf_improvement + efficiency_factor"]
     policy["POLICY NETWORK<br/>(Learns pruning patterns)"]
@@ -502,7 +494,6 @@ flowchart TD
     update --> optimization
     
     %% Styling
-    header:::header
     metrics:::metrics
     reward:::reward
     policy:::policy
@@ -524,7 +515,6 @@ flowchart TD
     classDef head fill:#ff8c00,stroke:#ff8c00,stroke-width:1px,color:#fff
     
     %% Main Components
-    header["ADAPTIVE TRANSFORMER BLOCK"]
     residual["RESIDUAL CONNECTION"]
     norm["LAYER NORMALIZATION"]
     attention["MULTI-HEAD ATTENTION"]
@@ -555,7 +545,6 @@ flowchart TD
     dropout --> output
     
     %% Styling
-    header:::header
     residual & norm:::layer
     attention:::attention
     ffn:::ffn

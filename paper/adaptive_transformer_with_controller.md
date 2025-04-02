@@ -25,6 +25,8 @@ Our contributions:
 
 ## 2. Adaptive Transformer Architecture
 
+<div style="page-break-after: always;"></div>
+
 ```mermaid
 flowchart TD
     classDef standard fill:#333,stroke:#333,stroke-width:1px,color:#fff
@@ -89,6 +91,8 @@ $$
 Here, \( g_i = \sigma(\text{logit}_i) \) is the sentinel gate, where \(\sigma\) denotes the sigmoid function, and \( a_i \) is the agency factor that depends on the head's internal state. Initially, gates are biased towards 1 (active heads), allowing the model to gradually identify and prune less useful heads.
 
 ### 2.2 Attention Head Agency Layer
+
+<div style="page-break-after: always;"></div>
 
 ```mermaid
 flowchart TD
@@ -197,6 +201,8 @@ This agency layer embeds ethical principles directly into the architecture, maki
 
 ### 2.3 U-Net Inspired Skip Connections
 
+<div style="page-break-after: always;"></div>
+
 ```mermaid
 flowchart TD
     classDef standard fill:#333,stroke:#333,stroke-width:1px,color:#fff
@@ -275,6 +281,8 @@ This provides richer representations and reduces semantic gaps. During regrowth 
 
 ## 3. ANN-based Dynamic Controller
 
+<div style="page-break-after: always;"></div>
+
 ```mermaid
 flowchart TD
     classDef standard fill:#333,stroke:#333,stroke-width:1px,color:#fff
@@ -344,6 +352,8 @@ This feedback loop continually adapts model complexity during training.
 
 ## 4. Training Procedure and Dynamic Architecture Adjustments
 
+<div style="page-break-after: always;"></div>
+
 ### 4.1 Training with Gate Regularization
 
 We incorporate an L1 regularization penalty on gate values to encourage sparsity and efficient pruning:
@@ -362,6 +372,8 @@ This procedure allows the architecture to organically grow or shrink during trai
 ---
 
 ## 5. Experimental Evaluation
+
+<div style="page-break-after: always;"></div>
 
 ### 5.1 Experimental Setup
 
@@ -496,6 +508,8 @@ The combination of pruning and agency mechanisms shows compounding benefits, as 
 
 ## 6. Implementation and Usability
 
+<div style="page-break-after: always;"></div>
+
 Our repository structure facilitates ease of experimentation, allowing straightforward loading of pretrained models and datasets, training via notebooks or Colab scripts, and comprehensive logging and checkpointing.
 
 ### 6.1 Hybrid Adapter Architecture
@@ -578,6 +592,8 @@ The implementation includes several interactive features to aid in experimentati
 
 ## 7. Future Work
 
+<div style="page-break-after: always;"></div>
+
 - **Enhanced Agency Mechanisms**: Develop more sophisticated agency signaling systems with richer state representation.
 - **Learning-based Agency**: Train models to adaptively adjust their own agency signals based on workload and context.
 - **Cross-Module Consent Protocols**: Extend agency beyond individual heads to module-level and cross-module communication with consent boundaries.
@@ -590,6 +606,8 @@ The implementation includes several interactive features to aid in experimentati
 
 ## 8. Conclusion
 
+<div style="page-break-after: always;"></div>
+
 The Adaptive Transformer, with its agency-aware attention mechanism, ANN-controlled sentinel gates, and U-Net inspired structure, provides a practical and theoretically sound framework for dynamically managing transformer complexity while respecting ethical boundaries. Our initial results validate the feasibility and effectiveness of dynamic attention-head pruning, expansion, and agency-based computation.
 
 By embedding ethical principles directly into the architecture through our agency layer, we demonstrate that performance optimization and ethical AI are not mutually exclusive goals, but can be effectively integrated. The attention head agency mechanism provides a foundation for more sophisticated models that can better manage their own resources, express internal states, and respect consent boundaries.
@@ -601,6 +619,8 @@ Future work aims to further develop these ethical mechanisms while scaling the a
 ---
 
 ## References
+
+<div style="page-break-after: always;"></div>
 
 - Michel, P., Levy, O., & Neubig, G. (2019). ["Are Sixteen Heads Really Better than One?"](https://arxiv.org/abs/1905.10650). *arXiv preprint arXiv:1905.10650.*
 - Voita, E., Talbot, D., Moiseev, F., Sennrich, R., & Titov, I. (2019). ["Analyzing Multi-Head Self-Attention: Specialized Heads Do the Heavy Lifting, the Rest Can Be Pruned"](https://arxiv.org/abs/1905.09418). *arXiv preprint arXiv:1905.09418.*
