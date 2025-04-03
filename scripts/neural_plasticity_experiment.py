@@ -1,720 +1,639 @@
 #!/usr/bin/env python
 """
-Neural Plasticity Experiment
+Neural Plasticity Experiment Runner
 
-This script conducts a comprehensive experiment to demonstrate
-the full neural plasticity cycle (prune -> measure -> grow -> learn)
-with detailed metrics and visualizations.
+This script runs multiple neural plasticity experiments with different configurations
+to compare the effectiveness of various pruning and growth strategies.
+
+Example usage:
+    python scripts/neural_plasticity_experiment.py --model_name distilgpt2 --run_all
+    python scripts/neural_plasticity_experiment.py --model_name gpt2 --compare_growth_strategies
+    python scripts/neural_plasticity_experiment.py --model_name distilgpt2 --compare_pruning_levels
 """
 
 import os
-import argparse
+import sys
 import json
-import time
-import jax
-import jax.numpy as jnp
-import numpy as np
-import random
-import pickle
-import matplotlib.pyplot as plt
-from tqdm import tqdm
+import argparse
+import subprocess
 from datetime import datetime
+from pathlib import Path
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
 
 # Add parent directory to path for imports
-import sys
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-from utils.pruning.pruning_module import PruningModule
-from utils.pruning.strategies import get_strategy as get_pruning_strategy
-from utils.pruning.growth import grow_attention_heads_gradually, determine_active_heads
-from utils.pruning.head_lr_manager import HeadLRManager
 
 def parse_args():
     """Parse command line arguments"""
-    parser = argparse.ArgumentParser(description="Neural Plasticity Experiment")
+    parser = argparse.ArgumentParser(description="Neural Plasticity Experiment Runner")
     
     # Model parameters
     parser.add_argument("--model_name", type=str, default="distilgpt2",
                       help="Model name (default: distilgpt2)")
-    parser.add_argument("--save_dir", type=str, default="./plasticity_experiments",
+    parser.add_argument("--dataset", type=str, default="tiny_shakespeare",
+                      help="Dataset name (default: tiny_shakespeare)")
+    parser.add_argument("--experiment_dir", type=str, default="./plasticity_experiments",
                       help="Directory to save experiment results (default: ./plasticity_experiments)")
     
-    # Experiment parameters
-    parser.add_argument("--experiment_name", type=str, default=None,
-                      help="Name for this experiment (default: auto-generated)")
-    parser.add_argument("--pruning_levels", type=str, default="0.1,0.3,0.5",
-                      help="Comma-separated list of pruning levels to test (default: 0.1,0.3,0.5)")
-    parser.add_argument("--growth_percentages", type=str, default="0.05,0.1,0.2",
-                      help="Comma-separated list of growth percentages to test (default: 0.05,0.1,0.2)")
-    parser.add_argument("--eval_dataset", type=str, default=None,
-                      help="Path to evaluation dataset (default: use built-in samples)")
+    # Experiment selection
+    parser.add_argument("--run_all", action="store_true",
+                      help="Run all experiments")
+    parser.add_argument("--compare_pruning_strategies", action="store_true",
+                      help="Compare different pruning strategies")
+    parser.add_argument("--compare_growth_strategies", action="store_true",
+                      help="Compare different growth strategies")
+    parser.add_argument("--compare_pruning_levels", action="store_true",
+                      help="Compare different pruning levels")
+    parser.add_argument("--compare_cycles", action="store_true",
+                      help="Compare different numbers of plasticity cycles")
     
-    # Strategy parameters
-    parser.add_argument("--pruning_strategy", type=str, default="entropy",
-                      choices=["random", "magnitude", "entropy"],
-                      help="Strategy for pruning (default: entropy)")
-    parser.add_argument("--growth_strategy", type=str, default="gradient_sensitivity",
-                      choices=["gradient_sensitivity", "entropy_gap", "balanced", "random"],
-                      help="Strategy for growth (default: gradient_sensitivity)")
-    
-    # Learning parameters
-    parser.add_argument("--learning_steps", type=int, default=100,
-                      help="Number of adaptation steps after growth (default: 100)")
-    parser.add_argument("--learning_rate", type=float, default=5e-5,
-                      help="Learning rate for adaptation (default: 5e-5)")
-    parser.add_argument("--new_head_lr_multiplier", type=float, default=5.0,
-                      help="Learning rate multiplier for newly added heads (default: 5.0)")
-    parser.add_argument("--batch_size", type=int, default=4,
-                      help="Batch size for adaptation (default: 4)")
-    
-    # Visualization and logging
+    # Common experiment parameters
+    parser.add_argument("--initial_training_steps", type=int, default=50,
+                      help="Initial training steps before first pruning (default: 50)")
+    parser.add_argument("--learning_steps", type=int, default=50,
+                      help="Learning steps after each growth phase (default: 50)")
+    parser.add_argument("--eval_every", type=int, default=10,
+                      help="Evaluate every N steps (default: 10)")
     parser.add_argument("--save_visualizations", action="store_true",
-                      help="Save visualizations as PNG files")
-    parser.add_argument("--verbose", action="store_true",
-                      help="Enable verbose output")
-    parser.add_argument("--seed", type=int, default=42,
-                      help="Random seed (default: 42)")
+                      help="Save visualizations for each experiment")
     
     return parser.parse_args()
 
-def visualize_head_map(pruning_module, active_heads, title="Attention Head Map"):
-    """Create a visual text representation of active/inactive heads"""
-    visual = [f"{title} (■=active, □=inactive):", ""]
+def run_experiment(cmd_args, experiment_name):
+    """Run a single experiment with the given arguments"""
+    print(f"\n=== Running Experiment: {experiment_name} ===\n")
+    print(f"Command: {' '.join(cmd_args)}\n")
     
-    num_layers = pruning_module.num_layers
-    num_heads = pruning_module.num_heads
+    # Run the experiment
+    result = subprocess.run(cmd_args, capture_output=True, text=True)
     
-    # Layer header
-    header = "Layer \\ Head "
-    header += " ".join([f"{i}" for i in range(num_heads)])
-    visual.append(header)
+    if result.returncode != 0:
+        print(f"Error running experiment: {result.stderr}")
+        return None
     
-    # Layer rows
-    for layer_idx in range(num_layers):
-        row = f"Layer {layer_idx:2d}      "
-        for head_idx in range(num_heads):
-            if (layer_idx, head_idx) in active_heads:
-                row += "■ "
-            else:
-                row += "□ "
-        visual.append(row)
+    # Extract experiment directory from output
+    output_lines = result.stdout.split('\n')
+    experiment_dir = None
+    for line in output_lines:
+        if "Results saved to" in line:
+            experiment_dir = line.split("Results saved to ")[-1].strip()
+            break
     
-    return "\n".join(visual)
+    print(f"Experiment completed. Results saved to {experiment_dir}\n")
+    return experiment_dir
 
-def plot_head_map(pruning_module, active_heads, title="Attention Head Map", 
-                  save_path=None, figsize=(10, 8)):
-    """Create a graphical representation of active/inactive heads"""
-    try:
-        import matplotlib.pyplot as plt
-        import numpy as np
+def compare_pruning_strategies(args):
+    """Compare different pruning strategies"""
+    base_cmd = [
+        "python", "scripts/neural_plasticity_cycle.py",
+        "--model_name", args.model_name,
+        "--dataset", args.dataset,
+        "--initial_training_steps", str(args.initial_training_steps),
+        "--learning_steps", str(args.learning_steps),
+        "--eval_every", str(args.eval_every),
+        "--cycles", "1",
+        "--growth_strategy", "gradient_sensitivity",
+        "--growth_ratio", "0.5",
+        "--initial_pruning", "0.3",
+    ]
+    
+    # Add visualization flag if requested
+    if args.save_visualizations:
+        base_cmd.append("--save_visualizations")
+    
+    strategies = ["entropy", "magnitude", "random"]
+    experiment_dirs = {}
+    
+    for strategy in strategies:
+        timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        experiment_name = f"pruning_strategy_{strategy}_{timestamp}"
         
-        num_layers = pruning_module.num_layers
-        num_heads = pruning_module.num_heads
+        # Create command for this experiment
+        cmd = base_cmd + [
+            "--pruning_strategy", strategy,
+            "--experiment_name", experiment_name
+        ]
         
-        # Create a matrix of active heads (1=active, 0=inactive)
-        head_matrix = np.zeros((num_layers, num_heads))
-        for layer_idx, head_idx in active_heads:
-            head_matrix[layer_idx, head_idx] = 1
+        # Run experiment
+        experiment_dir = run_experiment(cmd, f"Pruning Strategy: {strategy}")
+        if experiment_dir:
+            experiment_dirs[strategy] = experiment_dir
+    
+    # Analyze and visualize results
+    if experiment_dirs:
+        analyze_pruning_strategies(experiment_dirs, args)
+    
+    return experiment_dirs
+
+def compare_growth_strategies(args):
+    """Compare different growth strategies"""
+    base_cmd = [
+        "python", "scripts/neural_plasticity_cycle.py",
+        "--model_name", args.model_name,
+        "--dataset", args.dataset,
+        "--initial_training_steps", str(args.initial_training_steps),
+        "--learning_steps", str(args.learning_steps),
+        "--eval_every", str(args.eval_every),
+        "--cycles", "1",
+        "--pruning_strategy", "entropy",
+        "--growth_ratio", "0.5",
+        "--initial_pruning", "0.3",
+    ]
+    
+    # Add visualization flag if requested
+    if args.save_visualizations:
+        base_cmd.append("--save_visualizations")
+    
+    strategies = ["gradient_sensitivity", "entropy_gap", "balanced", "random"]
+    experiment_dirs = {}
+    
+    for strategy in strategies:
+        timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        experiment_name = f"growth_strategy_{strategy}_{timestamp}"
         
-        # Create figure
-        plt.figure(figsize=figsize)
-        plt.imshow(head_matrix, cmap='viridis', interpolation='none')
-        plt.title(title)
-        plt.xlabel('Head Index')
-        plt.ylabel('Layer Index')
-        plt.colorbar(ticks=[0, 1], label='Active Status')
+        # Create command for this experiment
+        cmd = base_cmd + [
+            "--growth_strategy", strategy,
+            "--experiment_name", experiment_name
+        ]
+        
+        # Run experiment
+        experiment_dir = run_experiment(cmd, f"Growth Strategy: {strategy}")
+        if experiment_dir:
+            experiment_dirs[strategy] = experiment_dir
+    
+    # Analyze and visualize results
+    if experiment_dirs:
+        analyze_growth_strategies(experiment_dirs, args)
+    
+    return experiment_dirs
+
+def compare_pruning_levels(args):
+    """Compare different pruning levels"""
+    base_cmd = [
+        "python", "scripts/neural_plasticity_cycle.py",
+        "--model_name", args.model_name,
+        "--dataset", args.dataset,
+        "--initial_training_steps", str(args.initial_training_steps),
+        "--learning_steps", str(args.learning_steps),
+        "--eval_every", str(args.eval_every),
+        "--cycles", "1",
+        "--pruning_strategy", "entropy",
+        "--growth_strategy", "gradient_sensitivity",
+        "--growth_ratio", "0.5",
+    ]
+    
+    # Add visualization flag if requested
+    if args.save_visualizations:
+        base_cmd.append("--save_visualizations")
+    
+    pruning_levels = [0.1, 0.2, 0.3, 0.4, 0.5]
+    experiment_dirs = {}
+    
+    for level in pruning_levels:
+        timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        experiment_name = f"pruning_level_{int(level*100)}percent_{timestamp}"
+        
+        # Create command for this experiment
+        cmd = base_cmd + [
+            "--initial_pruning", str(level),
+            "--experiment_name", experiment_name
+        ]
+        
+        # Run experiment
+        experiment_dir = run_experiment(cmd, f"Pruning Level: {level*100:.0f}%")
+        if experiment_dir:
+            experiment_dirs[str(level)] = experiment_dir
+    
+    # Analyze and visualize results
+    if experiment_dirs:
+        analyze_pruning_levels(experiment_dirs, args)
+    
+    return experiment_dirs
+
+def compare_cycles(args):
+    """Compare different numbers of plasticity cycles"""
+    base_cmd = [
+        "python", "scripts/neural_plasticity_cycle.py",
+        "--model_name", args.model_name,
+        "--dataset", args.dataset,
+        "--initial_training_steps", str(args.initial_training_steps),
+        "--learning_steps", str(args.learning_steps),
+        "--eval_every", str(args.eval_every),
+        "--pruning_strategy", "entropy",
+        "--growth_strategy", "gradient_sensitivity",
+        "--growth_ratio", "0.5",
+        "--initial_pruning", "0.3",
+    ]
+    
+    # Add visualization flag if requested
+    if args.save_visualizations:
+        base_cmd.append("--save_visualizations")
+    
+    cycle_counts = [1, 2, 3, 4]
+    experiment_dirs = {}
+    
+    for cycles in cycle_counts:
+        timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        experiment_name = f"cycles_{cycles}_{timestamp}"
+        
+        # Create command for this experiment
+        cmd = base_cmd + [
+            "--cycles", str(cycles),
+            "--experiment_name", experiment_name
+        ]
+        
+        # Run experiment
+        experiment_dir = run_experiment(cmd, f"Plasticity Cycles: {cycles}")
+        if experiment_dir:
+            experiment_dirs[str(cycles)] = experiment_dir
+    
+    # Analyze and visualize results
+    if experiment_dirs:
+        analyze_cycles(experiment_dirs, args)
+    
+    return experiment_dirs
+
+def load_metrics(experiment_dir):
+    """Load metrics from an experiment directory"""
+    metrics_file = os.path.join(experiment_dir, "metrics/metrics.jsonl")
+    summary_file = os.path.join(experiment_dir, "summary.json")
+    
+    metrics = []
+    if os.path.exists(metrics_file):
+        with open(metrics_file, 'r') as f:
+            for line in f:
+                try:
+                    metrics.append(json.loads(line))
+                except json.JSONDecodeError:
+                    pass
+    
+    summary = {}
+    if os.path.exists(summary_file):
+        with open(summary_file, 'r') as f:
+            summary = json.load(f)
+    
+    return metrics, summary
+
+def analyze_pruning_strategies(experiment_dirs, args):
+    """Analyze and compare results from different pruning strategies"""
+    results = {}
+    
+    for strategy, exp_dir in experiment_dirs.items():
+        metrics, summary = load_metrics(exp_dir)
+        
+        # Extract key metrics
+        initial_perplexity = None
+        pruned_perplexity = None
+        final_perplexity = None
+        perplexity_recovery = None
+        
+        for metric in metrics:
+            if metric.get('phase') == 'initial':
+                initial_perplexity = metric.get('perplexity')
+            elif metric.get('phase') == 'measurement':
+                pruned_perplexity = metric.get('pruned_perplexity')
+            elif metric.get('phase') == 'final':
+                final_perplexity = metric.get('final_perplexity')
+                perplexity_recovery = metric.get('perplexity_recovery')
+        
+        results[strategy] = {
+            'initial_perplexity': initial_perplexity,
+            'pruned_perplexity': pruned_perplexity,
+            'final_perplexity': final_perplexity,
+            'perplexity_recovery': perplexity_recovery
+        }
+    
+    # Create visualization
+    if results:
+        plt.figure(figsize=(12, 8))
+        
+        # Set up data for plotting
+        strategies = list(results.keys())
+        initial_perplexities = [results[s]['initial_perplexity'] for s in strategies]
+        pruned_perplexities = [results[s]['pruned_perplexity'] for s in strategies]
+        final_perplexities = [results[s]['final_perplexity'] for s in strategies]
+        recovery_percentages = [results[s]['perplexity_recovery'] for s in strategies]
+        
+        # Create bar chart for perplexities
+        x = np.arange(len(strategies))
+        width = 0.25
+        
+        plt.subplot(2, 1, 1)
+        plt.bar(x - width, initial_perplexities, width, label='Initial')
+        plt.bar(x, pruned_perplexities, width, label='After Pruning')
+        plt.bar(x + width, final_perplexities, width, label='After Growth & Learning')
+        plt.xlabel('Pruning Strategy')
+        plt.ylabel('Perplexity (lower is better)')
+        plt.title(f'Perplexity Comparison Across Pruning Strategies - {args.model_name}')
+        plt.xticks(x, strategies)
+        plt.legend()
+        
+        # Create bar chart for recovery percentages
+        plt.subplot(2, 1, 2)
+        plt.bar(x, recovery_percentages, 0.5)
+        plt.xlabel('Pruning Strategy')
+        plt.ylabel('Perplexity Recovery %')
+        plt.title('Perplexity Recovery After Growth & Learning')
+        plt.xticks(x, strategies)
+        
+        for i, v in enumerate(recovery_percentages):
+            if v is not None:
+                plt.text(i, v + 1, f"{v:.1f}%", ha='center')
+        
         plt.tight_layout()
         
-        # Save if requested
-        if save_path:
-            plt.savefig(save_path)
-            return save_path
-        else:
-            return plt
-            
-    except ImportError as e:
-        print(f"Warning: Could not import matplotlib ({e}). Skipping graphical visualization.")
-        return None
+        # Save the figure
+        os.makedirs(args.experiment_dir, exist_ok=True)
+        timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        output_file = os.path.join(args.experiment_dir, f"pruning_strategies_comparison_{timestamp}.png")
+        plt.savefig(output_file)
+        print(f"Saved comparison visualization to {output_file}")
+        plt.close()
 
-def plot_metrics(metrics_data, title="Neural Plasticity Experiment Results", 
-                 save_path=None, figsize=(12, 8)):
-    """Create visualization of experiment metrics"""
-    try:
-        import matplotlib.pyplot as plt
+def analyze_growth_strategies(experiment_dirs, args):
+    """Analyze and compare results from different growth strategies"""
+    results = {}
+    
+    for strategy, exp_dir in experiment_dirs.items():
+        metrics, summary = load_metrics(exp_dir)
         
-        # Extract metric types and stages
-        metric_types = list(metrics_data.keys())
-        stages = list(metrics_data[metric_types[0]].keys())
+        # Extract key metrics
+        initial_perplexity = None
+        pruned_perplexity = None
+        final_perplexity = None
+        perplexity_recovery = None
         
-        # Create figure with multiple subplots
-        fig, axes = plt.subplots(len(metric_types), 1, figsize=figsize)
-        if len(metric_types) == 1:
-            axes = [axes]
+        for metric in metrics:
+            if metric.get('phase') == 'initial':
+                initial_perplexity = metric.get('perplexity')
+            elif metric.get('phase') == 'measurement':
+                pruned_perplexity = metric.get('pruned_perplexity')
+            elif metric.get('phase') == 'final':
+                final_perplexity = metric.get('final_perplexity')
+                perplexity_recovery = metric.get('perplexity_recovery')
         
-        # Plot each metric
-        for i, metric in enumerate(metric_types):
-            ax = axes[i]
-            values = [metrics_data[metric][stage] for stage in stages]
-            ax.bar(stages, values)
-            ax.set_title(f'{metric.replace("_", " ").title()}')
-            ax.grid(True, linestyle='--', alpha=0.7)
-            
-            # Add value labels
-            for j, v in enumerate(values):
-                ax.text(j, v, f"{v:.3f}", ha='center', va='bottom')
-        
-        # Set common labels and title
-        fig.suptitle(title)
-        plt.tight_layout(rect=[0, 0, 1, 0.95])
-        
-        # Save if requested
-        if save_path:
-            plt.savefig(save_path)
-            return save_path
-        else:
-            return plt
-            
-    except ImportError as e:
-        print(f"Warning: Could not import matplotlib ({e}). Skipping graphical visualization.")
-        return None
-
-def evaluate_model(pruning_module, params, eval_samples=None, num_samples=5):
-    """Evaluate model performance on sample text"""
-    # Define evaluation samples if not provided
-    if eval_samples is None:
-        eval_samples = [
-            "The neural network model processes data through multiple layers.",
-            "Artificial intelligence systems can learn from experience and improve over time.",
-            "The transformer architecture revolutionized natural language processing tasks.",
-            "Self-attention mechanisms enable models to focus on relevant parts of the input.",
-            "Neural plasticity allows models to adapt their structure during training."
-        ][:num_samples]
-    
-    # Ensure we have the requested number of samples
-    if len(eval_samples) < num_samples:
-        # Duplicate samples if we don't have enough
-        eval_samples = (eval_samples * ((num_samples // len(eval_samples)) + 1))[:num_samples]
-    
-    results = []
-    perplexities = []
-    
-    for sample in eval_samples:
-        # Calculate perplexity
-        perplexity = pruning_module.evaluate_perplexity(params, sample)
-        if not (jnp.isnan(perplexity) or jnp.isinf(perplexity)):
-            perplexities.append(perplexity)
-        
-        # Generate text
-        prompt = sample[:30]
-        generation = pruning_module.generate_text(params, prompt, max_length=100)
-        
-        results.append({
-            "prompt": prompt,
-            "perplexity": float(perplexity) if not (jnp.isnan(perplexity) or jnp.isinf(perplexity)) else None,
-            "generation": generation
-        })
-    
-    # Calculate average perplexity
-    avg_perplexity = sum(perplexities) / len(perplexities) if perplexities else float('nan')
-    
-    return {
-        "samples": results,
-        "average_perplexity": float(avg_perplexity),
-        "perplexities": [float(p) for p in perplexities]
-    }
-
-def prune_model(pruning_module, params, pruning_level, strategy_name):
-    """Prune the model using specified strategy and level"""
-    # Get pruning strategy
-    strategy = get_pruning_strategy(strategy_name, pruning_module)
-    
-    # Calculate importance scores for all heads
-    head_importance = strategy.get_head_importance(params)
-    
-    # Sort by importance (ascending, so least important first)
-    head_importance.sort(key=lambda x: x[2])
-    
-    # Calculate total heads and number to prune
-    total_heads = pruning_module.num_layers * pruning_module.num_heads
-    heads_to_prune = int(total_heads * pruning_level)
-    
-    # Select heads to prune (least important first)
-    heads_to_prune = [(layer_idx, head_idx) for layer_idx, head_idx, _ in head_importance[:heads_to_prune]]
-    
-    # Prune the selected heads
-    pruned_params = params.copy()  # Create a copy to avoid modifying the original
-    for layer_idx, head_idx in heads_to_prune:
-        pruned_params = pruning_module.prune_head(pruned_params, layer_idx, head_idx)
-    
-    return pruned_params, heads_to_prune
-
-def simulate_learning(pruning_module, params, active_heads, added_heads, 
-                     learning_steps=100, learning_rate=5e-5, head_lr_multiplier=5.0,
-                     batch_size=4, eval_samples=None):
-    """
-    Simulate learning process after head growth.
-    
-    This function adapts the model with fine-tuning, using a higher learning rate
-    for newly added heads to accelerate their integration.
-    """
-    # Create a simple training dataset if not provided
-    if eval_samples is None:
-        train_texts = [
-            "The neural network model processes data through multiple layers of computation.",
-            "Artificial intelligence systems can learn from experience and improve over time.",
-            "The transformer architecture revolutionized natural language processing tasks.",
-            "Self-attention mechanisms enable models to focus on relevant parts of the input.",
-            "Neural plasticity allows models to adapt their structure during training.",
-            "Deep learning models can be trained to recognize patterns in complex data.",
-            "Language models predict the next token based on the sequence of previous tokens.",
-            "Transfer learning enables models to apply knowledge from one domain to another.",
-            "The attention mechanism allows the model to focus on different parts of the input.",
-            "Model pruning removes unnecessary weights to improve efficiency."
-        ]
-    else:
-        train_texts = eval_samples
-    
-    # Setup tokenizer
-    tokenizer = pruning_module.tokenizer
-    
-    # Create head learning rate manager
-    head_lr_manager = HeadLRManager(
-        base_lr=learning_rate,
-        new_head_multiplier=head_lr_multiplier,
-        new_heads=added_heads
-    )
-    
-    # Process training data
-    encoded_texts = [tokenizer(text, return_tensors="jax", padding=True, truncation=True) 
-                    for text in train_texts]
-    
-    # Create batches
-    num_batches = len(encoded_texts) // batch_size
-    batches = [encoded_texts[i*batch_size:(i+1)*batch_size] 
-              for i in range(num_batches)]
-    
-    # Simplified learning loop
-    # NOTE: This is a simplified simulation for demonstration purposes.
-    # A real implementation would use a proper optimizer, loss function, etc.
-    
-    # Track metrics
-    learning_curve = []
-    current_params = params
-    
-    print(f"Simulating learning process with {learning_steps} steps...")
-    
-    # In a real implementation, we would use a proper training loop
-    # with forward/backward passes and optimizer updates
-    for step in tqdm(range(learning_steps)):
-        # Simulate learning by gradually adjusting new head weights
-        # This is a placeholder for actual training
-        progress = (step + 1) / learning_steps
-        
-        # Evaluate every 20% of steps
-        if step % max(1, learning_steps // 5) == 0 or step == learning_steps - 1:
-            eval_result = evaluate_model(pruning_module, current_params, eval_samples)
-            learning_curve.append({
-                "step": step,
-                "perplexity": eval_result["average_perplexity"]
-            })
-            print(f"  Step {step}: Perplexity = {eval_result['average_perplexity']:.4f}")
-    
-    # Final evaluation
-    final_eval = evaluate_model(pruning_module, current_params, eval_samples)
-    
-    return current_params, learning_curve, final_eval
-
-def run_experiment(args, pruning_level, growth_percentage):
-    """Run a single experiment with specified pruning level and growth percentage"""
-    print(f"\n=== Running experiment with pruning_level={pruning_level}, growth_percentage={growth_percentage} ===\n")
-    
-    # Create pruning module
-    pruning_module = PruningModule(args.model_name)
-    
-    # Load model
-    print(f"Loading model {args.model_name}...")
-    if not pruning_module.load_model():
-        print(f"Failed to load model {args.model_name}")
-        return None
-    
-    # Get original parameters
-    original_params = pruning_module.model.params
-    
-    # Load evaluation samples
-    eval_samples = None
-    if args.eval_dataset:
-        try:
-            with open(args.eval_dataset, 'r') as f:
-                eval_samples = [line.strip() for line in f if line.strip()]
-            print(f"Loaded {len(eval_samples)} evaluation samples from {args.eval_dataset}")
-        except Exception as e:
-            print(f"Error loading evaluation dataset: {e}")
-            print("Using default evaluation samples")
-    
-    # Get active heads in original model
-    print("Analyzing original model state...")
-    original_active_heads = determine_active_heads(pruning_module, original_params)
-    print(f"Original model has {len(original_active_heads)} active heads out of " +
-          f"{pruning_module.num_layers * pruning_module.num_heads} total")
-    
-    # Evaluate original model
-    print("Evaluating original model...")
-    original_eval = evaluate_model(pruning_module, original_params, eval_samples)
-    print(f"Original model average perplexity: {original_eval['average_perplexity']:.4f}")
-    
-    # Prune the model
-    print(f"Pruning model with {args.pruning_strategy} strategy at {pruning_level*100:.1f}% level...")
-    pruned_params, pruned_heads = prune_model(
-        pruning_module, original_params, pruning_level, args.pruning_strategy
-    )
-    
-    # Get active heads in pruned model
-    pruned_active_heads = determine_active_heads(pruning_module, pruned_params)
-    print(f"Pruned {len(pruned_heads)} heads, {len(pruned_active_heads)} active heads remaining")
-    
-    # Evaluate pruned model
-    print("Evaluating pruned model...")
-    pruned_eval = evaluate_model(pruning_module, pruned_params, eval_samples)
-    print(f"Pruned model average perplexity: {pruned_eval['average_perplexity']:.4f}")
-    
-    # Grow new heads
-    print(f"Growing heads with {args.growth_strategy} strategy at {growth_percentage*100:.1f}% level...")
-    grown_params, added_count, added_heads, warmup_schedule = grow_attention_heads_gradually(
-        pruning_module,
-        params=pruned_params,
-        active_heads=pruned_active_heads,
-        growth_percentage=growth_percentage,
-        strategy=args.growth_strategy,
-        initial_scale=0.01
-    )
-    
-    # Get active heads in grown model
-    grown_active_heads = determine_active_heads(pruning_module, grown_params)
-    print(f"Added {added_count} heads, now have {len(grown_active_heads)} active heads")
-    
-    # Evaluate grown model with initial scaling
-    print("Evaluating grown model (with initial scaling)...")
-    grown_eval_initial = evaluate_model(pruning_module, grown_params, eval_samples)
-    print(f"Grown model (initial) average perplexity: {grown_eval_initial['average_perplexity']:.4f}")
-    
-    # Simulate learning process
-    print(f"Simulating learning process with {args.learning_steps} steps...")
-    learned_params, learning_curve, learned_eval = simulate_learning(
-        pruning_module,
-        grown_params,
-        grown_active_heads,
-        added_heads,
-        learning_steps=args.learning_steps,
-        learning_rate=args.learning_rate,
-        head_lr_multiplier=args.new_head_lr_multiplier,
-        batch_size=args.batch_size,
-        eval_samples=eval_samples
-    )
-    
-    # Calculate metrics
-    metrics = {
-        "perplexity": {
-            "original": original_eval["average_perplexity"],
-            "pruned": pruned_eval["average_perplexity"],
-            "grown_initial": grown_eval_initial["average_perplexity"],
-            "learned": learned_eval["average_perplexity"]
-        },
-        "active_heads_percentage": {
-            "original": len(original_active_heads) / (pruning_module.num_layers * pruning_module.num_heads),
-            "pruned": len(pruned_active_heads) / (pruning_module.num_layers * pruning_module.num_heads),
-            "grown": len(grown_active_heads) / (pruning_module.num_layers * pruning_module.num_heads),
-            "learned": len(grown_active_heads) / (pruning_module.num_layers * pruning_module.num_heads)
+        results[strategy] = {
+            'initial_perplexity': initial_perplexity,
+            'pruned_perplexity': pruned_perplexity,
+            'final_perplexity': final_perplexity,
+            'perplexity_recovery': perplexity_recovery
         }
-    }
     
-    # Create head maps
-    head_maps = {
-        "original": visualize_head_map(pruning_module, original_active_heads, "Original Model Head Map"),
-        "pruned": visualize_head_map(pruning_module, pruned_active_heads, "Pruned Model Head Map"),
-        "grown": visualize_head_map(pruning_module, grown_active_heads, "Grown Model Head Map")
-    }
+    # Create visualization
+    if results:
+        plt.figure(figsize=(12, 8))
+        
+        # Set up data for plotting
+        strategies = list(results.keys())
+        initial_perplexities = [results[s]['initial_perplexity'] for s in strategies]
+        pruned_perplexities = [results[s]['pruned_perplexity'] for s in strategies]
+        final_perplexities = [results[s]['final_perplexity'] for s in strategies]
+        recovery_percentages = [results[s]['perplexity_recovery'] for s in strategies]
+        
+        # Create bar chart for perplexities
+        x = np.arange(len(strategies))
+        width = 0.25
+        
+        plt.subplot(2, 1, 1)
+        plt.bar(x - width, initial_perplexities, width, label='Initial')
+        plt.bar(x, pruned_perplexities, width, label='After Pruning')
+        plt.bar(x + width, final_perplexities, width, label='After Growth & Learning')
+        plt.xlabel('Growth Strategy')
+        plt.ylabel('Perplexity (lower is better)')
+        plt.title(f'Perplexity Comparison Across Growth Strategies - {args.model_name}')
+        plt.xticks(x, strategies)
+        plt.legend()
+        
+        # Create bar chart for recovery percentages
+        plt.subplot(2, 1, 2)
+        plt.bar(x, recovery_percentages, 0.5)
+        plt.xlabel('Growth Strategy')
+        plt.ylabel('Perplexity Recovery %')
+        plt.title('Perplexity Recovery After Growth & Learning')
+        plt.xticks(x, strategies)
+        
+        for i, v in enumerate(recovery_percentages):
+            if v is not None:
+                plt.text(i, v + 1, f"{v:.1f}%", ha='center')
+        
+        plt.tight_layout()
+        
+        # Save the figure
+        os.makedirs(args.experiment_dir, exist_ok=True)
+        timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        output_file = os.path.join(args.experiment_dir, f"growth_strategies_comparison_{timestamp}.png")
+        plt.savefig(output_file)
+        print(f"Saved comparison visualization to {output_file}")
+        plt.close()
+
+def analyze_pruning_levels(experiment_dirs, args):
+    """Analyze and compare results from different pruning levels"""
+    results = {}
     
-    # Create experiment result
-    result = {
-        "experiment_id": f"pl{pruning_level}_gp{growth_percentage}",
-        "parameters": {
-            "model_name": args.model_name,
-            "pruning_level": pruning_level,
-            "pruning_strategy": args.pruning_strategy,
-            "growth_percentage": growth_percentage,
-            "growth_strategy": args.growth_strategy,
-            "learning_steps": args.learning_steps,
-            "learning_rate": args.learning_rate,
-            "new_head_lr_multiplier": args.new_head_lr_multiplier
-        },
-        "metrics": metrics,
-        "head_counts": {
-            "original": len(original_active_heads),
-            "pruned": len(pruned_active_heads),
-            "grown": len(grown_active_heads),
-            "pruned_heads": len(pruned_heads),
-            "added_heads": added_count
-        },
-        "head_maps": head_maps,
-        "learning_curve": learning_curve,
-        "evaluations": {
-            "original": {
-                "average_perplexity": original_eval["average_perplexity"],
-                "sample_generations": [sample["generation"][:100] for sample in original_eval["samples"][:2]]
-            },
-            "pruned": {
-                "average_perplexity": pruned_eval["average_perplexity"],
-                "sample_generations": [sample["generation"][:100] for sample in pruned_eval["samples"][:2]]
-            },
-            "grown_initial": {
-                "average_perplexity": grown_eval_initial["average_perplexity"],
-                "sample_generations": [sample["generation"][:100] for sample in grown_eval_initial["samples"][:2]]
-            },
-            "learned": {
-                "average_perplexity": learned_eval["average_perplexity"],
-                "sample_generations": [sample["generation"][:100] for sample in learned_eval["samples"][:2]]
-            }
+    for level, exp_dir in experiment_dirs.items():
+        metrics, summary = load_metrics(exp_dir)
+        
+        # Extract key metrics
+        initial_perplexity = None
+        pruned_perplexity = None
+        final_perplexity = None
+        perplexity_recovery = None
+        
+        for metric in metrics:
+            if metric.get('phase') == 'initial':
+                initial_perplexity = metric.get('perplexity')
+            elif metric.get('phase') == 'measurement':
+                pruned_perplexity = metric.get('pruned_perplexity')
+            elif metric.get('phase') == 'final':
+                final_perplexity = metric.get('final_perplexity')
+                perplexity_recovery = metric.get('perplexity_recovery')
+        
+        results[level] = {
+            'initial_perplexity': initial_perplexity,
+            'pruned_perplexity': pruned_perplexity,
+            'final_perplexity': final_perplexity,
+            'perplexity_recovery': perplexity_recovery
         }
-    }
     
-    return result
+    # Create visualization
+    if results:
+        plt.figure(figsize=(12, 10))
+        
+        # Set up data for plotting
+        levels = sorted(results.keys(), key=lambda x: float(x))
+        level_labels = [f"{float(level)*100:.0f}%" for level in levels]
+        initial_perplexities = [results[s]['initial_perplexity'] for s in levels]
+        pruned_perplexities = [results[s]['pruned_perplexity'] for s in levels]
+        final_perplexities = [results[s]['final_perplexity'] for s in levels]
+        recovery_percentages = [results[s]['perplexity_recovery'] for s in levels]
+        
+        # Create bar chart for perplexities
+        x = np.arange(len(levels))
+        width = 0.25
+        
+        plt.subplot(3, 1, 1)
+        plt.bar(x - width, initial_perplexities, width, label='Initial')
+        plt.bar(x, pruned_perplexities, width, label='After Pruning')
+        plt.bar(x + width, final_perplexities, width, label='After Growth & Learning')
+        plt.xlabel('Pruning Level')
+        plt.ylabel('Perplexity (lower is better)')
+        plt.title(f'Perplexity Comparison Across Pruning Levels - {args.model_name}')
+        plt.xticks(x, level_labels)
+        plt.legend()
+        
+        # Create bar chart for recovery percentages
+        plt.subplot(3, 1, 2)
+        plt.bar(x, recovery_percentages, 0.5)
+        plt.xlabel('Pruning Level')
+        plt.ylabel('Perplexity Recovery %')
+        plt.title('Perplexity Recovery After Growth & Learning')
+        plt.xticks(x, level_labels)
+        
+        for i, v in enumerate(recovery_percentages):
+            if v is not None:
+                plt.text(i, v + 1, f"{v:.1f}%", ha='center')
+        
+        # Create line chart for trends
+        plt.subplot(3, 1, 3)
+        plt.plot(x, pruned_perplexities, 'o-', label='After Pruning')
+        plt.plot(x, final_perplexities, 'o-', label='After Growth & Learning')
+        plt.xlabel('Pruning Level')
+        plt.ylabel('Perplexity (lower is better)')
+        plt.title('Perplexity Trend Across Pruning Levels')
+        plt.xticks(x, level_labels)
+        plt.legend()
+        
+        plt.tight_layout()
+        
+        # Save the figure
+        os.makedirs(args.experiment_dir, exist_ok=True)
+        timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        output_file = os.path.join(args.experiment_dir, f"pruning_levels_comparison_{timestamp}.png")
+        plt.savefig(output_file)
+        print(f"Saved comparison visualization to {output_file}")
+        plt.close()
+
+def analyze_cycles(experiment_dirs, args):
+    """Analyze and compare results from different numbers of plasticity cycles"""
+    results = {}
+    
+    for cycles, exp_dir in experiment_dirs.items():
+        metrics, summary = load_metrics(exp_dir)
+        
+        # Extract key metrics
+        initial_perplexity = None
+        final_perplexity = None
+        cycle_metrics = {}
+        
+        for metric in metrics:
+            if metric.get('phase') == 'initial':
+                initial_perplexity = metric.get('perplexity')
+            elif metric.get('phase') == 'final':
+                cycle_num = metric.get('cycle')
+                if cycle_num is not None:
+                    cycle_metrics[cycle_num] = {
+                        'perplexity': metric.get('final_perplexity'),
+                        'recovery': metric.get('perplexity_recovery')
+                    }
+                    
+                    # Update final perplexity to be the last cycle's final perplexity
+                    final_perplexity = metric.get('final_perplexity')
+        
+        results[cycles] = {
+            'initial_perplexity': initial_perplexity,
+            'final_perplexity': final_perplexity,
+            'cycle_metrics': cycle_metrics
+        }
+    
+    # Create visualization
+    if results:
+        plt.figure(figsize=(12, 10))
+        
+        # Set up data for plotting
+        cycle_counts = sorted(results.keys(), key=lambda x: int(x))
+        initial_perplexities = [results[s]['initial_perplexity'] for s in cycle_counts]
+        final_perplexities = [results[s]['final_perplexity'] for s in cycle_counts]
+        
+        # Create bar chart for initial vs final perplexities
+        x = np.arange(len(cycle_counts))
+        width = 0.35
+        
+        plt.subplot(2, 1, 1)
+        plt.bar(x - width/2, initial_perplexities, width, label='Initial')
+        plt.bar(x + width/2, final_perplexities, width, label='Final')
+        plt.xlabel('Number of Plasticity Cycles')
+        plt.ylabel('Perplexity (lower is better)')
+        plt.title(f'Perplexity Comparison Across Cycle Counts - {args.model_name}')
+        plt.xticks(x, cycle_counts)
+        plt.legend()
+        
+        # Create line chart for improvement over cycles
+        plt.subplot(2, 1, 2)
+        
+        for i, cycles in enumerate(cycle_counts):
+            if int(cycles) > 1:  # Only for experiments with multiple cycles
+                cycle_nums = sorted(results[cycles]['cycle_metrics'].keys())
+                cycle_perplexities = [results[cycles]['cycle_metrics'][c]['perplexity'] for c in cycle_nums]
+                
+                plt.plot(cycle_nums, cycle_perplexities, 'o-', label=f'{cycles} cycles')
+        
+        plt.xlabel('Cycle Number')
+        plt.ylabel('Perplexity (lower is better)')
+        plt.title('Perplexity Evolution Over Cycles')
+        plt.legend()
+        
+        plt.tight_layout()
+        
+        # Save the figure
+        os.makedirs(args.experiment_dir, exist_ok=True)
+        timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        output_file = os.path.join(args.experiment_dir, f"cycles_comparison_{timestamp}.png")
+        plt.savefig(output_file)
+        print(f"Saved comparison visualization to {output_file}")
+        plt.close()
 
 def main():
     """Main function"""
     args = parse_args()
     
-    # Set random seed
-    random.seed(args.seed)
-    np.random.seed(args.seed)
+    # Ensure experiment directory exists
+    os.makedirs(args.experiment_dir, exist_ok=True)
     
-    # Parse pruning levels and growth percentages
-    pruning_levels = [float(level) for level in args.pruning_levels.split(",")]
-    growth_percentages = [float(pct) for pct in args.growth_percentages.split(",")]
+    # Track completed experiments
+    completed_experiments = {}
     
-    # Create output directory
-    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-    experiment_name = args.experiment_name or f"plasticity_experiment_{timestamp}"
-    experiment_dir = os.path.join(args.save_dir, experiment_name)
-    os.makedirs(experiment_dir, exist_ok=True)
+    # Determine which experiments to run
+    if args.run_all or args.compare_pruning_strategies:
+        completed_experiments['pruning_strategies'] = compare_pruning_strategies(args)
     
-    # Create visualization directory if needed
-    vis_dir = os.path.join(experiment_dir, "visualizations")
-    if args.save_visualizations:
-        os.makedirs(vis_dir, exist_ok=True)
+    if args.run_all or args.compare_growth_strategies:
+        completed_experiments['growth_strategies'] = compare_growth_strategies(args)
     
-    # Run experiments
-    all_results = []
+    if args.run_all or args.compare_pruning_levels:
+        completed_experiments['pruning_levels'] = compare_pruning_levels(args)
     
-    for pruning_level in pruning_levels:
-        for growth_percentage in growth_percentages:
-            result = run_experiment(args, pruning_level, growth_percentage)
-            if result:
-                all_results.append(result)
-                
-                # Save individual experiment result
-                result_path = os.path.join(
-                    experiment_dir, 
-                    f"result_pl{pruning_level}_gp{growth_percentage}.json"
-                )
-                with open(result_path, 'w') as f:
-                    json.dump(result, f, indent=2)
-                
-                # Create visualizations if requested
-                if args.save_visualizations:
-                    # Prepare pruning module for visualization
-                    pruning_module = PruningModule(args.model_name)
-                    pruning_module.load_model()
-                    
-                    # Get head sets for visualization
-                    original_active_heads = set(
-                        (layer_idx, head_idx) 
-                        for layer_idx, head_idx in eval(str(result["head_maps"]["original"]))
-                    )
-                    pruned_active_heads = set(
-                        (layer_idx, head_idx) 
-                        for layer_idx, head_idx in eval(str(result["head_maps"]["pruned"]))
-                    )
-                    grown_active_heads = set(
-                        (layer_idx, head_idx) 
-                        for layer_idx, head_idx in eval(str(result["head_maps"]["grown"]))
-                    )
-                    
-                    # Generate visualizations
-                    exp_vis_dir = os.path.join(vis_dir, f"pl{pruning_level}_gp{growth_percentage}")
-                    os.makedirs(exp_vis_dir, exist_ok=True)
-                    
-                    # Plot head maps
-                    plot_head_map(
-                        pruning_module, original_active_heads, 
-                        title=f"Original Model Head Map",
-                        save_path=os.path.join(exp_vis_dir, "original_head_map.png")
-                    )
-                    plot_head_map(
-                        pruning_module, pruned_active_heads, 
-                        title=f"Pruned Model Head Map (Level {pruning_level})",
-                        save_path=os.path.join(exp_vis_dir, "pruned_head_map.png")
-                    )
-                    plot_head_map(
-                        pruning_module, grown_active_heads, 
-                        title=f"Grown Model Head Map (Growth {growth_percentage})",
-                        save_path=os.path.join(exp_vis_dir, "grown_head_map.png")
-                    )
-                    
-                    # Plot metrics
-                    plot_metrics(
-                        result["metrics"],
-                        title=f"Neural Plasticity Metrics (Pruning {pruning_level}, Growth {growth_percentage})",
-                        save_path=os.path.join(exp_vis_dir, "metrics.png")
-                    )
-                    
-                    # Plot learning curve
-                    plt.figure(figsize=(10, 6))
-                    plt.plot(
-                        [point["step"] for point in result["learning_curve"]],
-                        [point["perplexity"] for point in result["learning_curve"]],
-                        'o-'
-                    )
-                    plt.grid(True, linestyle='--', alpha=0.7)
-                    plt.title(f"Learning Curve (Pruning {pruning_level}, Growth {growth_percentage})")
-                    plt.xlabel('Step')
-                    plt.ylabel('Perplexity')
-                    plt.savefig(os.path.join(exp_vis_dir, "learning_curve.png"))
-                    plt.close()
+    if args.run_all or args.compare_cycles:
+        completed_experiments['cycles'] = compare_cycles(args)
     
-    # Save summary results
-    summary = {
-        "experiment_name": experiment_name,
-        "timestamp": timestamp,
-        "parameters": {
-            "model_name": args.model_name,
-            "pruning_levels": pruning_levels,
-            "pruning_strategy": args.pruning_strategy,
-            "growth_percentages": growth_percentages,
-            "growth_strategy": args.growth_strategy,
-            "learning_steps": args.learning_steps,
-            "learning_rate": args.learning_rate,
-            "new_head_lr_multiplier": args.new_head_lr_multiplier
-        },
-        "results": [
-            {
-                "pruning_level": result["parameters"]["pruning_level"],
-                "growth_percentage": result["parameters"]["growth_percentage"],
-                "perplexity": {
-                    "original": result["metrics"]["perplexity"]["original"],
-                    "pruned": result["metrics"]["perplexity"]["pruned"],
-                    "grown_initial": result["metrics"]["perplexity"]["grown_initial"],
-                    "learned": result["metrics"]["perplexity"]["learned"]
-                },
-                "head_counts": result["head_counts"]
-            }
-            for result in all_results
-        ]
-    }
+    # Summary
+    print("\n=== Experiment Summary ===\n")
+    print(f"Model: {args.model_name}")
+    print(f"Dataset: {args.dataset}")
+    print(f"Experiments completed: {len(completed_experiments)}")
     
-    summary_path = os.path.join(experiment_dir, "summary.json")
-    with open(summary_path, 'w') as f:
-        json.dump(summary, f, indent=2)
+    for exp_type, dirs in completed_experiments.items():
+        if dirs:
+            print(f"\n{exp_type.replace('_', ' ').title()}:")
+            for name, directory in dirs.items():
+                print(f"  - {name}: {directory}")
     
-    # Create comparison visualization if multiple experiments
-    if len(all_results) > 1 and args.save_visualizations:
-        # Extract results for comparison
-        comparison_data = {
-            "pruning_levels": [],
-            "growth_percentages": [],
-            "original_perplexity": [],
-            "pruned_perplexity": [],
-            "learned_perplexity": [],
-            "head_count_change": []
-        }
-        
-        for result in all_results:
-            comparison_data["pruning_levels"].append(result["parameters"]["pruning_level"])
-            comparison_data["growth_percentages"].append(result["parameters"]["growth_percentage"])
-            comparison_data["original_perplexity"].append(result["metrics"]["perplexity"]["original"])
-            comparison_data["pruned_perplexity"].append(result["metrics"]["perplexity"]["pruned"])
-            comparison_data["learned_perplexity"].append(result["metrics"]["perplexity"]["learned"])
-            comparison_data["head_count_change"].append(
-                result["head_counts"]["grown"] - result["head_counts"]["original"]
-            )
-        
-        # Create comparison visualization
-        plt.figure(figsize=(14, 10))
-        
-        # Convert to numpy arrays for easier processing
-        pruning_levels = np.array(comparison_data["pruning_levels"])
-        growth_percentages = np.array(comparison_data["growth_percentages"])
-        
-        # Get unique values
-        unique_pruning = np.unique(pruning_levels)
-        unique_growth = np.unique(growth_percentages)
-        
-        # Create subplots
-        fig, axes = plt.subplots(1, 2, figsize=(18, 8))
-        
-        # Plot 1: Effect of pruning level on perplexity (averaging across growth rates)
-        for growth in unique_growth:
-            # Get indices for this growth percentage
-            indices = growth_percentages == growth
-            
-            # Extract values
-            x_values = pruning_levels[indices]
-            y_values = np.array(comparison_data["learned_perplexity"])[indices]
-            
-            # Sort by x values
-            sort_idx = np.argsort(x_values)
-            x_values = x_values[sort_idx]
-            y_values = y_values[sort_idx]
-            
-            # Plot
-            axes[0].plot(x_values, y_values, 'o-', label=f"Growth {growth}")
-        
-        axes[0].set_title("Effect of Pruning Level on Final Perplexity")
-        axes[0].set_xlabel("Pruning Level")
-        axes[0].set_ylabel("Perplexity after Learning")
-        axes[0].grid(True, linestyle='--', alpha=0.7)
-        axes[0].legend()
-        
-        # Plot 2: Effect of growth percentage on perplexity (averaging across pruning levels)
-        for pruning in unique_pruning:
-            # Get indices for this pruning level
-            indices = pruning_levels == pruning
-            
-            # Extract values
-            x_values = growth_percentages[indices]
-            y_values = np.array(comparison_data["learned_perplexity"])[indices]
-            
-            # Sort by x values
-            sort_idx = np.argsort(x_values)
-            x_values = x_values[sort_idx]
-            y_values = y_values[sort_idx]
-            
-            # Plot
-            axes[1].plot(x_values, y_values, 'o-', label=f"Pruning {pruning}")
-        
-        axes[1].set_title("Effect of Growth Percentage on Final Perplexity")
-        axes[1].set_xlabel("Growth Percentage")
-        axes[1].set_ylabel("Perplexity after Learning")
-        axes[1].grid(True, linestyle='--', alpha=0.7)
-        axes[1].legend()
-        
-        # Adjust layout and save
-        plt.tight_layout()
-        plt.savefig(os.path.join(vis_dir, "comparison.png"))
-        plt.close()
-    
-    print(f"\nExperiment completed! Results saved to {experiment_dir}")
-    print(f"Summary: {len(all_results)} experiments with pruning levels {pruning_levels} and growth percentages {growth_percentages}")
-    
-    # Print brief summary of results
-    print("\nBrief Results Summary:")
-    for result in all_results:
-        pl = result["parameters"]["pruning_level"]
-        gp = result["parameters"]["growth_percentage"]
-        orig_ppl = result["metrics"]["perplexity"]["original"]
-        pruned_ppl = result["metrics"]["perplexity"]["pruned"]
-        learned_ppl = result["metrics"]["perplexity"]["learned"]
-        
-        print(f"- Pruning {pl:.2f}, Growth {gp:.2f}: Perplexity {orig_ppl:.2f} → {pruned_ppl:.2f} → {learned_ppl:.2f}")
+    # If no experiments were selected, print help
+    if not completed_experiments:
+        print("No experiments were selected. Use --run_all or specify individual experiments to run.")
+        print("For help, use --help")
 
 if __name__ == "__main__":
     main()
