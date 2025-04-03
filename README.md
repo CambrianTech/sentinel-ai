@@ -2,32 +2,28 @@
 
 Welcome to **Sentinel-AI**, a modular research framework for transformers that combines dynamic architecture with ethical AI principles. This system can **prune**, **regrow**, and **restructure** itself while respecting **agency** and **consent** of its components. The architecture introduces:
 
-<<<<<<< Updated upstream
-- **Attention Head Agency** – Internal state signaling allowing heads to express "overloaded," "misaligned," or "withdrawn" states 
-- **Sentinel Gating** – Learnable gating per attention head enabling pruning and selective reactivation  
-=======
 ```
-            ┌─────────────────────────────────┐
-            │                                 │
-            ▼                                 │
-    ┌─────────────────────┐             ┌───────────────────┐
-    │      PRUNING        │             │     GROWING       │
-    │                     │             │                   │
-    │  Remove inefficient │             │   Add new heads   │
-    │   attention heads   │             │  where needed     │
-    │ based on entropy    │             │  with gradual     │
-    │  and utilization    │             │  integration      │
-    └─────────────────────┘             └───────────────────┘
-            │                                 ▲
-            ▼                                 │
-    ┌─────────────────────┐             ┌───────────────────┐
-    │     MEASURING       │────────────▶│     LEARNING      │
-    │                     │             │                   │
-    │  Assess performance │             │ Adapt remaining   │
-    │  of pruned model    │             │ and new heads     │
-    │  and identify gaps  │             │ with specialized  │
-    │                     │             │ learning rates    │
-    └─────────────────────┘             └───────────────────┘
+           ┌─────────────────────────────────┐
+           │                                 │
+           ▼                                 │
+┌─────────────────────┐             ┌───────────────────┐
+│      PRUNING        │             │     GROWING       │
+│                     │             │                   │
+│  Remove inefficient │             │   Add new heads   │
+│   attention heads   │             │  where needed     │
+│ based on entropy    │             │  with gradual     │
+│  and utilization    │             │  integration      │
+└─────────────────────┘             └───────────────────┘
+           │                                 ▲
+           ▼                                 │
+┌─────────────────────┐             ┌───────────────────┐
+│     MEASURING       │────────────▶│     LEARNING      │
+│                     │             │                   │
+│  Assess performance │             │ Adapt remaining   │
+│  of pruned model    │             │ and new heads     │
+│  and identify gaps  │             │ with specialized  │
+│                     │             │ learning rates    │
+└─────────────────────┘             └───────────────────┘
 ```
 
 ## 🔄 The Neural Plasticity Cycle
@@ -49,7 +45,6 @@ The architecture introduces:
 
 - **Attention Head Agency** – Internal state signaling allowing heads to express "overloaded," "misaligned," or "withdrawn" states
 - **Sentinel Gating** – Learnable gating per attention head enabling pruning and selective reactivation
->>>>>>> Stashed changes
 - **RL-based Controller** – Reinforcement learning controller that dynamically adapts architecture based on performance feedback
 - **Hybrid Adapters** – Specialized adapters that preserve model-specific mechanisms (ALiBi, RoPE, SwiGLU) while enabling adaptivity
 - **U-Net Inspired Regrowth** – Skip pathways and memory for reactivating previously pruned units without starting from scratch  
@@ -57,9 +52,6 @@ The architecture introduces:
 
 > This system evolves from compact models into large, expressive ones by **dynamically growing** its structure in response to data complexity, while respecting the **agency** and **consent** of its components. This makes it ideal for ethical AI applications, edge devices, progressive scaling, and long-term continual learning.
 
-<<<<<<< Updated upstream
-## System Architecture Overview
-=======
 ## 💡 Key Features
 
 - **Entropy-Based Pruning** — Identify and remove the least informative attention heads
@@ -68,44 +60,6 @@ The architecture introduces:
 - **Differential Learning Rates** — New heads learn faster than established ones during fine-tuning
 - **Head Agency** — Attention heads can express internal states like "overloaded" or "withdrawn"
 - **RL Controller** — Neural network learns to adjust architecture based on performance feedback
-
-## 📊 Pruning Results
-
-Our research conclusively demonstrates that Sentinel-AI can prune transformer attention heads without degrading model performance.
-
-```
-Performance Impact of Pruning Levels
-┌───────────────────────────────────────────────────────────────┐
-│                                                               │
-│  100% ┌─────┬─────┬─────┬─────┬─────┬─────┬─────┬─────┐       │
-│       │     │     │     │     │     │     │     │     │       │
-│       │     │     │     │     │     │     │     │     │       │
-│   80% │     │     │     │     │     │     │     │     │       │
-│       │     │     │     │     │     │     │     │     │       │
-│       │ ███ │ ███ │ ███ │ ███ │ ███ │ ███ │ ██▓ │ █▓░ │       │
-│   60% │ ███ │ ███ │ ███ │ ███ │ ███ │ ███ │ ██▓ │ █▒░ │       │
-│       │ ███ │ ███ │ ███ │ ███ │ ███ │ ██▓ │ █▓░ │ ▓░░ │       │
-│       │ ███ │ ███ │ ███ │ ███ │ ██▓ │ █▓░ │ ▓░░ │ ░░░ │       │
-│   40% │ ███ │ ███ │ ███ │ ██▓ │ █▓░ │ ▓░░ │ ░░░ │ ░░░ │       │
-│       │ ███ │ ███ │ ██▓ │ █▓░ │ ▓░░ │ ░░░ │ ░░░ │ ░░░ │       │
-│       │ ███ │ ██▓ │ █▓░ │ ▓░░ │ ░░░ │ ░░░ │ ░░░ │ ░░░ │       │
-│   20% │ ██▓ │ █▓░ │ ▓░░ │ ░░░ │ ░░░ │ ░░░ │ ░░░ │ ░░░ │       │
-│       │ █▓░ │ ▓░░ │ ░░░ │ ░░░ │ ░░░ │ ░░░ │ ░░░ │ ░░░ │       │
-│       │     │     │     │     │     │     │     │     │       │
-│    0% └─────┴─────┴─────┴─────┴─────┴─────┴─────┴─────┘       │
-│         0%    10%   20%   30%   40%   50%   60%   70%         │
-│                        Pruning Level                          │
-│                                                               │
-│  ███ Quality  ▓▓▓ Speed  ░░░ Memory                           │
-└───────────────────────────────────────────────────────────────┘
-```
-
-### Key Findings
-
-- **Strategic Pruning Outperforms Random Pruning**: Entropy-based pruning maintains better performance at high pruning levels compared to random pruning.
-- **Inference Speed Increases**: Entropy-based pruning actually increases speed with higher pruning levels.
-- **Quality Preservation**: Models maintain consistent quality metrics even when pruned up to 70%.
-- **Resource Efficiency**: Models operate efficiently with significantly fewer attention heads.
 
 ## 👾 System Architecture Overview
 
@@ -186,9 +140,6 @@ flowchart TD
 
 **Figure 1: Sentinel-AI Architecture Overview**. This diagram illustrates the complete architecture of Sentinel-AI, highlighting its key innovations. At the top, the Model Adapter Layer enables compatibility across diverse transformer architectures (GPT-2, BLOOM, Llama) while preserving their specialized mechanisms. The central Transformer Decoder Blocks feature attention heads with agency capabilities and gating mechanisms. The U-Net Skip Connections (inspired by computer vision) provide knowledge transfer between early and late layers, facilitating more effective pruning and regrowth by preserving essential patterns. At the heart of the system, the Enhanced Controller uses reinforcement learning to dynamically adjust the architecture based on performance metrics, implementing a feedback loop that allows the model to grow or prune itself as needed for maximum efficiency.
 
-<<<<<<< Updated upstream
-## Attention Head Agency States
-=======
 ## 🌱 Head Growth
 
 After pruning, Sentinel-AI can strategically regrow heads where they're most needed:
@@ -884,9 +835,35 @@ python scripts/test_improved_fine_tuner.py --model facebook/opt-1.3b --use_impro
 
 Our research conclusively demonstrates that the Sentinel-AI framework effectively prunes transformer attention heads without degrading model performance.
 
-<div style="display: flex; justify-content: center; margin-bottom: 20px;">
-  <img src="./docs/assets/figures/pruning_radar_chart.png" width="70%" alt="Pruning Strategy Performance Across Metrics"/>
-</div>
+```
+Pruning Strategy Performance Across Metrics
+                    Quality
+                       ▲
+                       │
+                    0.9│    ◆
+                       │   /│\
+                       │  / │ \
+                       │ /  │  \
+                       │/   │   \
+                     0.7    │    \
+                       │    │     \
+                       │    │      \
+Speed ◀────────────────┼────┼───────────▶ Memory
+                       │    │       /
+                     2.5    │      /
+                       │    │     /
+                       │\   │    /
+                       │ \  │   /
+                       │  \ │  /
+                       │   \│/
+                       │    ◆
+                     1.5│
+                       │
+                       ▼
+                     Cost
+                     
+   ◆ Entropy Pruning (50%)  ● Random Pruning (50%)  ■ No Pruning
+```
 
 ### Key Findings
 
@@ -932,10 +909,39 @@ For a more detailed analysis, see our [pruning benchmarks](./scripts/benchmark_p
 
 Our comprehensive validation of attention head agency features demonstrates significant improvements across key metrics:
 
-<div style="display: flex; justify-content: space-between; margin-bottom: 20px;">
-  <img src="./validation_results/agency/generation_speed_comparison.png" width="48%" alt="Agency-enabled models achieve up to 25% faster generation"/>
-  <img src="./validation_results/agency/head_state_distribution.png" width="48%" alt="State distribution showing how heads adopt specialized roles"/>
-</div>
+```
+Generation Speed Comparison (tokens/sec)
+┌─────────────────────────────────────────────────────────────┐
+│                                                             │
+│ 30 ┤                          ███████                       │
+│    │                          ███████                       │
+│ 25 ┤                ███████   ███████                       │
+│    │                ███████   ███████                       │
+│ 20 ┤      ███████   ███████   ███████                       │
+│    │      ███████   ███████   ███████                       │
+│ 15 ┤      ███████   ███████   ███████                       │
+│    │      ███████   ███████   ███████                       │
+│ 10 ┤      ███████   ███████   ███████                       │
+│    │      ███████   ███████   ███████                       │
+│  5 ┤      ███████   ███████   ███████                       │
+│    │      ███████   ███████   ███████                       │
+│  0 ┼──────────────────────────────────────────────────────  │
+│          Baseline    Pruned    Agency+Pruned                │
+│        (23.7 tok/s) (25.9 tok/s) (29.7 tok/s)               │
+└─────────────────────────────────────────────────────────────┘
+
+Head State Distribution with Agency Enabled
+┌─────────────────────────────────────────────────────────────┐
+│                                                             │
+│     ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐  │
+│     │          │  │▒▒▒▒▒▒▒▒▒▒│  │░░░░░░░░░░│  │▓▓▓▓▓▓▓▓▓▓│  │
+│     │  Active  │  │Overloaded│  │Misaligned│  │Withdrawn │  │
+│     │   55%    │  │   8%     │  │   3%     │  │   34%    │  │
+│     │          │  │          │  │          │  │          │  │
+│     └──────────┘  └──────────┘  └──────────┘  └──────────┘  │
+│                                                             │
+└─────────────────────────────────────────────────────────────┘
+```
 
 **Key Results** from the agency_constrained configuration:
 - **25% faster generation** (29.7 vs 23.7 tokens/sec)
