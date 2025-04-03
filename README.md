@@ -108,7 +108,6 @@ Performance Impact of Pruning Levels
 - **Resource Efficiency**: Models operate efficiently with significantly fewer attention heads.
 
 ## 👾 System Architecture Overview
->>>>>>> Stashed changes
 
 ```mermaid
 flowchart TD
