@@ -1,10 +1,10 @@
 #!/usr/bin/env python
 # coding: utf-8
 
-# # Pruning and Fine-Tuning Benchmark for Google Colab (v0.0.18)
+# # Pruning and Fine-Tuning Benchmark for Google Colab (v0.0.19)
 # 
 # This is the Python script version of our notebook for Google Colab.
-# Version 0.0.18 (April 2025) - Optimized for best pruning and performance
+# Version 0.0.19 (April 2025) - Fixed dataset imports and optimized performance
 # 
 # Instructions:
 # 1. Upload to a new Colab notebook using File > Upload notebook > Upload
@@ -35,24 +35,43 @@
 # Don't cd into it yet
 
 # %%
-# Explicitly ensure we're using the HuggingFace datasets, not local datasets
-# Force Python to look for the package in the system paths first
-import sys
-original_path = sys.path.copy()
-sys.path = [p for p in sys.path if 'sentinel-ai' not in p]
+# CRITICAL: We need to ensure we're importing the correct HuggingFace datasets
+# DO NOT import any datasets module yet!
 
-# Now import datasets from huggingface
+# First, move to the repository directory
+%cd sentinel-ai
+
+# When we cd into the directory, Python may import the local datasets module 
+# instead of the HuggingFace datasets module.
+# To fix this, we'll temporarily rename the local datasets directory
+
+# %%
+# Temporarily rename the local datasets directory to avoid import conflicts
+import os
+if os.path.exists('datasets'):
+    print("Temporarily renaming local datasets directory to avoid import conflicts")
+    !mv datasets datasets_local
+
+# Force a clean import by removing any cached datasets modules
+import sys
+if 'datasets' in sys.modules:
+    print("Removing cached datasets module")
+    del sys.modules['datasets']
+
+# Now import the HuggingFace datasets module
+print("Importing HuggingFace datasets module...")
 from datasets import load_dataset
 import datasets
-print(f"Using datasets from: {datasets.__file__}")
+print(f"Successfully imported HuggingFace datasets from: {datasets.__file__}")
 
-# Safety check to ensure we're using the right datasets package
+# Make sure it's not our local module
 if 'sentinel-ai/datasets' in datasets.__file__:
-    raise ImportError("ERROR: Using local datasets package instead of HuggingFace datasets. Please restart the runtime.")
+    raise ImportError("ERROR: Still using local datasets module. Please restart the runtime.")
 
-# Restore path and change to the repository directory
-sys.path = original_path
-%cd sentinel-ai
+# Restore the original name of the datasets directory
+if os.path.exists('datasets_local'):
+    print("Restoring original datasets directory name")
+    !mv datasets_local datasets
 
 # Import rest of the libraries
 import os
