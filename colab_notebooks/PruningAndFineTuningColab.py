@@ -1,10 +1,10 @@
 #!/usr/bin/env python
 # coding: utf-8
 
-# # Pruning and Fine-Tuning Benchmark for Google Colab (v0.0.20)
+# # Pruning and Fine-Tuning Benchmark for Google Colab (v0.0.22)
 # 
 # This is the Python script version of our notebook for Google Colab.
-# Version 0.0.20 (April 2025) - Fixed dataset imports and Colab compatibility
+# Version 0.0.22 (April 2025) - Complete Colab compatibility overhaul, multiple import conflict fixes
 # 
 # Instructions:
 # 1. Upload to a new Colab notebook using File > Upload notebook > Upload
@@ -39,43 +39,101 @@
 !ln -sf sentinel-ai refactor
 
 # %%
-# CRITICAL: We need to ensure we're importing the correct HuggingFace datasets
-# DO NOT import any datasets module yet!
+print("\n*** CRITICAL: Setting up datasets imports properly ***")
 
-# First, move to the repository directory
-%cd sentinel-ai
-
-# When we cd into the directory, Python may import the local datasets module 
-# instead of the HuggingFace datasets module.
-# To fix this, we'll temporarily rename the local datasets directory
-
-# %%
-# Temporarily rename the local datasets directory to avoid import conflicts
+# Try multiple approaches to fix the import issue
 import os
-if os.path.exists('datasets'):
-    print("Temporarily renaming local datasets directory to avoid import conflicts")
-    !mv datasets datasets_local
-
-# Force a clean import by removing any cached datasets modules
 import sys
-if 'datasets' in sys.modules:
-    print("Removing cached datasets module")
-    del sys.modules['datasets']
+import shutil
 
-# Now import the HuggingFace datasets module
+# First register our Colab-safe import handler
+print("Setting up Colab-safe import handling...")
+
+# More drastic approach: Completely delete the local datasets directory if it exists
+if os.path.exists('/content/sentinel-ai/datasets'):
+    print("REMOVING local datasets directory to prevent import conflicts")
+    try:
+        # First try to rename
+        os.rename('/content/sentinel-ai/datasets', '/content/local_datasets_backup')
+        print("Renamed datasets directory to prevent conflicts")
+    except Exception as e:
+        print(f"Couldn't rename: {e}")
+        # If rename fails, try to move contents
+        try:
+            # Make backup dir
+            os.makedirs('/content/local_datasets_backup', exist_ok=True)
+            
+            # Copy files to backup
+            for item in os.listdir('/content/sentinel-ai/datasets'):
+                src = os.path.join('/content/sentinel-ai/datasets', item)
+                dst = os.path.join('/content/local_datasets_backup', item)
+                if os.path.isdir(src):
+                    shutil.copytree(src, dst, dirs_exist_ok=True)
+                else:
+                    shutil.copy2(src, dst)
+                    
+            # Now remove the directory
+            shutil.rmtree('/content/sentinel-ai/datasets')
+            print("Backed up and removed datasets directory")
+        except Exception as e2:
+            print(f"Backup failed: {e2}, trying direct removal")
+            # Last resort: Just try to remove it directly
+            try:
+                shutil.rmtree('/content/sentinel-ai/datasets')
+                print("Removed datasets directory")
+            except Exception as e3:
+                print(f"ERROR: Could not remove datasets directory: {e3}")
+
+# Force clean modules
+print("Cleaning module cache...")
+for k in list(sys.modules.keys()):
+    if k == 'datasets' or k.startswith('datasets.'):
+        del sys.modules[k]
+
+# Explicitly install datasets to make sure we have the right version
+print("Reinstalling datasets package...")
+!pip install --force-reinstall -q datasets>=2.0.0
+
+# Now change to the repository directory
+print("Changing to repository directory...")
+%cd /content/sentinel-ai
+
+# Now import the HuggingFace datasets
 print("Importing HuggingFace datasets module...")
-from datasets import load_dataset
-import datasets
-print(f"Successfully imported HuggingFace datasets from: {datasets.__file__}")
+import importlib.util
+print(f"Datasets spec: {importlib.util.find_spec('datasets')}")
 
-# Make sure it's not our local module
-if 'sentinel-ai/datasets' in datasets.__file__:
-    raise ImportError("ERROR: Still using local datasets module. Please restart the runtime.")
+try:
+    from datasets import load_dataset
+    import datasets
+    print(f"✅ SUCCESS! Using HuggingFace datasets from: {datasets.__file__}")
 
-# Restore the original name of the datasets directory
-if os.path.exists('datasets_local'):
-    print("Restoring original datasets directory name")
-    !mv datasets_local datasets
+    # Verify it has the load_dataset function
+    if hasattr(datasets, 'load_dataset'):
+        print("✅ load_dataset function is available")
+    else:
+        print("❌ ERROR: load_dataset function not available in datasets module")
+        
+except ImportError as e:
+    print(f"❌ IMPORT ERROR: {e}")
+    
+    # Fallback option: Try installing directly 
+    print("\nAttempting fallback installation of datasets...")
+    !pip install --upgrade -q transformers datasets
+    
+    try:
+        # One more attempt with direct import
+        from datasets.load import load_dataset
+        print("✅ SUCCESS with fallback import method!")
+    except ImportError as e2:
+        print(f"❌ CRITICAL FAILURE: {e2}")
+        print("Please restart runtime and run this cell again")
+
+# Restore backed up datasets directory if needed
+if os.path.exists('/content/local_datasets_backup') and not os.path.exists('/content/sentinel-ai/datasets'):
+    print("Restoring backed up datasets directory...")
+    shutil.copytree('/content/local_datasets_backup', '/content/sentinel-ai/datasets')
+    print("✅ Local datasets directory restored")
 
 # Import rest of the libraries
 import os
