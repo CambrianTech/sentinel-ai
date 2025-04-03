@@ -32,6 +32,10 @@ datasets/**/*.arrow
 datasets/**/cache/
 ~$*
 
+# Neural plasticity experiment results
+plasticity_experiments/
+legacy_datasets/
+
 # Hugging Face transformers/datasets
 ~/.cache/huggingface/
 ~/.huggingface/
