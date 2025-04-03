@@ -41,7 +41,8 @@ def plot_experiment_summary(results_df: pd.DataFrame, figsize: tuple = (12, 10))
         'xtick.labelsize': 10,
         'ytick.labelsize': 10,
         'legend.fontsize': 9,
-        'font.family': 'sans-serif'
+        'font.family': 'sans-serif',
+        'figure.constrained_layout': True  # Use constrained layout instead of tight_layout
     })
     
     # Create figure
@@ -229,7 +230,8 @@ def plot_experiment_summary(results_df: pd.DataFrame, figsize: tuple = (12, 10))
         plt.text(0.5, 0.5, "No final results available yet", 
                 ha="center", va="center", fontsize=12)
     
-    plt.tight_layout(pad=1.2)
+    # Use constrained layout instead of tight_layout
+    # No explicit call to tight_layout needed here
     return fig
 
 
@@ -294,7 +296,7 @@ def plot_strategy_comparison(comparison_df: pd.DataFrame,
                     f"{row['Fine-tuned Perplexity']:.1f}", 
                     ha="center", va="bottom", fontsize=9)
     
-    plt.tight_layout()
+    # Use constrained layout instead of tight_layout
     return fig
 
 
@@ -357,7 +359,7 @@ def plot_recovery_comparison(comparison_df: pd.DataFrame,
     plt.ylabel("Percentage")
     plt.title(f"Recovery or Improvement by Strategy ({model_name}, {pruning_level*100:.0f}% pruning)")
     plt.grid(True, alpha=0.3)
-    plt.tight_layout()
+    # Use constrained layout instead of tight_layout
     
     return fig
 
@@ -427,5 +429,7 @@ def visualize_head_importance(model_name: str,
     # Add a colorbar
     fig.colorbar(cax, ax=axes.ravel().tolist(), shrink=0.6)
     
-    plt.tight_layout(rect=[0, 0, 1, 0.96])  # Make room for the title
+    # Use constrained layout which automatically handles spacings for titles
+    # Adjust figure layout to make room for the title
+    fig.set_constrained_layout_pads(w_pad=4./72., h_pad=4./72., hspace=0.2, wspace=0.2)
     return fig
