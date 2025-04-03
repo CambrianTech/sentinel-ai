@@ -38,7 +38,7 @@ from models.loaders.loader import load_baseline_model, load_adaptive_model
 from utils.checkpoint import load_checkpoint, save_checkpoint
 from utils.head_lr_manager import HeadLRManager
 from utils.head_metrics import compute_attention_entropy, compute_head_importance
-from sentinel_data.dataset_loader import load_and_tokenize_dataset
+from custdata.loaders.dataset_loader import load_and_tokenize_dataset
 from utils.train_utils import compute_loss
 from utils.metrics_logger import MetricsLogger
 from utils.generation_wrapper import generate_text
