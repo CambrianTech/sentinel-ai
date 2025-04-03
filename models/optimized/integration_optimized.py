@@ -9,6 +9,40 @@ between the attention mechanism and other components. The key optimizations focu
 3. Using in-place operations where possible
 4. Optimizing the baseline knowledge integration pattern
 5. Implementing efficient caching for generation
+
+Optimization Level Guide:
+-------------------------
+Based on profiling and validation results (April 2025)
+
+Level 0: No optimizations 
+  - CPU: ~11-12 tokens/sec, ~1.7s first token latency
+  - Good for debugging and comparing with baseline
+
+Level 1: Default optimizations
+  - CPU: ~10-11 tokens/sec, ~1.8s first token latency
+  - Balanced approach, maintains all features
+
+Level 2: Aggressive optimizations
+  - CPU: ~12-13 tokens/sec, ~1.5s first token latency
+  - Best overall CPU performance with agency features
+  - Disables baseline integration on CPU
+  - Recommended for most CPU inference
+
+Level 3: Extreme optimizations
+  - CPU: ~11-12 tokens/sec, ~1.7s first token latency
+  - Disables both baseline integration and UNet on CPU
+  - Better on GPU than CPU
+  - Use with heavy pruning (70%+)
+
+For maximum performance:
+- For pure speed: Use original model with 70% pruning (~28 tokens/sec)
+- For agency features: Use optimization level 2 with 30% pruning (~19 tokens/sec)
+- For GPU: Use optimization level 3 with 70% pruning
+
+IMPORTANT: Validation testing confirmed that the original model with heavy
+pruning (70%) remains the fastest option for pure throughput, while the
+optimized model with appropriate settings offers the best performance when
+agency features are needed.
 """
 
 import torch

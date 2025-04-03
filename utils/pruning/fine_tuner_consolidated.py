@@ -136,6 +136,20 @@ class FineTuner:
             logger.info("OPT model detected, automatically upgrading to high stability (level 2)")
             self.stability_level = 2
             self._configure_stability_features()
+            
+        # Apply OPT-specific numerical stability enhancements
+        if self.is_opt_model:
+            # Enable aggressive NaN prevention for OPT models
+            try:
+                # Import NaN prevention utilities if available
+                from utils.pruning.stability import nan_prevention
+                # Configure for maximum numerical stability
+                nan_prevention.AGGRESSIVE_NAN_PREVENTION = True
+                nan_prevention.NAN_REPLACEMENT_VALUE = 0.0  # More conservative replacement
+                nan_prevention.MAX_GRADIENT_NORM = 0.1  # Tighter gradient clipping for OPT
+                logger.info("Enabled aggressive NaN prevention for OPT model")
+            except ImportError:
+                logger.warning("Could not import stability modules for OPT model")
     
     def _apply_model_specific_optimizations(self):
         """Apply model-specific optimizations based on model type and size."""
@@ -625,29 +639,59 @@ class FineTuner:
                 # Call without dropout RNG
                 loss, grads = grad_fn(state.params, batch, None)
             
+            # OPT models with heavy pruning need special handling to prevent NaNs
+            is_heavily_pruned_opt = self.is_opt_model and getattr(self, '_pruning_level', 0.0) > 0.3
+            
             # Check for NaNs in loss
-            if self.stability_level >= 1:
-                if jnp.isnan(loss).any() or jnp.isinf(loss).any():
-                    logger.warning(f"NaN or Inf loss detected: {loss}")
-                    # Use a large but finite value instead of NaN
-                    loss = jnp.nan_to_num(loss, nan=1e3, posinf=1e3, neginf=1e3)
-                    return state, loss, new_rng if self.use_rng_keys_for_dropout else None  # Skip update
+            if jnp.isnan(loss).any() or jnp.isinf(loss).any():
+                logger.warning(f"NaN or Inf loss detected: {loss}")
+                # Use a large but finite value instead of NaN
+                loss = jnp.nan_to_num(loss, nan=1e3, posinf=1e3, neginf=1e3)
+                return state, loss, new_rng if self.use_rng_keys_for_dropout else None  # Skip update
             
-            # Check for NaNs in gradients when stability level >= 1
-            if self.stability_level >= 1:
-                # Check some gradients for NaNs
-                grad_flat, _ = jax.tree_util.tree_flatten(grads)
-                for g in grad_flat[:5]:  # Check just a sample of gradients
-                    if jnp.isnan(g).any() or jnp.isinf(g).any():
-                        logger.warning("NaN or Inf gradients detected, skipping update")
-                        return state, loss, new_rng if self.use_rng_keys_for_dropout else None  # Skip update
+            # Check for NaNs in gradients
+            grad_flat, grad_tree = jax.tree_util.tree_flatten(grads)
+            has_nan_grads = False
             
-            # Apply gradient clipping when enabled
+            # Check more thoroughly for heavily pruned OPT models
+            check_count = len(grad_flat) if is_heavily_pruned_opt else min(5, len(grad_flat))
+            
+            for g in grad_flat[:check_count]:
+                if jnp.isnan(g).any() or jnp.isinf(g).any():
+                    has_nan_grads = True
+                    break
+            
+            if has_nan_grads:
+                logger.warning("NaN or Inf gradients detected, skipping update")
+                return state, loss, new_rng if self.use_rng_keys_for_dropout else None  # Skip update
+            
+            # Apply gradient clipping - use tighter clipping for heavily pruned models
+            actual_clip_norm = grad_clip_norm * 0.1 if is_heavily_pruned_opt else grad_clip_norm
+            
             if self.use_gradient_clipping:
+                # First clip individual gradients
                 grads = jax.tree_util.tree_map(
-                    lambda g: jnp.clip(g, -grad_clip_norm, grad_clip_norm),
+                    lambda g: jnp.clip(g, -actual_clip_norm, actual_clip_norm),
                     grads
                 )
+                
+                # Then also apply global norm clipping for heavily pruned OPT models
+                if is_heavily_pruned_opt:
+                    # Compute global gradient norm
+                    global_norm = jnp.sqrt(sum(jnp.sum(g**2) for g in grad_flat))
+                    # Rescale if the global norm is too large
+                    if global_norm > actual_clip_norm:
+                        scale = actual_clip_norm / (global_norm + 1e-6)
+                        grads = jax.tree_util.tree_map(lambda g: g * scale, grads)
+                        logger.debug(f"Applied global gradient rescaling: {scale:.5f}")
+            
+            # For OPT models, do one final NaN check after clipping
+            if is_heavily_pruned_opt:
+                grad_flat, _ = jax.tree_util.tree_flatten(grads)
+                for g in grad_flat[:5]:
+                    if jnp.isnan(g).any() or jnp.isinf(g).any():
+                        logger.warning("NaN gradients after clipping, skipping update")
+                        return state, loss, new_rng if self.use_rng_keys_for_dropout else None
             
             # Apply gradients
             new_state = state.apply_gradients(grads=grads)
