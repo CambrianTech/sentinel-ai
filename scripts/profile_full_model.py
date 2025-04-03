@@ -29,9 +29,12 @@ import numpy as np
 import matplotlib.pyplot as plt
 from pathlib import Path
 from torch.profiler import profile, record_function, ProfilerActivity
-from contextlib import nullcontext
+from contextlib import nullcontext, redirect_stdout, redirect_stderr
 import datetime
 import psutil
+import io
+import warnings
+import logging
 
 # Add project root to Python path
 project_root = Path(__file__).parent.parent.absolute()
@@ -281,7 +284,7 @@ def apply_pruning(model, pruning_percentage):
     return pruned_model, pruned_count, pruned_heads
 
 
-def profile_inference(args, data, model_type="original", pruning_level=0):
+def profile_inference(args, data, model_type="original", pruning_level=0, run_dir=None):
     """Profile inference for a specific model type and pruning level."""
     print(f"\n==== Profiling {model_type.capitalize()} Model (Pruning: {pruning_level}%) ====")
     
@@ -347,7 +350,9 @@ def profile_inference(args, data, model_type="original", pruning_level=0):
     
     # Warmup
     print("Warming up...")
-    with torch.no_grad():
+    # Capture stdout/stderr to suppress transformers generation messages
+    f = io.StringIO()
+    with torch.no_grad(), redirect_stdout(f), redirect_stderr(f):
         for _ in range(args.warmup):
             _ = model.generate(
                 input_ids=input_ids,
@@ -421,8 +426,15 @@ def profile_inference(args, data, model_type="original", pruning_level=0):
     if args.profile_mode == "detailed" and args.device == "cuda" and torch.cuda.is_available():
         # Save trace if requested
         if args.trace_export:
-            os.makedirs(args.output_dir, exist_ok=True)
-            trace_path = os.path.join(args.output_dir, f"{model_type}_pruning{pruning_level}_trace.json")
+            if run_dir:
+                trace_dir = os.path.join(run_dir, "traces")
+                os.makedirs(trace_dir, exist_ok=True)
+                trace_path = os.path.join(trace_dir, f"{model_type}_pruning{pruning_level}_trace.json")
+            else:
+                # Fall back to output_dir if run_dir is not provided
+                trace_dir = os.path.join(args.output_dir, "traces")
+                os.makedirs(trace_dir, exist_ok=True)
+                trace_path = os.path.join(trace_dir, f"{model_type}_pruning{pruning_level}_trace.json")
             prof.export_chrome_trace(trace_path)
             print(f"Trace exported to {trace_path}")
         
@@ -476,7 +488,7 @@ def profile_inference(args, data, model_type="original", pruning_level=0):
     return results
 
 
-def profile_component_breakdown(args, data):
+def profile_component_breakdown(args, data, run_dir=None):
     """Profile the time spent in each component of the model."""
     print("\n==== Profiling Component Breakdown ====")
     
@@ -547,7 +559,9 @@ def profile_component_breakdown(args, data):
             if hasattr(block, "attn") and hasattr(block.attn, "profile_time"):
                 block.attn.profile_time = True
         
-        with torch.no_grad():
+        # Capture stdout/stderr to suppress transformers generation messages
+        f = io.StringIO()
+        with torch.no_grad(), redirect_stdout(f), redirect_stderr(f):
             # Warmup with full generation to ensure caches are properly initialized
             _ = model.generate(
                 input_ids=input_ids,
@@ -754,7 +768,7 @@ def profile_component_breakdown(args, data):
     return results
 
 
-def test_integration_optimizations(args, data):
+def test_integration_optimizations(args, data, run_dir=None):
     """Test each integration optimization to isolate its impact."""
     print("\n==== Testing Integration Optimizations ====")
     
@@ -845,7 +859,9 @@ def test_integration_optimizations(args, data):
             
             # Warmup
             print("    Warming up...")
-            with torch.no_grad():
+            # Capture stdout/stderr to suppress transformers generation messages
+            f = io.StringIO()
+            with torch.no_grad(), redirect_stdout(f), redirect_stderr(f):
                 for _ in range(args.warmup):
                     _ = model.generate(
                         input_ids=input_ids,
@@ -877,7 +893,9 @@ def test_integration_optimizations(args, data):
                 # Start timing
                 start_time = time.time()
                 
-                with torch.no_grad():
+                # Capture stdout/stderr to suppress transformers generation messages
+                f = io.StringIO()
+                with torch.no_grad(), redirect_stdout(f), redirect_stderr(f):
                     output_ids = model.generate(
                         input_ids=input_ids,
                         attention_mask=attention_mask,
@@ -993,7 +1011,9 @@ def test_optimization_levels(args, data):
         
         # Warmup
         print("  Warming up...")
-        with torch.no_grad():
+        # Capture stdout/stderr to suppress transformers generation messages
+        f = io.StringIO()
+        with torch.no_grad(), redirect_stdout(f), redirect_stderr(f):
             for _ in range(args.warmup):
                 _ = model.generate(
                     input_ids=input_ids,
@@ -1020,7 +1040,9 @@ def test_optimization_levels(args, data):
             # Start timing
             start_time = time.time()
             
-            with torch.no_grad():
+            # Capture stdout/stderr to suppress transformers generation messages
+            f = io.StringIO()
+            with torch.no_grad(), redirect_stdout(f), redirect_stderr(f):
                 output_ids = model.generate(
                     input_ids=input_ids,
                     attention_mask=attention_mask,
@@ -1124,7 +1146,7 @@ def get_memory_usage(device):
     return memory_data
 
 
-def compare_pruning_levels(args, data):
+def compare_pruning_levels(args, data, run_dir=None):
     """Compare model performance across different pruning levels."""
     print("\n==== Comparing Pruning Levels ====")
     
@@ -1146,7 +1168,7 @@ def compare_pruning_levels(args, data):
             print(f"\nTesting {model_type} model with {level}% pruning")
             
             # Profile inference for this configuration
-            inference_results = profile_inference(args, data, model_type, level)
+            inference_results = profile_inference(args, data, model_type, level, run_dir)
             
             # Store results
             if isinstance(level, int):
@@ -1158,14 +1180,13 @@ def compare_pruning_levels(args, data):
     return results
 
 
-def visualize_results(results, args):
+def visualize_results(results, args, charts_dir):
     """Create visualizations from profiling results."""
     if not args.visualize:
         return
     
     print("\n==== Creating Visualizations ====")
-    output_dir = args.output_dir
-    os.makedirs(output_dir, exist_ok=True)
+    os.makedirs(charts_dir, exist_ok=True)
     
     # 1. Model Loading Comparison
     if "model_loading" in results:
@@ -1220,7 +1241,7 @@ def visualize_results(results, args):
                     f"{height:.1f}MB", ha='center', va='bottom')
         
         plt.tight_layout()
-        plt.savefig(os.path.join(output_dir, "model_loading_comparison.png"), dpi=150)
+        plt.savefig(os.path.join(charts_dir, "model_loading_comparison.png"), dpi=150)
         plt.close()
         
     # Multi-Model Comparison Visualizations
@@ -1316,7 +1337,7 @@ def visualize_results(results, args):
                     f"{height:.4f}s", ha='center', va='bottom')
         
         plt.tight_layout()
-        plt.savefig(os.path.join(output_dir, "multi_model_comparison.png"), dpi=150)
+        plt.savefig(os.path.join(charts_dir, "multi_model_comparison.png"), dpi=150)
         plt.close()
         
         # Create a parameter growth figure specifically
@@ -1357,7 +1378,7 @@ def visualize_results(results, args):
                          fontsize=8)
         
         plt.tight_layout()
-        plt.savefig(os.path.join(output_dir, "parameter_growth.png"), dpi=150)
+        plt.savefig(os.path.join(charts_dir, "parameter_growth.png"), dpi=150)
         plt.close()
     
     # 2. Pruning Performance Comparison
@@ -1442,7 +1463,7 @@ def visualize_results(results, args):
         plt.legend()
         
         plt.tight_layout()
-        plt.savefig(os.path.join(output_dir, "pruning_performance.png"), dpi=150)
+        plt.savefig(os.path.join(charts_dir, "pruning_performance.png"), dpi=150)
         plt.close()
     
     # 3. Component Breakdown
@@ -1613,7 +1634,7 @@ def visualize_results(results, args):
                 plt.legend()
         
         plt.tight_layout()
-        plt.savefig(os.path.join(output_dir, "component_breakdown.png"), dpi=150)
+        plt.savefig(os.path.join(charts_dir, "component_breakdown.png"), dpi=150)
         plt.close()
     
     # 4. Integration Optimization Test Results
@@ -1723,10 +1744,10 @@ def visualize_results(results, args):
                     f"{height:.1f}", ha='center', va='bottom')
         
         plt.tight_layout()
-        plt.savefig(os.path.join(output_dir, "integration_optimizations.png"), dpi=150)
+        plt.savefig(os.path.join(charts_dir, "integration_optimizations.png"), dpi=150)
         plt.close()
     
-    print(f"Visualizations saved to {output_dir}")
+    print(f"Visualizations saved to {charts_dir}")
 
 
 def compare_multiple_models(args):
@@ -1790,7 +1811,7 @@ def compare_multiple_models(args):
         loading_results = profile_model_loading(temp_args)
         
         # Only test one pruning level (0%) for comparative clarity
-        inference_results = profile_inference(temp_args, data, "optimized", 0)
+        inference_results = profile_inference(temp_args, data, "optimized", 0, run_dir)
         
         # Store results together
         results[model_name] = {
@@ -1814,6 +1835,23 @@ def compare_multiple_models(args):
 
 def main():
     """Main function."""
+    # Set up logging and filter warnings
+    logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+    
+    # Filter transformers warnings
+    warnings.filterwarnings("ignore", message="Setting `pad_token_id` to `eos_token_id`")
+    
+    # Configure logging for transformers
+    try:
+        from transformers import logging as transformers_logging
+        transformers_logging.set_verbosity_error()
+    except ImportError:
+        pass
+        
+    # Set general warnings filter
+    import os
+    os.environ["TOKENIZERS_PARALLELISM"] = "false"  # Avoid tokenizer warnings
+    
     # Parse arguments
     args = setup_args()
     
@@ -1823,11 +1861,22 @@ def main():
     # Generate timestamp for this run
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     
+    # Create run-specific directory for better organization
+    run_dir = os.path.join(args.output_dir, f"run_{timestamp}")
+    os.makedirs(run_dir, exist_ok=True)
+    
+    # Create subdirectories for different types of outputs
+    charts_dir = os.path.join(run_dir, "charts")
+    data_dir = os.path.join(run_dir, "data")
+    csv_dir = os.path.join(run_dir, "csv_reports")
+    os.makedirs(charts_dir, exist_ok=True)
+    os.makedirs(data_dir, exist_ok=True)
+    os.makedirs(csv_dir, exist_ok=True)
+    
     # Create a unique prefix for files
     file_prefix = ""
     if args.output_prefix:
         file_prefix = f"{args.output_prefix}_"
-    file_prefix += f"{timestamp}_"
     
     # Store all results
     results = {}
@@ -1881,15 +1930,15 @@ def main():
     # Run profiling tests based on mode
     if args.profile_mode in ["all", "basic"]:
         # Compare pruning levels with basic generation metrics
-        results["pruning_comparison"] = compare_pruning_levels(args, data)
+        results["pruning_comparison"] = compare_pruning_levels(args, data, run_dir)
     
     if args.profile_mode in ["all", "component"]:
         # Profile component breakdown to identify bottlenecks
-        results["component_breakdown"] = profile_component_breakdown(args, data)
+        results["component_breakdown"] = profile_component_breakdown(args, data, run_dir)
     
     if args.profile_mode in ["all"] or args.test_integration_points:
         # Test different integration optimizations
-        results["integration_tests"] = test_integration_optimizations(args, data)
+        results["integration_tests"] = test_integration_optimizations(args, data, run_dir)
     
     if args.profile_mode in ["all", "memory"]:
         # Additional memory profiling
@@ -1932,7 +1981,8 @@ def main():
                 # Run inference with current prompt
                 inference_result = profile_inference(
                     args, temp_data, "optimized", 
-                    pruning_level=30  # Use fixed moderate pruning for throughput test
+                    pruning_level=30,  # Use fixed moderate pruning for throughput test
+                    run_dir=run_dir
                 )
                 
                 # Accumulate tokens and time
@@ -1984,7 +2034,10 @@ def main():
     }
     
     # Create results filename with timestamp
-    results_file = os.path.join(args.output_dir, f"{file_prefix}full_model_profiling.json")
+    results_file = os.path.join(data_dir, f"{file_prefix}full_model_profiling.json")
+    
+    # Create a summary file for quick access
+    summary_file = os.path.join(run_dir, "summary.md")
     
     # Save results
     with open(results_file, "w") as f:
@@ -1997,18 +2050,21 @@ def main():
                 filtered_results[key] = value
         json.dump(filtered_results, f, indent=2)
     
-    print(f"\nResults saved to {results_file}")
+    print(f"\nResults saved to {run_dir}")
+    
+    # Generate markdown summary
+    generate_summary_md(results, args, summary_file, run_dir)
     
     # Export to CSV if requested
     if args.export_csv:
         try:
-            export_to_csv(results, args, file_prefix)
+            export_to_csv(results, args, file_prefix, csv_dir)
         except Exception as e:
             print(f"Error exporting to CSV: {e}")
     
     # Create visualizations
     if args.visualize:
-        visualize_results(results, args)
+        visualize_results(results, args, charts_dir)
     
     # Print summary
     print("\n===== Profiling Summary =====")
@@ -2241,12 +2297,108 @@ def main():
                          f"{prompt_data['tokens_per_second']:.2f} tokens/sec")
 
 
-def export_to_csv(results, args, file_prefix):
+def generate_summary_md(results, args, summary_file, run_dir):
+    """Generate a markdown summary of the profiling results."""
+    with open(summary_file, 'w') as f:
+        # Write header
+        f.write(f"# Sentinel AI Model Profiling Results\n\n")
+        f.write(f"**Date:** {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n")
+        
+        # Write environment info
+        f.write(f"## Environment\n\n")
+        f.write(f"- **Device:** {args.device}\n")
+        f.write(f"- **Model:** {args.model_name}\n")
+        f.write(f"- **Optimization Level:** {args.optimization_level}\n")
+        f.write(f"- **Pruning Levels Tested:** {args.pruning_levels}\n")
+        
+        # Write model loading summary
+        if "model_loading" in results:
+            loading_data = results["model_loading"]
+            f.write(f"\n## Model Loading\n\n")
+            f.write("| Model Type | Loading Time | Parameters | Memory |\n")
+            f.write("|------------|--------------|------------|--------|\n")
+            
+            for model_type in ["baseline_model", "original_model", "optimized_model"]:
+                model_name = model_type.split("_")[0].capitalize()
+                f.write(f"| {model_name} | {loading_data[model_type]['load_time']:.2f}s | " +
+                       f"{loading_data[model_type]['parameter_count']:,} | " +
+                       f"{loading_data[model_type]['memory_usage']/(1024**2):.2f} MB |\n")
+        
+        # Write pruning comparison
+        if "pruning_comparison" in results:
+            pruning_data = results["pruning_comparison"]
+            f.write(f"\n## Pruning Performance\n\n")
+            f.write("| Pruning Level | Original (tokens/sec) | Optimized (tokens/sec) | Speedup |\n")
+            f.write("|---------------|------------------------|------------------------|---------|\n")
+            
+            # Get pruning levels
+            if "original" in pruning_data and pruning_data["original"]:
+                pruning_levels = sorted(pruning_data["original"].keys())
+                
+                for level in pruning_levels:
+                    orig_speed = pruning_data["original"][level]["tokens_per_second"]
+                    opt_speed = pruning_data["optimized"][level]["tokens_per_second"]
+                    speedup = opt_speed / orig_speed
+                    f.write(f"| {level}% | {orig_speed:.2f} | {opt_speed:.2f} | {speedup:.2f}x |\n")
+        
+        # Links to visualizations
+        if args.visualize:
+            f.write(f"\n## Visualizations\n\n")
+            # Get a list of all PNG files in the charts directory
+            chart_files = [f for f in os.listdir(os.path.join(run_dir, "charts")) if f.endswith(".png")]
+            
+            for chart_file in sorted(chart_files):
+                display_name = chart_file.replace(".png", "").replace("_", " ").title()
+                # Create a relative path for the markdown file
+                relative_path = f"charts/{chart_file}"
+                f.write(f"- [{display_name}]({relative_path})\n")
+        
+        # Add summary recommendations
+        f.write(f"\n## Recommendations\n\n")
+        
+        # Find best pruning level
+        best_pruning = "N/A"
+        max_tps = 0
+        if "pruning_comparison" in results and "optimized" in results["pruning_comparison"]:
+            pruning_data = results["pruning_comparison"]["optimized"]
+            
+            for level, data in pruning_data.items():
+                if data["tokens_per_second"] > max_tps:
+                    max_tps = data["tokens_per_second"]
+                    best_pruning = level
+            
+            f.write(f"- **Best Pruning Level:** {best_pruning}% (achieving {max_tps:.2f} tokens/sec)\n")
+        
+        # Optimization level recommendation
+        if "optimization_levels" in results and "comparison" in results["optimization_levels"]:
+            opt_data = results["optimization_levels"]["comparison"]
+            best_level = max(opt_data.keys(), key=lambda l: opt_data[l]["tokens_per_second"])
+            f.write(f"- **Recommended Optimization Level:** {best_level}\n")
+        
+        # Print test command for reproducibility
+        f.write(f"\n## Reproduce This Test\n\n")
+        f.write("```bash\n")
+        f.write(f"python scripts/profile_full_model.py --model_name {args.model_name} --device {args.device} ")
+        f.write(f"--optimization_level {args.optimization_level} --pruning_levels \"{args.pruning_levels}\" ")
+        f.write(f"--profile_mode {args.profile_mode} ")
+        
+        # Add optional flags
+        if args.visualize:
+            f.write("--visualize ")
+        if args.export_csv:
+            f.write("--export_csv ")
+        if args.memory_profile:
+            f.write("--memory_profile ")
+            
+        f.write("\n```\n")
+        
+    print(f"Summary saved to {summary_file}")
+
+def export_to_csv(results, args, file_prefix, csv_dir):
     """Export results to CSV files for easier analysis."""
     import csv
     
-    # Define CSV directory
-    csv_dir = os.path.join(args.output_dir, "csv_reports")
+    # Ensure CSV directory exists
     os.makedirs(csv_dir, exist_ok=True)
     
     # Export pruning comparison if available
