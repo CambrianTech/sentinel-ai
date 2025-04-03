@@ -24,6 +24,21 @@ project_root = Path(__file__).parents[3].absolute()
 if str(project_root) not in sys.path:
     sys.path.append(str(project_root))
 
+# Need to ensure HuggingFace datasets is imported before our local datasets module
+try:
+    from datasets import load_dataset
+except ImportError as e:
+    # If our local import is shadowing HuggingFace, we need to fix sys.path
+    if 'cannot import name' in str(e) and 'from datasets' in str(e):
+        # Temporarily remove the project root from path and import HuggingFace datasets
+        sys.path.remove(str(project_root))
+        import datasets
+        # Then restore the path
+        sys.path.append(str(project_root))
+    else:
+        # Re-raise other import errors
+        raise
+
 # Set up logging
 logging.basicConfig(level=logging.INFO, 
                    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
