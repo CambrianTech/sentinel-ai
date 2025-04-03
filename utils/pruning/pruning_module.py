@@ -173,35 +173,76 @@ class PruningModule:
     
     def evaluate_perplexity(self, params, text):
         """Evaluate model perplexity on text"""
-        # Tokenize input
-        inputs = self.tokenizer(text, return_tensors="jax")
-        
-        # Get logits
-        outputs = self.model(**inputs, params=params)
-        logits = outputs.logits
-        
-        # Calculate loss
-        input_ids = inputs["input_ids"]
-        
-        # Shift logits and labels for next token prediction
-        shift_logits = logits[:, :-1]
-        shift_labels = input_ids[:, 1:]
-        
-        # Calculate cross entropy loss
-        loss = jnp.mean(
-            -jnp.sum(
-                jax.nn.log_softmax(shift_logits) * jax.nn.one_hot(shift_labels, shift_logits.shape[-1]),
-                axis=-1
-            )
-        )
-        
-        # Return perplexity
-        return jnp.exp(loss).item()
+        try:
+            # Tokenize input
+            inputs = self.tokenizer(text, return_tensors="jax")
+            
+            # Get logits
+            outputs = self.model(**inputs, params=params)
+            logits = outputs.logits
+            
+            # Check for NaN or Inf values in logits
+            if jnp.isnan(logits).any() or jnp.isinf(logits).any():
+                print("Warning: NaN/Inf values in logits during perplexity calculation")
+                # Try to continue with cleaned logits
+                logits = jnp.nan_to_num(logits, nan=0.0, posinf=0.0, neginf=0.0)
+            
+            # Calculate loss
+            input_ids = inputs["input_ids"]
+            
+            # Special handling for OPT models which can have shape issues
+            if self.model_type == "opt" and logits.shape[1] != input_ids.shape[1]:
+                print(f"Warning: Shape mismatch in OPT model - logits: {logits.shape}, input_ids: {input_ids.shape}")
+                # Clip to shorter length to allow calculation
+                min_len = min(logits.shape[1], input_ids.shape[1])
+                logits = logits[:, :min_len]
+                input_ids = input_ids[:, :min_len]
+            
+            # Ensure input sequences are long enough
+            if input_ids.shape[1] <= 1:
+                # Not enough tokens for next-token prediction
+                print("Warning: Sequence too short for perplexity calculation")
+                return float('nan')
+            
+            # Shift logits and labels for next token prediction
+            shift_logits = logits[:, :-1]
+            shift_labels = input_ids[:, 1:]
+            
+            # Calculate cross entropy loss with additional safety checks
+            try:
+                # Use log_softmax for numerical stability
+                log_probs = jax.nn.log_softmax(shift_logits)
+                one_hot_labels = jax.nn.one_hot(shift_labels, shift_logits.shape[-1])
+                
+                # Calculate token-level losses
+                token_losses = -jnp.sum(log_probs * one_hot_labels, axis=-1)
+                
+                # Average over token positions
+                loss = jnp.mean(token_losses)
+                
+                # Return perplexity
+                perplexity = jnp.exp(loss).item()
+                
+                # Safety check for unreasonable values
+                if perplexity > 1e6 or jnp.isnan(perplexity) or jnp.isinf(perplexity):
+                    return float('nan')
+                    
+                return perplexity
+            
+            except Exception as calc_error:
+                print(f"Error calculating loss: {calc_error}")
+                return float('nan')
+                
+        except Exception as e:
+            # If perplexity calculation fails completely, return NaN
+            print(f"Error in perplexity evaluation: {e}")
+            return float('nan')
     
     def generate_text(self, params, prompt, max_length=50):
         """Generate text using the model"""
         # Tokenize input
         inputs = self.tokenizer(prompt, return_tensors="jax")
+        input_ids_shape = inputs["input_ids"].shape
         
         # Define generation params based on model type
         generation_config = {
@@ -217,35 +258,57 @@ class PruningModule:
         
         # Special handling for OPT models which can have generation issues after pruning
         if self.model_type == "opt":
-            # Use more conservative sampling settings
+            # Use more conservative sampling settings for OPT models
             generation_config.update({
                 "temperature": 0.7,  # Lower temperature for more predictable outputs
                 "top_p": 0.85,       # More restrictive nucleus sampling
                 "top_k": 20,         # More restrictive top-k sampling
                 "no_repeat_ngram_size": 2,  # Avoid repeating bigrams
-                "min_length": len(inputs.input_ids[0]) + 1,  # Ensure generation happens
                 "early_stopping": True,  # Stop when model would generate EOS
             })
+            
+            # Don't use min_length for OPT models as it can cause shape mismatch errors
+            if "min_length" in generation_config:
+                del generation_config["min_length"]
         
         # Generate text
         try:
+            # Try with sampling first
             outputs = self.model.generate(**inputs, **generation_config)
             
-            # Decode output
-            text = self.tokenizer.batch_decode(outputs.sequences, skip_special_tokens=True)[0]
-            
-            # Safety check for bad generations (especially with OPT models)
-            if len(text.strip()) <= len(prompt) or "<s>" in text or "</s>" in text:
-                # Fall back to greedy generation
-                outputs = self.model.generate(
-                    **inputs,
-                    params=params,
-                    max_length=max_length,
-                    do_sample=False,  # Greedy decoding
-                    num_beams=1,      # No beam search
-                )
+            # Ensure the output is properly shaped before decoding
+            if outputs.sequences.shape[0] > 0:
+                # Decode output
                 text = self.tokenizer.batch_decode(outputs.sequences, skip_special_tokens=True)[0]
-            
+                
+                # Safety check for bad generations (especially with OPT models)
+                if len(text.strip()) <= len(prompt) or "<s>" in text or "</s>" in text:
+                    # Fall back to greedy generation with basic parameters only
+                    greedy_config = {
+                        "params": params,
+                        "max_length": max_length,
+                        "do_sample": False,  # Greedy decoding
+                        "pad_token_id": self.tokenizer.pad_token_id,
+                        "eos_token_id": self.tokenizer.eos_token_id,
+                    }
+                    
+                    # For OPT models, even more conservative settings to prevent shape issues
+                    if self.model_type == "opt":
+                        # Explicitly match batch size
+                        batch_size = input_ids_shape[0]
+                        greedy_config["num_return_sequences"] = batch_size
+                    
+                    outputs = self.model.generate(**inputs, **greedy_config)
+                    
+                    # Double check shape match before decoding
+                    if outputs.sequences.shape[0] > 0:
+                        text = self.tokenizer.batch_decode(outputs.sequences, skip_special_tokens=True)[0]
+                    else:
+                        # If we still have shape issues, just return the prompt
+                        raise ValueError(f"Failed to generate text, output shape: {outputs.sequences.shape}")
+            else:
+                raise ValueError(f"Empty output shape: {outputs.sequences.shape}")
+                
             return text
         except Exception as e:
             # If generation fails, return a placeholder plus the error
