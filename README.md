@@ -316,7 +316,6 @@ Example benchmark on distilgpt2:
 ```
 
 ## 📖 Attention Head Agency States
->>>>>>> Stashed changes
 
 ```mermaid
 flowchart TD
