@@ -569,19 +569,34 @@ Sentinel-AI is a research framework for adaptive transformer models that restruc
 ```bash
 sentinel-ai/
 ├── models/                # Core model + adapters
+│   ├── loaders/           # Model-specific loaders (GPT2, BLOOM, Llama, etc.)
+│   ├── optimized/         # Optimized implementations
 │   └── SUPPORTED_MODELS.md # Detailed model compatibility information
-├── controller/            # ANN Controller for head gating
-├── datasets/              # Tokenization, batching, evaluation
-├── utils/                 # Logging, training logic, wrappers
-├── notebooks/             # Exploratory analysis and visualization
+├── controller/            # Controller for head gating with metrics
+│   ├── metrics/           # Metrics collection for controller
+│   └── visualizations/    # Agency and gate visualizations
+├── data_modules/          # Dataset loading and processing
+├── utils/                 # Various utilities
+│   ├── pruning/           # Comprehensive pruning implementation
+│   │   └── stability/     # Training stability improvements
+│   └── colab/             # Colab helper functions
+├── notebooks/             # Interactive notebooks for experiments
+├── colab_notebooks/       # Notebooks optimized for Colab
+├── scripts/               # Scripts for various operations
+│   └── pruning_comparison/ # Scripts for comparing pruning strategies
+├── docs/                  # Documentation & diagrams
 ├── paper/                 # Research paper in Markdown
-├── scripts/               # Colab-optimized training/eval
-├── validation_results/    # Empirical validation results
+├── profiling_results/     # Performance profiling results
+├── optimization_results/  # Optimization test results
+├── pruning_results/       # Pruning experiment results
+├── validation_results/    # Validation results for agency
+│   ├── agency/            # Head agency validation results
+│   └── pruning_agency/    # Pruning with agency results
 ├── examples/              # Example usage scripts
-├── train.py               # CLI for training
-├── main.py                # CLI for inference
-├── test_model_support.py  # Test suite for model compatibility
-└── requirements.txt       # Environment dependencies
+├── train.py               # Training CLI
+├── main.py                # Inference CLI
+├── test_model_support.py  # Compatibility testing
+└── requirements.txt       # Dependencies
 ```
 
 ---
