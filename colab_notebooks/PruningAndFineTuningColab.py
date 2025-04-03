@@ -1,9 +1,10 @@
 #!/usr/bin/env python
 # coding: utf-8
 
-# # Pruning and Fine-Tuning Benchmark for Google Colab (v0.0.24)
+# # Pruning and Fine-Tuning Benchmark for Google Colab (v0.0.25)
 # 
 # This is the Python script version of our notebook for Google Colab.
+# Version 0.0.25 (April 2025) - Verified fixed imports with HuggingFace datasets and data_modules
 # Version 0.0.24 (April 2025) - Renamed internal module to fix HuggingFace datasets import
 # 
 # Instructions:
@@ -45,7 +46,8 @@ print("📂 Changing to repository directory...")
 %cd /content/sentinel-ai
 
 # %%
-# Import datasets from HuggingFace (no conflicts anymore since our module is now data_modules)
+# Import from HuggingFace datasets and our data_modules without conflicts
+# Our internal module was renamed from 'datasets' to 'data_modules' to avoid namespace collisions
 import datasets
 from datasets import load_dataset
 print(f"Using HuggingFace datasets from: {datasets.__file__}")
