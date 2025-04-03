@@ -1,10 +1,10 @@
 #!/usr/bin/env python
 # coding: utf-8
 
-# # Pruning and Fine-Tuning Benchmark for Google Colab (v0.1.0)
+# # Pruning and Fine-Tuning Benchmark for Google Colab (v0.0.18)
 # 
 # This is the Python script version of our notebook for Google Colab.
-# Version 0.1.0 (April 2025) - Optimized for best pruning and performance
+# Version 0.0.18 (April 2025) - Optimized for best pruning and performance
 # 
 # Instructions:
 # 1. Upload to a new Colab notebook using File > Upload notebook > Upload
