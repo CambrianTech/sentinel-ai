@@ -92,6 +92,29 @@ The library supports a variety of models from the Hugging Face Transformers libr
 
 Models are automatically selected based on your hardware capabilities to ensure reliable performance.
 
+### Model Compatibility Features
+
+We've added comprehensive compatibility features to handle architecture-specific differences:
+
+1. **GPT-2 Models**
+   - Native JAX/Flax support with efficient loading
+   - Optimized parameter access patterns
+
+2. **OPT Models**
+   - Special handling for shape mismatches during text generation
+   - Custom generation parameters for maximum stability
+   - Shape-aware perplexity calculation with tensor broadcasting fixes
+
+3. **Pythia Models** 
+   - PyTorch to JAX/Flax conversion bridge
+   - GPT-2 compatible configuration mapping
+   - Architecture compatibility layer for attention mechanisms
+
+4. **Testing Framework**
+   - Comprehensive model compatibility testing suite
+   - Validation across different model architectures
+   - Cross-architecture comparison of pruning effects
+
 ## Platform Support
 
 This library works reliably on:
@@ -108,3 +131,61 @@ Results are automatically saved and can be analyzed using the visualization tool
 - Perplexity change after fine-tuning
 - Recovery percentage (how much of the pruning-induced performance loss was recovered)
 - Token generation examples before/after pruning/fine-tuning
+
+## FineTuner Consolidation Plan
+
+Currently, the codebase has two fine-tuner implementations:
+- `FineTuner`: Basic implementation for fine-tuning pruned models
+- `ImprovedFineTuner`: Enhanced implementation with stability features for large models
+
+### Planned Consolidation
+
+We will consolidate these implementations into a single robust `FineTuner` class that:
+
+1. Incorporates all stability enhancements from `ImprovedFineTuner`
+2. Provides backward compatibility
+3. Offers configurable stability levels
+
+### New FineTuner Class Structure
+
+```python
+class FineTuner:
+    def __init__(
+        self,
+        pruning_module,
+        dataset_name="openwebtext",
+        dataset_config=None,
+        batch_size=4,
+        stability_level=1,  # 0: basic, 1: standard, 2: high
+        use_synthetic_data=False,
+        model_specific_optimizations=True
+    ):
+        # Initialize with configurable stability features
+        pass
+```
+
+### Key Features
+
+1. **Stability Levels**
+   - Level 0: Basic operation with minimal safety features (legacy mode)
+   - Level 1: Standard stability enhancements (default, recommended)
+   - Level 2: High stability for challenging models (OPT, large models)
+
+2. **Model-Specific Optimizations**
+   - Automatic detection and application of model-specific settings
+   - Special handling for OPT, large models, etc.
+
+3. **Enhanced Dataset Handling**
+   - Improved loading with better error recovery
+   - Automatic fallback to synthetic data
+   - Support for various dataset structures
+
+4. **NaN Prevention**
+   - Comprehensive NaN detection in inputs, gradients, and losses
+   - Safe computation patterns to avoid division by zero
+   - Adaptive learning rate and batch size adjustment
+
+5. **Memory Optimization**
+   - Automatic batch size adjustment based on model size
+   - Sequence length optimization
+   - Garbage collection during training

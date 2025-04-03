@@ -14,6 +14,9 @@ Features:
 - Memory utilization tracking
 - Bottleneck identification
 - Progressive feature isolation
+- Integration optimization evaluation
+- Multi-model architecture comparison
+- Enhanced visualization and reporting
 """
 
 import os
@@ -26,7 +29,12 @@ import numpy as np
 import matplotlib.pyplot as plt
 from pathlib import Path
 from torch.profiler import profile, record_function, ProfilerActivity
-from contextlib import nullcontext
+from contextlib import nullcontext, redirect_stdout, redirect_stderr
+import datetime
+import psutil
+import io
+import warnings
+import logging
 
 # Add project root to Python path
 project_root = Path(__file__).parent.parent.absolute()
@@ -50,6 +58,8 @@ def setup_args():
                         help="Test multiple model families for comparison (must specify models with --compare_models)")
     parser.add_argument("--compare_models", type=str, default="gpt2,gpt2-medium",
                         help="Comma-separated list of models to compare when using --multi_model_comparison")
+    parser.add_argument("--specific_model_size", type=str, choices=["small", "medium", "large", "xl"],
+                        help="Test a specific model size across different model families")
     
     # Test parameters
     parser.add_argument("--sequence_length", type=int, default=64,
@@ -64,10 +74,12 @@ def setup_args():
                         help="Number of iterations for timing tests")
     parser.add_argument("--warmup", type=int, default=2,
                         help="Number of warmup iterations before measurement")
+    parser.add_argument("--custom_prompts", type=str,
+                        help="Path to file with custom prompts for more realistic testing")
     
     # Profiling options
     parser.add_argument("--profile_mode", type=str, default="basic", 
-                        choices=["basic", "detailed", "component", "all"],
+                        choices=["basic", "detailed", "component", "all", "memory", "throughput"],
                         help="Profiling detail level (all = run all profiling types)")
     parser.add_argument("--disable_baseline", action="store_true",
                         help="Disable baseline model integration to isolate its impact")
@@ -75,18 +87,30 @@ def setup_args():
                         help="Disable UNet connections to isolate their impact")
     parser.add_argument("--test_integration_points", action="store_true",
                         help="Test different integration optimizations to isolate their impact")
+    parser.add_argument("--test_all_optimization_levels", action="store_true",
+                        help="Run tests across all optimization levels (0-3) for comparison")
     parser.add_argument("--optimization_level", type=int, default=1, choices=[0, 1, 2, 3],
                         help="Optimization level (0=None, 1=Default, 2=Aggressive, 3=Extreme)")
+    parser.add_argument("--cpu_specific_optimizations", action="store_true",
+                        help="Test CPU-specific optimizations on CPU devices")
+    parser.add_argument("--memory_profile", action="store_true",
+                        help="Profile memory usage over time during generation")
     
     # Output options
     parser.add_argument("--output_dir", type=str, default="profiling_results/full_model",
                         help="Directory to save profiling results")
+    parser.add_argument("--output_prefix", type=str, default="",
+                        help="Prefix for output filenames (e.g., experiment name)")
     parser.add_argument("--visualize", action="store_true",
                         help="Generate visualizations of profiling results")
     parser.add_argument("--trace_export", action="store_true",
                         help="Export Chrome trace files for detailed analysis")
     parser.add_argument("--compare_with_previous", action="store_true",
                         help="Compare with previously saved results to track improvements")
+    parser.add_argument("--save_generated_text", action="store_true",
+                        help="Save generated text samples for quality comparison")
+    parser.add_argument("--export_csv", action="store_true",
+                        help="Export results in CSV format for easier analysis")
     
     return parser.parse_args()
 
@@ -97,27 +121,74 @@ def prepare_input_data(args):
     from transformers import AutoTokenizer
     tokenizer = AutoTokenizer.from_pretrained(args.model_name)
     
-    # Create sample prompt
-    prompt = "The transformer model architecture revolutionized natural language processing by"
+    # Select prompts based on args
+    prompts = []
     
-    # Tokenize
-    input_ids = tokenizer.encode(prompt, return_tensors='pt')
+    if args.custom_prompts and os.path.exists(args.custom_prompts):
+        # Load custom prompts from file
+        try:
+            with open(args.custom_prompts, 'r') as f:
+                file_prompts = [line.strip() for line in f.readlines() if line.strip()]
+                if file_prompts:
+                    prompts = file_prompts[:min(5, len(file_prompts))]  # Use up to 5 prompts
+        except Exception as e:
+            print(f"Error loading custom prompts: {e}")
     
-    # Adjust batch size if needed
-    if args.batch_size > 1:
-        input_ids = input_ids.repeat(args.batch_size, 1)
+    # Use default prompt if no custom prompts available
+    if not prompts:
+        prompts = [
+            "The transformer model architecture revolutionized natural language processing by",
+            "In the field of machine learning, recent developments have shown that",
+            "When considering the challenges of artificial intelligence, researchers must",
+            "The integration of neural networks with symbolic reasoning enables",
+            "To effectively implement attention mechanisms in transformers, one should"
+        ]
     
-    # Move to device
-    input_ids = input_ids.to(args.device)
+    # Just use the first prompt if not doing comprehensive tests
+    if args.profile_mode not in ["throughput", "all"]:
+        prompts = [prompts[0]]
     
-    # Create attention mask (all 1s since we don't have padding)
-    attention_mask = torch.ones_like(input_ids)
+    # Process all prompts
+    all_inputs = []
+    for prompt in prompts:
+        # Tokenize with sequence length constraint
+        if args.sequence_length > 0:
+            # Ensure prompt fits within sequence length
+            input_ids = tokenizer.encode(prompt, return_tensors='pt')
+            if input_ids.size(1) > args.sequence_length:
+                # Truncate if too long
+                input_ids = input_ids[:, :args.sequence_length]
+            elif input_ids.size(1) < args.sequence_length and args.sequence_length <= 1024:
+                # Pad with random tokens to desired length for stress testing
+                # But only do this for reasonable sequence lengths
+                pad_length = args.sequence_length - input_ids.size(1)
+                # Use random token IDs in the vocab range for padding
+                vocab_size = tokenizer.vocab_size if hasattr(tokenizer, 'vocab_size') else 50257
+                random_tokens = torch.randint(100, min(vocab_size-1, 20000), (1, pad_length))
+                input_ids = torch.cat([input_ids, random_tokens], dim=1)
+        else:
+            input_ids = tokenizer.encode(prompt, return_tensors='pt')
+        
+        # Adjust batch size if needed
+        if args.batch_size > 1:
+            input_ids = input_ids.repeat(args.batch_size, 1)
+        
+        # Move to device
+        input_ids = input_ids.to(args.device)
+        
+        # Create attention mask (all 1s since we don't have padding)
+        attention_mask = torch.ones_like(input_ids)
+        
+        all_inputs.append({
+            "input_ids": input_ids,
+            "attention_mask": attention_mask,
+            "prompt": prompt
+        })
     
     return {
-        "input_ids": input_ids,
-        "attention_mask": attention_mask,
+        "inputs": all_inputs,
         "tokenizer": tokenizer,
-        "prompt": prompt
+        "primary_input": all_inputs[0]  # For backwards compatibility
     }
 
 
@@ -213,7 +284,7 @@ def apply_pruning(model, pruning_percentage):
     return pruned_model, pruned_count, pruned_heads
 
 
-def profile_inference(args, data, model_type="original", pruning_level=0):
+def profile_inference(args, data, model_type="original", pruning_level=0, run_dir=None):
     """Profile inference for a specific model type and pruning level."""
     print(f"\n==== Profiling {model_type.capitalize()} Model (Pruning: {pruning_level}%) ====")
     
@@ -248,9 +319,18 @@ def profile_inference(args, data, model_type="original", pruning_level=0):
     if pruning_level > 0:
         model, pruned_count, _ = apply_pruning(model, pruning_level)
     
-    # Extract inputs
-    input_ids = data["input_ids"]
-    attention_mask = data["attention_mask"]
+    # Extract inputs - handle both legacy and new format
+    if "primary_input" in data:
+        # New format
+        primary_input = data["primary_input"]
+        input_ids = primary_input["input_ids"]
+        attention_mask = primary_input["attention_mask"]
+        prompt = primary_input.get("prompt", "")
+    else:
+        # Legacy format
+        input_ids = data["input_ids"]
+        attention_mask = data["attention_mask"]
+        prompt = data.get("prompt", "")
     
     # Set up profiling based on mode
     if args.profile_mode == "detailed" and args.device == "cuda" and torch.cuda.is_available():
@@ -263,9 +343,16 @@ def profile_inference(args, data, model_type="original", pruning_level=0):
     else:
         profiler_ctx = nullcontext()
     
+    # Track memory usage
+    memory_snapshots = []
+    if args.memory_profile:
+        memory_snapshots.append(get_memory_usage(args.device))
+    
     # Warmup
     print("Warming up...")
-    with torch.no_grad():
+    # Capture stdout/stderr to suppress transformers generation messages
+    f = io.StringIO()
+    with torch.no_grad(), redirect_stdout(f), redirect_stderr(f):
         for _ in range(args.warmup):
             _ = model.generate(
                 input_ids=input_ids,
@@ -279,6 +366,7 @@ def profile_inference(args, data, model_type="original", pruning_level=0):
     # Measure generation performance
     generation_times = []
     first_token_times = []
+    tokens_generated = []
     
     print(f"Running {args.iterations} iterations...")
     
@@ -315,35 +403,61 @@ def profile_inference(args, data, model_type="original", pruning_level=0):
         generation_time = time.time() - start_time
         generation_times.append(generation_time)
         
-        print(f"  Iteration {i+1}: {generation_time:.4f}s ({output_ids.size(1) - input_ids.size(1)} tokens)")
+        # Calculate tokens generated
+        num_tokens = output_ids.size(1) - input_ids.size(1)
+        tokens_generated.append(num_tokens)
+        
+        # Capture memory usage after generation
+        if args.memory_profile:
+            memory_snapshots.append(get_memory_usage(args.device))
+        
+        print(f"  Iteration {i+1}: {generation_time:.4f}s ({num_tokens} tokens)")
     
     # Calculate average generation time
     avg_generation_time = sum(generation_times) / len(generation_times)
-    tokens_per_second = args.generated_tokens / avg_generation_time
+    avg_tokens = sum(tokens_generated) / len(tokens_generated)
+    tokens_per_second = avg_tokens / avg_generation_time
     
     print(f"Average generation time: {avg_generation_time:.4f}s")
     print(f"Tokens per second: {tokens_per_second:.2f}")
     
     # Check if detailed profile is available
+    profile_data = None
     if args.profile_mode == "detailed" and args.device == "cuda" and torch.cuda.is_available():
         # Save trace if requested
         if args.trace_export:
-            os.makedirs(args.output_dir, exist_ok=True)
-            trace_path = os.path.join(args.output_dir, f"{model_type}_pruning{pruning_level}_trace.json")
+            if run_dir:
+                trace_dir = os.path.join(run_dir, "traces")
+                os.makedirs(trace_dir, exist_ok=True)
+                trace_path = os.path.join(trace_dir, f"{model_type}_pruning{pruning_level}_trace.json")
+            else:
+                # Fall back to output_dir if run_dir is not provided
+                trace_dir = os.path.join(args.output_dir, "traces")
+                os.makedirs(trace_dir, exist_ok=True)
+                trace_path = os.path.join(trace_dir, f"{model_type}_pruning{pruning_level}_trace.json")
             prof.export_chrome_trace(trace_path)
             print(f"Trace exported to {trace_path}")
         
         # Get profile data
         profile_data = prof.key_averages().table(sort_by="cuda_time_total", row_limit=20)
-    else:
-        profile_data = None
     
     # Extract generated text
-    if attention_mask is not None:
+    generated_text = None
+    try:
         tokenizer = data["tokenizer"]
         generated_text = tokenizer.decode(output_ids[0], skip_special_tokens=True)
-    else:
-        generated_text = None
+    except (KeyError, TypeError):
+        pass
+    
+    # Get stats from model if available
+    model_stats = {}
+    if hasattr(model, "stats") and model.stats.get("total_time", 0) > 0:
+        model_stats = model.stats.copy()
+    
+    # Get agency information if available
+    agency_stats = None
+    if hasattr(model, "get_agency_report"):
+        agency_stats = model.get_agency_report()
     
     # Free memory
     del model
@@ -352,7 +466,7 @@ def profile_inference(args, data, model_type="original", pruning_level=0):
         torch.cuda.empty_cache()
     
     # Return results
-    return {
+    results = {
         "model_type": model_type,
         "pruning_level": pruning_level,
         "generation_times": generation_times,
@@ -360,11 +474,21 @@ def profile_inference(args, data, model_type="original", pruning_level=0):
         "tokens_per_second": tokens_per_second,
         "first_token_time": first_token_times[0] if first_token_times else None,
         "profile_data": profile_data,
-        "generated_text": generated_text
+        "generated_text": generated_text,
+        "model_stats": model_stats,
+        "agency_stats": agency_stats,
+        "tokens_generated": tokens_generated,
+        "avg_tokens_generated": avg_tokens
     }
+    
+    # Add memory profiling data if collected
+    if args.memory_profile and memory_snapshots:
+        results["memory_profile"] = memory_snapshots
+    
+    return results
 
 
-def profile_component_breakdown(args, data):
+def profile_component_breakdown(args, data, run_dir=None):
     """Profile the time spent in each component of the model."""
     print("\n==== Profiling Component Breakdown ====")
     
@@ -435,7 +559,9 @@ def profile_component_breakdown(args, data):
             if hasattr(block, "attn") and hasattr(block.attn, "profile_time"):
                 block.attn.profile_time = True
         
-        with torch.no_grad():
+        # Capture stdout/stderr to suppress transformers generation messages
+        f = io.StringIO()
+        with torch.no_grad(), redirect_stdout(f), redirect_stderr(f):
             # Warmup with full generation to ensure caches are properly initialized
             _ = model.generate(
                 input_ids=input_ids,
@@ -642,7 +768,7 @@ def profile_component_breakdown(args, data):
     return results
 
 
-def test_integration_optimizations(args, data):
+def test_integration_optimizations(args, data, run_dir=None):
     """Test each integration optimization to isolate its impact."""
     print("\n==== Testing Integration Optimizations ====")
     
@@ -659,6 +785,14 @@ def test_integration_optimizations(args, data):
         {"name": "opt_minimal", "optimized": True, "baseline": False, "unet": False, "level": args.optimization_level}
     ]
     
+    # Add CPU-specific configurations if requested
+    if args.cpu_specific_optimizations and args.device == "cpu":
+        configs.extend([
+            {"name": "cpu_optimized_level3", "optimized": True, "baseline": False, "unet": False, "level": 3},
+            {"name": "cpu_optimized_aggressive", "optimized": True, "baseline": False, "unet": False, "level": 3, 
+             "cpu_aggressive": True}
+        ])
+    
     # Pruning levels to test - focus on a smaller set for efficiency
     pruning_levels = [0, 50]
     
@@ -672,8 +806,16 @@ def test_integration_optimizations(args, data):
         if config["optimized"]:
             os.environ["USE_OPTIMIZED_MODEL"] = "1"
             os.environ["OPTIMIZATION_LEVEL"] = str(config["level"])
+            
+            # Set CPU-specific optimizations if requested
+            if args.device == "cpu" and config.get("cpu_aggressive", False):
+                os.environ["CPU_AGGRESSIVE_OPTIMIZATIONS"] = "1"
         else:
             os.environ["USE_OPTIMIZED_MODEL"] = "0"
+            
+        # Reset any special env vars if not applicable
+        if not config.get("cpu_aggressive", False):
+            os.environ.pop("CPU_AGGRESSIVE_OPTIMIZATIONS", None)
         
         config_results = {}
         
@@ -706,13 +848,20 @@ def test_integration_optimizations(args, data):
             if level > 0:
                 model, pruned_count, pruned_heads = apply_pruning(model, level)
             
-            # Extract inputs
-            input_ids = data["input_ids"]
-            attention_mask = data["attention_mask"]
+            # Use primary input from data
+            primary_input = data["primary_input"]
+            input_ids = primary_input["input_ids"]
+            attention_mask = primary_input["attention_mask"]
+            
+            # Track memory usage throughout
+            memory_usage = []
+            peak_memory = 0
             
             # Warmup
             print("    Warming up...")
-            with torch.no_grad():
+            # Capture stdout/stderr to suppress transformers generation messages
+            f = io.StringIO()
+            with torch.no_grad(), redirect_stdout(f), redirect_stderr(f):
                 for _ in range(args.warmup):
                     _ = model.generate(
                         input_ids=input_ids,
@@ -730,6 +879,11 @@ def test_integration_optimizations(args, data):
             
             print(f"    Running {args.iterations} iterations...")
             
+            # Additional tracking for memory profiling
+            memory_snapshots = []
+            if args.memory_profile:
+                memory_snapshots.append(get_memory_usage(args.device))
+            
             for i in range(args.iterations):
                 # Clear CUDA cache if available
                 if args.device == "cuda" and torch.cuda.is_available():
@@ -739,7 +893,9 @@ def test_integration_optimizations(args, data):
                 # Start timing
                 start_time = time.time()
                 
-                with torch.no_grad():
+                # Capture stdout/stderr to suppress transformers generation messages
+                f = io.StringIO()
+                with torch.no_grad(), redirect_stdout(f), redirect_stderr(f):
                     output_ids = model.generate(
                         input_ids=input_ids,
                         attention_mask=attention_mask,
@@ -762,6 +918,10 @@ def test_integration_optimizations(args, data):
                 generation_time = time.time() - start_time
                 generation_times.append(generation_time)
                 tokens_generated.append(output_ids.size(1) - input_ids.size(1))
+                
+                # Capture memory usage after generation
+                if args.memory_profile:
+                    memory_snapshots.append(get_memory_usage(args.device))
                 
                 print(f"      Iteration {i+1}: {generation_time:.4f}s ({output_ids.size(1) - input_ids.size(1)} tokens)")
             
@@ -793,6 +953,10 @@ def test_integration_optimizations(args, data):
                 "agency_stats": agency_stats
             }
             
+            # Add memory profiling data if collected
+            if args.memory_profile and memory_snapshots:
+                config_results[level]["memory_profile"] = memory_snapshots
+            
             # Free memory
             del model
             del baseline_model
@@ -805,7 +969,184 @@ def test_integration_optimizations(args, data):
     return results
 
 
-def compare_pruning_levels(args, data):
+def test_optimization_levels(args, data):
+    """Comprehensively test all optimization levels to identify optimal settings."""
+    print("\n==== Testing All Optimization Levels ====")
+    
+    if not args.test_all_optimization_levels:
+        print("Skipping optimization level tests (use --test_all_optimization_levels to run)")
+        return None
+    
+    # Optimization levels to test
+    levels = [0, 1, 2, 3]
+    
+    # Fixed pruning level for this test to isolate effects
+    pruning_level = 30
+    
+    # Store results for each level
+    results = {}
+    
+    for level in levels:
+        print(f"\nTesting optimization level {level}")
+        
+        # Set environment variables for this optimization level
+        os.environ["USE_OPTIMIZED_MODEL"] = "1"
+        os.environ["OPTIMIZATION_LEVEL"] = str(level)
+        
+        # Load models
+        baseline_model = load_baseline_model(args.model_name, args.device)
+        model = load_adaptive_model(args.model_name, baseline_model, args.device)
+        
+        # Apply pruning
+        if pruning_level > 0:
+            model, pruned_count, pruned_heads = apply_pruning(model, pruning_level)
+        
+        # Use primary input from data
+        primary_input = data["primary_input"]
+        input_ids = primary_input["input_ids"]
+        attention_mask = primary_input["attention_mask"]
+        
+        # Track memory usage
+        model_mem_usage = get_memory_usage(args.device)
+        
+        # Warmup
+        print("  Warming up...")
+        # Capture stdout/stderr to suppress transformers generation messages
+        f = io.StringIO()
+        with torch.no_grad(), redirect_stdout(f), redirect_stderr(f):
+            for _ in range(args.warmup):
+                _ = model.generate(
+                    input_ids=input_ids,
+                    attention_mask=attention_mask,
+                    max_length=input_ids.size(1) + args.generated_tokens,
+                    num_return_sequences=1,
+                    do_sample=True,
+                    temperature=0.7
+                )
+        
+        # Measure generation performance
+        generation_times = []
+        first_token_times = []
+        tokens_generated = []
+        
+        print(f"  Running {args.iterations} iterations...")
+        
+        for i in range(args.iterations):
+            # Clear CUDA cache if available
+            if args.device == "cuda" and torch.cuda.is_available():
+                torch.cuda.synchronize()
+                torch.cuda.empty_cache()
+            
+            # Start timing
+            start_time = time.time()
+            
+            # Capture stdout/stderr to suppress transformers generation messages
+            f = io.StringIO()
+            with torch.no_grad(), redirect_stdout(f), redirect_stderr(f):
+                output_ids = model.generate(
+                    input_ids=input_ids,
+                    attention_mask=attention_mask,
+                    max_length=input_ids.size(1) + args.generated_tokens,
+                    num_return_sequences=1,
+                    do_sample=True,
+                    temperature=0.7
+                )
+            
+                # Record first token time (for first iteration only)
+                if i == 0:
+                    first_token_time = time.time() - start_time
+                    first_token_times.append(first_token_time)
+            
+            # Ensure CUDA operations are completed
+            if args.device == "cuda" and torch.cuda.is_available():
+                torch.cuda.synchronize()
+            
+            # Calculate total generation time
+            generation_time = time.time() - start_time
+            generation_times.append(generation_time)
+            tokens_generated.append(output_ids.size(1) - input_ids.size(1))
+            
+            print(f"    Iteration {i+1}: {generation_time:.4f}s ({output_ids.size(1) - input_ids.size(1)} tokens)")
+        
+        # Calculate average generation time
+        avg_generation_time = sum(generation_times) / len(generation_times)
+        avg_tokens = sum(tokens_generated) / len(tokens_generated)
+        tokens_per_second = avg_tokens / avg_generation_time
+        
+        # Get generated text
+        generated_text = None
+        if args.save_generated_text:
+            tokenizer = data["tokenizer"]
+            generated_text = tokenizer.decode(output_ids[0], skip_special_tokens=True)
+        
+        print(f"  Average generation time: {avg_generation_time:.4f}s")
+        print(f"  Tokens per second: {tokens_per_second:.2f}")
+        
+        # Get stats from model if available
+        model_stats = {}
+        if hasattr(model, "stats") and model.stats.get("total_time", 0) > 0:
+            model_stats = model.stats.copy()
+        
+        # Get agency information if available
+        agency_stats = None
+        if hasattr(model, "get_agency_report"):
+            agency_stats = model.get_agency_report()
+        
+        # Store results
+        results[level] = {
+            "generation_times": generation_times,
+            "avg_generation_time": avg_generation_time,
+            "tokens_per_second": tokens_per_second,
+            "first_token_time": first_token_times[0] if first_token_times else None,
+            "memory_usage": model_mem_usage,
+            "model_stats": model_stats,
+            "agency_stats": agency_stats,
+            "generated_text": generated_text
+        }
+        
+        # Free memory
+        del model
+        del baseline_model
+        if args.device == "cuda" and torch.cuda.is_available():
+            torch.cuda.empty_cache()
+    
+    # Add comparison of levels
+    optimization_comparison = {}
+    for level in levels:
+        level_data = results[level]
+        optimization_comparison[level] = {
+            "tokens_per_second": level_data["tokens_per_second"],
+            "first_token_latency": level_data["first_token_time"]
+        }
+    
+    # Add comparison to results
+    results["comparison"] = optimization_comparison
+    
+    return results
+
+
+def get_memory_usage(device):
+    """Get memory usage for current process and device."""
+    memory_data = {
+        "timestamp": time.time(),
+        "cpu": {
+            "percent": psutil.Process().cpu_percent(),
+            "rss_mb": psutil.Process().memory_info().rss / (1024 * 1024)
+        }
+    }
+    
+    # Add GPU info if applicable
+    if device == "cuda" and torch.cuda.is_available():
+        memory_data["gpu"] = {
+            "allocated_mb": torch.cuda.memory_allocated() / (1024 * 1024),
+            "reserved_mb": torch.cuda.memory_reserved() / (1024 * 1024),
+            "max_allocated_mb": torch.cuda.max_memory_allocated() / (1024 * 1024)
+        }
+    
+    return memory_data
+
+
+def compare_pruning_levels(args, data, run_dir=None):
     """Compare model performance across different pruning levels."""
     print("\n==== Comparing Pruning Levels ====")
     
@@ -827,22 +1168,25 @@ def compare_pruning_levels(args, data):
             print(f"\nTesting {model_type} model with {level}% pruning")
             
             # Profile inference for this configuration
-            inference_results = profile_inference(args, data, model_type, level)
+            inference_results = profile_inference(args, data, model_type, level, run_dir)
             
             # Store results
-            results[model_type][level] = inference_results
+            if isinstance(level, int):
+                results[model_type][level] = inference_results
+            else:
+                # Use string representation for JSON compatibility
+                results[model_type][str(level)] = inference_results
     
     return results
 
 
-def visualize_results(results, args):
+def visualize_results(results, args, charts_dir):
     """Create visualizations from profiling results."""
     if not args.visualize:
         return
     
     print("\n==== Creating Visualizations ====")
-    output_dir = args.output_dir
-    os.makedirs(output_dir, exist_ok=True)
+    os.makedirs(charts_dir, exist_ok=True)
     
     # 1. Model Loading Comparison
     if "model_loading" in results:
@@ -897,7 +1241,7 @@ def visualize_results(results, args):
                     f"{height:.1f}MB", ha='center', va='bottom')
         
         plt.tight_layout()
-        plt.savefig(os.path.join(output_dir, "model_loading_comparison.png"), dpi=150)
+        plt.savefig(os.path.join(charts_dir, "model_loading_comparison.png"), dpi=150)
         plt.close()
         
     # Multi-Model Comparison Visualizations
@@ -993,7 +1337,7 @@ def visualize_results(results, args):
                     f"{height:.4f}s", ha='center', va='bottom')
         
         plt.tight_layout()
-        plt.savefig(os.path.join(output_dir, "multi_model_comparison.png"), dpi=150)
+        plt.savefig(os.path.join(charts_dir, "multi_model_comparison.png"), dpi=150)
         plt.close()
         
         # Create a parameter growth figure specifically
@@ -1034,7 +1378,7 @@ def visualize_results(results, args):
                          fontsize=8)
         
         plt.tight_layout()
-        plt.savefig(os.path.join(output_dir, "parameter_growth.png"), dpi=150)
+        plt.savefig(os.path.join(charts_dir, "parameter_growth.png"), dpi=150)
         plt.close()
     
     # 2. Pruning Performance Comparison
@@ -1119,7 +1463,7 @@ def visualize_results(results, args):
         plt.legend()
         
         plt.tight_layout()
-        plt.savefig(os.path.join(output_dir, "pruning_performance.png"), dpi=150)
+        plt.savefig(os.path.join(charts_dir, "pruning_performance.png"), dpi=150)
         plt.close()
     
     # 3. Component Breakdown
@@ -1290,7 +1634,7 @@ def visualize_results(results, args):
                 plt.legend()
         
         plt.tight_layout()
-        plt.savefig(os.path.join(output_dir, "component_breakdown.png"), dpi=150)
+        plt.savefig(os.path.join(charts_dir, "component_breakdown.png"), dpi=150)
         plt.close()
     
     # 4. Integration Optimization Test Results
@@ -1400,10 +1744,10 @@ def visualize_results(results, args):
                     f"{height:.1f}", ha='center', va='bottom')
         
         plt.tight_layout()
-        plt.savefig(os.path.join(output_dir, "integration_optimizations.png"), dpi=150)
+        plt.savefig(os.path.join(charts_dir, "integration_optimizations.png"), dpi=150)
         plt.close()
     
-    print(f"Visualizations saved to {output_dir}")
+    print(f"Visualizations saved to {charts_dir}")
 
 
 def compare_multiple_models(args):
@@ -1467,7 +1811,7 @@ def compare_multiple_models(args):
         loading_results = profile_model_loading(temp_args)
         
         # Only test one pruning level (0%) for comparative clarity
-        inference_results = profile_inference(temp_args, data, "optimized", 0)
+        inference_results = profile_inference(temp_args, data, "optimized", 0, run_dir)
         
         # Store results together
         results[model_name] = {
@@ -1491,14 +1835,71 @@ def compare_multiple_models(args):
 
 def main():
     """Main function."""
+    # Set up logging and filter warnings
+    logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+    
+    # Filter transformers warnings
+    warnings.filterwarnings("ignore", message="Setting `pad_token_id` to `eos_token_id`")
+    
+    # Configure logging for transformers
+    try:
+        from transformers import logging as transformers_logging
+        transformers_logging.set_verbosity_error()
+    except ImportError:
+        pass
+        
+    # Set general warnings filter
+    import os
+    os.environ["TOKENIZERS_PARALLELISM"] = "false"  # Avoid tokenizer warnings
+    
     # Parse arguments
     args = setup_args()
     
     # Create output directory
     os.makedirs(args.output_dir, exist_ok=True)
     
+    # Generate timestamp for this run
+    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    
+    # Create run-specific directory for better organization
+    run_dir = os.path.join(args.output_dir, f"run_{timestamp}")
+    os.makedirs(run_dir, exist_ok=True)
+    
+    # Create subdirectories for different types of outputs
+    charts_dir = os.path.join(run_dir, "charts")
+    data_dir = os.path.join(run_dir, "data")
+    csv_dir = os.path.join(run_dir, "csv_reports")
+    os.makedirs(charts_dir, exist_ok=True)
+    os.makedirs(data_dir, exist_ok=True)
+    os.makedirs(csv_dir, exist_ok=True)
+    
+    # Create a unique prefix for files
+    file_prefix = ""
+    if args.output_prefix:
+        file_prefix = f"{args.output_prefix}_"
+    
     # Store all results
     results = {}
+    
+    # Record environment information
+    results["environment"] = {
+        "timestamp": time.time(),
+        "date": datetime.datetime.now().isoformat(),
+        "device": args.device,
+        "cpu_info": {
+            "count": psutil.cpu_count(logical=False),
+            "logical_count": psutil.cpu_count(logical=True)
+        },
+        "memory_total_gb": psutil.virtual_memory().total / (1024**3)
+    }
+    
+    # Add GPU info if applicable
+    if args.device == "cuda" and torch.cuda.is_available():
+        results["environment"]["gpu_info"] = {
+            "name": torch.cuda.get_device_name(0),
+            "device_count": torch.cuda.device_count(),
+            "memory_total_gb": torch.cuda.get_device_properties(0).total_memory / (1024**3)
+        }
     
     # Set optimization level environment variable
     os.environ["OPTIMIZATION_LEVEL"] = str(args.optimization_level)
@@ -1515,30 +1916,104 @@ def main():
             except Exception as e:
                 print(f"Error loading previous results: {e}")
     
-    # If multi-model comparison is enabled, run that and exit
+    # If multi-model comparison is enabled, run that
     if args.multi_model_comparison:
         results["multi_model_comparison"] = compare_multiple_models(args)
-    else:
-        # Regular profiling flow
-        # Profile model loading
-        results["model_loading"] = profile_model_loading(args)
+    
+    # Regular profiling flow
+    # Profile model loading
+    results["model_loading"] = profile_model_loading(args)
+    
+    # Prepare input data
+    data = prepare_input_data(args)
+    
+    # Run profiling tests based on mode
+    if args.profile_mode in ["all", "basic"]:
+        # Compare pruning levels with basic generation metrics
+        results["pruning_comparison"] = compare_pruning_levels(args, data, run_dir)
+    
+    if args.profile_mode in ["all", "component"]:
+        # Profile component breakdown to identify bottlenecks
+        results["component_breakdown"] = profile_component_breakdown(args, data, run_dir)
+    
+    if args.profile_mode in ["all"] or args.test_integration_points:
+        # Test different integration optimizations
+        results["integration_tests"] = test_integration_optimizations(args, data, run_dir)
+    
+    if args.profile_mode in ["all", "memory"]:
+        # Additional memory profiling
+        args.memory_profile = True
+    
+    if args.test_all_optimization_levels:
+        # Test all optimization levels
+        results["optimization_levels"] = test_optimization_levels(args, data)
+    
+    # Add throughput testing with multiple prompts and longer sequences
+    if args.profile_mode in ["all", "throughput"]:
+        # Temporarily modify args for throughput testing
+        original_tokens = args.generated_tokens
+        original_iterations = args.iterations
         
-        # Prepare input data
-        data = prepare_input_data(args)
-        
-        # Run profiling tests based on mode
-        if args.profile_mode in ["all", "basic"]:
-            # Compare pruning levels with basic generation metrics
-            results["pruning_comparison"] = compare_pruning_levels(args, data)
-        
-        if args.profile_mode in ["all", "component"]:
-            # Profile component breakdown to identify bottlenecks
-            results["component_breakdown"] = profile_component_breakdown(args, data)
-        
-        if args.profile_mode in ["all"] or args.test_integration_points:
-            # Test different integration optimizations
-            results["integration_tests"] = test_integration_optimizations(args, data)
-        
+        try:
+            args.generated_tokens = 100  # Generate more tokens for throughput test
+            args.iterations = max(args.iterations, 3)  # Ensure enough iterations
+            
+            # Run throughput test across all inputs
+            throughput_results = {}
+            
+            # Process for all inputs in parallelized batch
+            total_tokens = 0
+            total_time = 0
+            
+            all_inputs = data["inputs"]
+            print(f"\n==== Throughput Testing with {len(all_inputs)} Prompts ====")
+            
+            for i, input_data in enumerate(all_inputs):
+                print(f"\nPrompt {i+1}: {input_data['prompt'][:50]}...")
+                
+                # Create temporary modified args
+                temp_data = {"primary_input": input_data, "tokenizer": data["tokenizer"]}
+                
+                # Profile using the optimized model
+                os.environ["USE_OPTIMIZED_MODEL"] = "1"
+                os.environ["OPTIMIZATION_LEVEL"] = str(args.optimization_level)
+                
+                # Run inference with current prompt
+                inference_result = profile_inference(
+                    args, temp_data, "optimized", 
+                    pruning_level=30,  # Use fixed moderate pruning for throughput test
+                    run_dir=run_dir
+                )
+                
+                # Accumulate tokens and time
+                throughput_results[f"prompt_{i}"] = {
+                    "prompt": input_data["prompt"][:50] + "...",
+                    "tokens_per_second": inference_result["tokens_per_second"],
+                    "avg_generation_time": inference_result["avg_generation_time"]
+                }
+                
+                total_tokens += args.generated_tokens
+                total_time += inference_result["avg_generation_time"]
+            
+            # Calculate aggregate throughput
+            if total_time > 0:
+                overall_tokens_per_second = total_tokens / total_time
+                throughput_results["overall"] = {
+                    "total_tokens": total_tokens,
+                    "total_time": total_time,
+                    "tokens_per_second": overall_tokens_per_second
+                }
+                
+                print(f"\nOverall throughput: {overall_tokens_per_second:.2f} tokens/sec")
+            
+            # Add to results
+            results["throughput_test"] = throughput_results
+            
+        finally:
+            # Restore original args
+            args.generated_tokens = original_tokens
+            args.iterations = original_iterations
+    
     # Save timestamp for the results
     results["timestamp"] = time.time()
     results["args"] = {
@@ -1549,25 +2024,47 @@ def main():
         "profile_mode": args.profile_mode,
         "multi_model_comparison": args.multi_model_comparison,
         "compare_models": args.compare_models if args.multi_model_comparison else None,
-        "model_family": args.model_family
+        "model_family": args.model_family,
+        "sequence_length": args.sequence_length,
+        "batch_size": args.batch_size,
+        "generated_tokens": args.generated_tokens,
+        "test_all_optimization_levels": args.test_all_optimization_levels,
+        "cpu_specific_optimizations": args.cpu_specific_optimizations,
+        "memory_profile": args.memory_profile
     }
     
+    # Create results filename with timestamp
+    results_file = os.path.join(data_dir, f"{file_prefix}full_model_profiling.json")
+    
+    # Create a summary file for quick access
+    summary_file = os.path.join(run_dir, "summary.md")
+    
     # Save results
-    results_file = os.path.join(args.output_dir, "full_model_profiling.json")
     with open(results_file, "w") as f:
         # Filter out non-JSON serializable items
         filtered_results = {}
         for key, value in results.items():
             if isinstance(value, dict):
                 filtered_results[key] = value
-            elif key == "timestamp" or key == "args":
+            elif key in ["timestamp", "args", "environment"]:
                 filtered_results[key] = value
         json.dump(filtered_results, f, indent=2)
     
-    print(f"\nResults saved to {results_file}")
+    print(f"\nResults saved to {run_dir}")
+    
+    # Generate markdown summary
+    generate_summary_md(results, args, summary_file, run_dir)
+    
+    # Export to CSV if requested
+    if args.export_csv:
+        try:
+            export_to_csv(results, args, file_prefix, csv_dir)
+        except Exception as e:
+            print(f"Error exporting to CSV: {e}")
     
     # Create visualizations
-    visualize_results(results, args)
+    if args.visualize:
+        visualize_results(results, args, charts_dir)
     
     # Print summary
     print("\n===== Profiling Summary =====")
@@ -1748,6 +2245,336 @@ def main():
                 print(f"  • Removing baseline integration has more impact than removing UNet connections")
             else:
                 print(f"  • Removing UNet connections has more impact than removing baseline integration")
+        
+    # Optimization level comparison summary
+    if "optimization_levels" in results:
+        opt_data = results["optimization_levels"]
+        comparison = opt_data["comparison"]
+        
+        print("\nOptimization Level Comparison:")
+        print("\n  {:<15} | {:<15} | {:<20}".format("Level", "Tokens/sec", "First Token Latency"))
+        print("  " + "-" * 56)
+        
+        # Sort by performance
+        levels = sorted(comparison.keys(), key=lambda l: comparison[l]["tokens_per_second"], reverse=True)
+        
+        for level in levels:
+            if level == "comparison":
+                continue
+                
+            level_data = comparison[level]
+            print("  {:<15} | {:<15.2f} | {:<20.4f}s".format(
+                level, level_data["tokens_per_second"], level_data["first_token_latency"]))
+        
+        # Print recommended level
+        best_level = max([l for l in levels if l != "comparison"], 
+                         key=lambda l: comparison[l]["tokens_per_second"])
+        print(f"\n  Recommended optimization level: {best_level}")
+        
+        # Get best level for latency
+        best_latency = min([l for l in levels if l != "comparison"], 
+                          key=lambda l: comparison[l]["first_token_latency"])
+        if best_latency != best_level:
+            print(f"  Best level for latency: {best_latency}")
+    
+    # Throughput test summary
+    if "throughput_test" in results:
+        throughput_data = results["throughput_test"]
+        
+        if "overall" in throughput_data:
+            overall = throughput_data["overall"]
+            print(f"\nThroughput Test Summary:")
+            print(f"  Overall: {overall['tokens_per_second']:.2f} tokens/sec " +
+                 f"({overall['total_tokens']} tokens in {overall['total_time']:.2f}s)")
+            
+            # Print per-prompt breakdown
+            prompt_keys = [k for k in throughput_data.keys() if k != "overall"]
+            if prompt_keys:
+                print("\n  Per-prompt performance:")
+                for key in prompt_keys:
+                    prompt_data = throughput_data[key]
+                    print(f"  - \"{prompt_data['prompt']}\": " +
+                         f"{prompt_data['tokens_per_second']:.2f} tokens/sec")
+
+
+def generate_summary_md(results, args, summary_file, run_dir):
+    """Generate a markdown summary of the profiling results."""
+    with open(summary_file, 'w') as f:
+        # Write header
+        f.write(f"# Sentinel AI Model Profiling Results\n\n")
+        f.write(f"**Date:** {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n")
+        
+        # Write environment info
+        f.write(f"## Environment\n\n")
+        f.write(f"- **Device:** {args.device}\n")
+        f.write(f"- **Model:** {args.model_name}\n")
+        f.write(f"- **Optimization Level:** {args.optimization_level}\n")
+        f.write(f"- **Pruning Levels Tested:** {args.pruning_levels}\n")
+        
+        # Write model loading summary
+        if "model_loading" in results:
+            loading_data = results["model_loading"]
+            f.write(f"\n## Model Loading\n\n")
+            f.write("| Model Type | Loading Time | Parameters | Memory |\n")
+            f.write("|------------|--------------|------------|--------|\n")
+            
+            for model_type in ["baseline_model", "original_model", "optimized_model"]:
+                model_name = model_type.split("_")[0].capitalize()
+                f.write(f"| {model_name} | {loading_data[model_type]['load_time']:.2f}s | " +
+                       f"{loading_data[model_type]['parameter_count']:,} | " +
+                       f"{loading_data[model_type]['memory_usage']/(1024**2):.2f} MB |\n")
+        
+        # Write pruning comparison
+        if "pruning_comparison" in results:
+            pruning_data = results["pruning_comparison"]
+            f.write(f"\n## Pruning Performance\n\n")
+            f.write("| Pruning Level | Original (tokens/sec) | Optimized (tokens/sec) | Speedup |\n")
+            f.write("|---------------|------------------------|------------------------|---------|\n")
+            
+            # Get pruning levels
+            if "original" in pruning_data and pruning_data["original"]:
+                pruning_levels = sorted(pruning_data["original"].keys())
+                
+                for level in pruning_levels:
+                    orig_speed = pruning_data["original"][level]["tokens_per_second"]
+                    opt_speed = pruning_data["optimized"][level]["tokens_per_second"]
+                    speedup = opt_speed / orig_speed
+                    f.write(f"| {level}% | {orig_speed:.2f} | {opt_speed:.2f} | {speedup:.2f}x |\n")
+        
+        # Links to visualizations
+        if args.visualize:
+            f.write(f"\n## Visualizations\n\n")
+            # Get a list of all PNG files in the charts directory
+            chart_files = [f for f in os.listdir(os.path.join(run_dir, "charts")) if f.endswith(".png")]
+            
+            for chart_file in sorted(chart_files):
+                display_name = chart_file.replace(".png", "").replace("_", " ").title()
+                # Create a relative path for the markdown file
+                relative_path = f"charts/{chart_file}"
+                f.write(f"- [{display_name}]({relative_path})\n")
+        
+        # Add summary recommendations
+        f.write(f"\n## Recommendations\n\n")
+        
+        # Find best pruning level
+        best_pruning = "N/A"
+        max_tps = 0
+        if "pruning_comparison" in results and "optimized" in results["pruning_comparison"]:
+            pruning_data = results["pruning_comparison"]["optimized"]
+            
+            for level, data in pruning_data.items():
+                if data["tokens_per_second"] > max_tps:
+                    max_tps = data["tokens_per_second"]
+                    best_pruning = level
+            
+            f.write(f"- **Best Pruning Level:** {best_pruning}% (achieving {max_tps:.2f} tokens/sec)\n")
+        
+        # Optimization level recommendation
+        if "optimization_levels" in results and "comparison" in results["optimization_levels"]:
+            opt_data = results["optimization_levels"]["comparison"]
+            best_level = max(opt_data.keys(), key=lambda l: opt_data[l]["tokens_per_second"])
+            f.write(f"- **Recommended Optimization Level:** {best_level}\n")
+        
+        # Print test command for reproducibility
+        f.write(f"\n## Reproduce This Test\n\n")
+        f.write("```bash\n")
+        f.write(f"python scripts/profile_full_model.py --model_name {args.model_name} --device {args.device} ")
+        f.write(f"--optimization_level {args.optimization_level} --pruning_levels \"{args.pruning_levels}\" ")
+        f.write(f"--profile_mode {args.profile_mode} ")
+        
+        # Add optional flags
+        if args.visualize:
+            f.write("--visualize ")
+        if args.export_csv:
+            f.write("--export_csv ")
+        if args.memory_profile:
+            f.write("--memory_profile ")
+            
+        f.write("\n```\n")
+        
+    print(f"Summary saved to {summary_file}")
+
+def export_to_csv(results, args, file_prefix, csv_dir):
+    """Export results to CSV files for easier analysis."""
+    import csv
+    
+    # Ensure CSV directory exists
+    os.makedirs(csv_dir, exist_ok=True)
+    
+    # Export pruning comparison if available
+    if "pruning_comparison" in results:
+        csv_path = os.path.join(csv_dir, f"{file_prefix}pruning_comparison.csv")
+        with open(csv_path, 'w', newline='') as csvfile:
+            writer = csv.writer(csvfile)
+            writer.writerow(["Pruning Level", "Model Type", "Tokens per Second", "Generation Time", "First Token Time"])
+            
+            pruning_data = results["pruning_comparison"]
+            for model_type in ["original", "optimized"]:
+                if model_type in pruning_data:
+                    for level, data in pruning_data[model_type].items():
+                        writer.writerow([
+                            level,
+                            model_type,
+                            data["tokens_per_second"],
+                            data["avg_generation_time"],
+                            data["first_token_time"]
+                        ])
+        
+        print(f"Exported pruning comparison to {csv_path}")
+    
+    # Export optimization level comparison if available
+    if "optimization_levels" in results:
+        csv_path = os.path.join(csv_dir, f"{file_prefix}optimization_levels.csv")
+        with open(csv_path, 'w', newline='') as csvfile:
+            writer = csv.writer(csvfile)
+            writer.writerow(["Optimization Level", "Tokens per Second", "First Token Time", "Memory Usage (MB)"])
+            
+            opt_data = results["optimization_levels"]
+            for level, data in opt_data.items():
+                if level == "comparison":
+                    continue
+                    
+                # Extract memory usage
+                memory_mb = 0
+                if "memory_usage" in data:
+                    memory_data = data["memory_usage"]
+                    if "gpu" in memory_data:
+                        memory_mb = memory_data["gpu"]["allocated_mb"]
+                    else:
+                        memory_mb = memory_data["cpu"]["rss_mb"]
+                
+                writer.writerow([
+                    level,
+                    data["tokens_per_second"],
+                    data["first_token_time"],
+                    memory_mb
+                ])
+        
+        print(f"Exported optimization level comparison to {csv_path}")
+    
+    # Export integration test results if available
+    if "integration_tests" in results:
+        csv_path = os.path.join(csv_dir, f"{file_prefix}integration_tests.csv")
+        with open(csv_path, 'w', newline='') as csvfile:
+            writer = csv.writer(csvfile)
+            writer.writerow([
+                "Configuration", "Pruning Level", "Tokens per Second", 
+                "Generation Time", "First Token Time"
+            ])
+            
+            integration_data = results["integration_tests"]
+            for config, config_data in integration_data.items():
+                for level, data in config_data.items():
+                    writer.writerow([
+                        config,
+                        level,
+                        data["tokens_per_second"],
+                        data["avg_generation_time"],
+                        data["first_token_time"]
+                    ])
+        
+        print(f"Exported integration test results to {csv_path}")
+    
+    # Export throughput test results if available
+    if "throughput_test" in results:
+        csv_path = os.path.join(csv_dir, f"{file_prefix}throughput_test.csv")
+        with open(csv_path, 'w', newline='') as csvfile:
+            writer = csv.writer(csvfile)
+            writer.writerow(["Prompt", "Tokens per Second", "Generation Time"])
+            
+            throughput_data = results["throughput_test"]
+            for key, data in throughput_data.items():
+                if key == "overall":
+                    continue
+                    
+                writer.writerow([
+                    data["prompt"],
+                    data["tokens_per_second"],
+                    data["avg_generation_time"]
+                ])
+            
+            # Add overall summary
+            if "overall" in throughput_data:
+                overall = throughput_data["overall"]
+                writer.writerow([
+                    "OVERALL",
+                    overall["tokens_per_second"],
+                    overall["total_time"] / overall["total_tokens"]
+                ])
+        
+        print(f"Exported throughput test results to {csv_path}")
+    
+    # Export model comparison if available
+    if "multi_model_comparison" in results:
+        csv_path = os.path.join(csv_dir, f"{file_prefix}model_comparison.csv")
+        with open(csv_path, 'w', newline='') as csvfile:
+            writer = csv.writer(csvfile)
+            writer.writerow([
+                "Model", "Family", "Base Params (M)", "Adaptive Params (M)", 
+                "Param Growth (%)", "Tokens per Second", "First Token Time"
+            ])
+            
+            model_data = results["multi_model_comparison"]
+            for model_name, data in model_data.items():
+                baseline_params = data["parameter_counts"]["baseline"] / 1000000
+                adaptive_params = data["parameter_counts"]["adaptive"] / 1000000
+                param_growth = data["parameter_counts"]["increase_percentage"]
+                
+                writer.writerow([
+                    model_name,
+                    data["model_family"],
+                    baseline_params,
+                    adaptive_params,
+                    param_growth,
+                    data["inference"]["tokens_per_second"],
+                    data["inference"]["first_token_time"]
+                ])
+        
+        print(f"Exported model comparison to {csv_path}")
+    
+    # Create a summary CSV with key metrics
+    csv_path = os.path.join(csv_dir, f"{file_prefix}summary.csv")
+    with open(csv_path, 'w', newline='') as csvfile:
+        writer = csv.writer(csvfile)
+        writer.writerow([
+            "Model", "Device", "Optimization Level", "Best Pruning Level",
+            "Max Tokens/Sec", "Speedup vs Original", "First Token Latency"
+        ])
+        
+        # Extract summary data
+        model_name = args.model_name
+        device = args.device
+        opt_level = args.optimization_level
+        
+        # Find best pruning level
+        best_pruning = "N/A"
+        max_tps = 0
+        speedup = 0
+        latency = 0
+        
+        if "pruning_comparison" in results and "optimized" in results["pruning_comparison"]:
+            pruning_data = results["pruning_comparison"]["optimized"]
+            orig_data = results["pruning_comparison"]["original"]
+            
+            for level, data in pruning_data.items():
+                if data["tokens_per_second"] > max_tps:
+                    max_tps = data["tokens_per_second"]
+                    best_pruning = level
+                    if level in orig_data:
+                        speedup = max_tps / orig_data[level]["tokens_per_second"]
+                    latency = data["first_token_time"]
+        
+        writer.writerow([
+            model_name,
+            device,
+            opt_level,
+            best_pruning,
+            max_tps,
+            speedup,
+            latency
+        ])
+    
+    print(f"Exported summary to {csv_path}")
 
 
 if __name__ == "__main__":

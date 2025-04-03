@@ -2,7 +2,7 @@ import os
 import torch
 from transformers import AutoTokenizer
 from models.loaders.loader import load_baseline_model, load_adaptive_model
-from datasets.dataset_loader import load_and_tokenize_dataset
+from data_modules.dataset_loader import load_and_tokenize_dataset
 from utils.generation_wrapper import wrap_for_generation
 from utils.metrics import compute_perplexity
 
