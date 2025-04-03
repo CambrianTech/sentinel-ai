@@ -34,7 +34,12 @@ datasets/**/cache/
 
 # Neural plasticity experiment results
 plasticity_experiments/
+neural_plasticity_test/
 legacy_datasets/
+
+# Data directories for experiment results, cache, and generated content
+/data/*
+!/data/.gitkeep
 
 # Hugging Face transformers/datasets
 ~/.cache/huggingface/
