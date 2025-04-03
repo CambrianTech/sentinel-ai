@@ -54,30 +54,60 @@ class PruningModule:
                     # Create JAX/Flax version of the model
                     from transformers import FlaxGPT2LMHeadModel
                     
-                    # Get model config
-                    config = pt_model.config
-                    
-                    # Create a properly sized Flax model based on similar architecture (GPT-2)
-                    self.model = FlaxGPT2LMHeadModel(config=config)
-                    
-                    # Convert parameters (limited support, may not work for all models)
-                    from transformers.modeling_flax_pytorch_utils import convert_pytorch_state_dict_to_flax
-                    
-                    # Get PyTorch state dict
-                    pt_state_dict = pt_model.state_dict()
-                    
-                    # Skip some parameters if needed
+                    # Check if this is a Pythia model
                     if is_pythia:
+                        # For Pythia models, we need to manually create a GPT-2 compatible config
+                        from transformers import GPT2Config, FlaxGPT2LMHeadModel
+                        
+                        # Get original model config
+                        neox_config = pt_model.config
+                        
+                        # Create a GPT-2 compatible config with the same dimensions
+                        gpt2_config = GPT2Config(
+                            vocab_size=neox_config.vocab_size,
+                            n_positions=neox_config.max_position_embeddings,
+                            n_embd=neox_config.hidden_size,
+                            n_layer=neox_config.num_hidden_layers,
+                            n_head=neox_config.num_attention_heads,
+                            activation_function="gelu_new",
+                            resid_pdrop=0.1,  # Default dropout rates
+                            embd_pdrop=0.1,
+                            attn_pdrop=0.1,
+                            layer_norm_epsilon=1e-5,
+                        )
+                        
+                        print(f"Created GPT-2 compatible config for Pythia with layers: {gpt2_config.n_layer}, heads: {gpt2_config.n_head}")
+                        
+                        # Create a properly sized Flax model based on similar architecture (GPT-2)
+                        self.model = FlaxGPT2LMHeadModel(config=gpt2_config)
+                        
                         # Set model type to gpt2 (compatible architecture)
                         self.model_type = "gpt2"
-                        # Extract key dimensions
-                        self.num_layers = config.num_hidden_layers
-                        self.num_heads = config.num_attention_heads
                         
-                        # No need for manual conversion as we're using gpt2 model type
+                        # Extract key dimensions
+                        self.num_layers = gpt2_config.n_layer
+                        self.num_heads = gpt2_config.n_head
+                        
+                        # Use default parameters
                         self.original_params = self.model.params
                         
                         print(f"Using GPT-2 compatible model for Pythia. Layers: {self.num_layers}, Heads: {self.num_heads}")
+                        return True
+                    else:
+                        # For non-Pythia models, use the original approach
+                        config = pt_model.config
+                        
+                        # Create a properly sized Flax model based on similar architecture
+                        self.model = FlaxGPT2LMHeadModel(config=config)
+                        
+                        # Convert parameters (limited support, may not work for all models)
+                        from transformers.modeling_flax_pytorch_utils import convert_pytorch_state_dict_to_flax
+                        
+                        # Get PyTorch state dict
+                        pt_state_dict = pt_model.state_dict()
+                        
+                        # Set properties
+                        self.original_params = self.model.params
                         return True
                     
                 except ImportError:

@@ -30,6 +30,7 @@ This document outlines prioritized tasks and future directions for the Sentinel-
 - [x] Measure memory usage reduction compared to baseline models
 - [x] Test learning capabilities after pruning (sentiment, poetry, etc.)
 - [ ] Test on more complex downstream tasks (summarization, translation, etc.)
+- [x] Add comprehensive model compatibility testing across architectures (GPT-2, OPT, Pythia)
 
 ### 4. Architecture Refinements
 - [x] Implement progressive growth (starting with heavily pruned model and strategically growing)

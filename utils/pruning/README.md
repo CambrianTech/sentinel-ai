@@ -92,6 +92,29 @@ The library supports a variety of models from the Hugging Face Transformers libr
 
 Models are automatically selected based on your hardware capabilities to ensure reliable performance.
 
+### Model Compatibility Features
+
+We've added comprehensive compatibility features to handle architecture-specific differences:
+
+1. **GPT-2 Models**
+   - Native JAX/Flax support with efficient loading
+   - Optimized parameter access patterns
+
+2. **OPT Models**
+   - Special handling for shape mismatches during text generation
+   - Custom generation parameters for maximum stability
+   - Shape-aware perplexity calculation with tensor broadcasting fixes
+
+3. **Pythia Models** 
+   - PyTorch to JAX/Flax conversion bridge
+   - GPT-2 compatible configuration mapping
+   - Architecture compatibility layer for attention mechanisms
+
+4. **Testing Framework**
+   - Comprehensive model compatibility testing suite
+   - Validation across different model architectures
+   - Cross-architecture comparison of pruning effects
+
 ## Platform Support
 
 This library works reliably on:

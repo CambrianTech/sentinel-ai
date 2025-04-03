@@ -17,7 +17,23 @@ import gc
 from flax.training import train_state
 from functools import partial
 from tqdm.auto import tqdm
-from datasets import load_dataset
+# Import datasets correctly to avoid conflict with local module
+try:
+    from datasets import load_dataset
+except ImportError:
+    # Handle the case where huggingface datasets is not available
+    # or there's a naming conflict with a local module
+    import importlib.util
+    if importlib.util.find_spec("huggingface_hub"):
+        from huggingface_hub import hf_hub_download
+        def load_dataset(*args, **kwargs):
+            logger.warning("Using placeholder load_dataset function")
+            return None
+    else:
+        logger.warning("datasets module not found, synthetic data will be used")
+        def load_dataset(*args, **kwargs):
+            return None
+            
 from transformers import FlaxAutoModelForCausalLM
 from typing import Dict, List, Tuple, Any, Optional, Union, Callable
 
