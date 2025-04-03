@@ -49,8 +49,8 @@ def parse_args():
                       help="Model name (default: distilgpt2)")
     parser.add_argument("--dataset", type=str, default="tiny_shakespeare",
                       help="Dataset name (default: tiny_shakespeare)")
-    parser.add_argument("--save_dir", type=str, default="./plasticity_experiments",
-                      help="Directory to save experiment results (default: ./plasticity_experiments)")
+    parser.add_argument("--save_dir", type=str, default="./output/plasticity_experiments",
+                      help="Directory to save experiment results (default: ./output/plasticity_experiments)")
     
     # Cycle parameters
     parser.add_argument("--cycles", type=int, default=1,
@@ -725,13 +725,20 @@ def neural_plasticity_cycle(args, experiment_dirs, pruning_module, dataset):
         # Create metrics visualization
         if args.save_visualizations:
             metrics_vis_path = os.path.join(cycle_vis_dir, "metrics_comparison.png")
+            
+            # Build metrics dictionary with checks for missing values
+            perplexity_dict = {
+                "Original": initial_eval["average_perplexity"],
+                "Pruned": pruned_eval["average_perplexity"],
+                "Final": final_eval["average_perplexity"]
+            }
+            
+            # Only add Grown (Initial) if it's available and different from final
+            if grown_eval_initial and "average_perplexity" in grown_eval_initial:
+                perplexity_dict["Grown (Initial)"] = grown_eval_initial["average_perplexity"]
+                
             metrics_data = {
-                "perplexity": {
-                    "Original": initial_eval["average_perplexity"],
-                    "Pruned": pruned_eval["average_perplexity"],
-                    "Grown (Initial)": grown_eval_initial["average_perplexity"],
-                    "Final": final_eval["average_perplexity"]
-                },
+                "perplexity": perplexity_dict,
                 "active_heads_percentage": {
                     "Original": len(original_active_heads) / (pruning_module.num_layers * pruning_module.num_heads) * 100,
                     "Pruned": len(pruned_active_heads) / (pruning_module.num_layers * pruning_module.num_heads) * 100,
@@ -740,11 +747,15 @@ def neural_plasticity_cycle(args, experiment_dirs, pruning_module, dataset):
                 }
             }
             
-            plot_metrics_comparison(
-                metrics_data,
-                title=f"Neural Plasticity Cycle {cycle_num} Results",
-                save_path=metrics_vis_path
-            )
+            try:
+                plot_metrics_comparison(
+                    metrics_data,
+                    title=f"Neural Plasticity Cycle {cycle_num} Results",
+                    save_path=metrics_vis_path
+                )
+            except Exception as e:
+                print(f"Error creating metrics comparison visualization: {e}")
+                # Continue execution even if visualization fails
         
         # Update initial parameters for next cycle
         initial_params = learned_params

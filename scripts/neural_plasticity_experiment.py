@@ -36,8 +36,8 @@ def parse_args():
     # Model parameters
     parser.add_argument("--model_name", type=str, default="distilgpt2",
                       help="Model name (default: distilgpt2)")
-    parser.add_argument("--save_dir", type=str, default="./plasticity_experiments",
-                      help="Directory to save experiment results (default: ./plasticity_experiments)")
+    parser.add_argument("--save_dir", type=str, default="./output/plasticity_experiments",
+                      help="Directory to save experiment results (default: ./output/plasticity_experiments)")
     
     # Experiment parameters
     parser.add_argument("--experiment_name", type=str, default=None,
