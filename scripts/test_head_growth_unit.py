@@ -129,9 +129,11 @@ class TestHeadGrowth(unittest.TestCase):
         growth_strategy = "random"  # Use random for deterministic testing
         initial_scale = 0.01
         
+        # Use deep copy to avoid unintended mutations
+        import copy
         grown_params, added_count, added_heads, warmup_schedule = grow_attention_heads_gradually(
             self.pruning_module,
-            params=pruned_params,
+            params=copy.deepcopy(pruned_params),
             active_heads=pruned_active_heads,
             growth_percentage=growth_percentage,
             strategy=growth_strategy,
@@ -166,9 +168,11 @@ class TestHeadGrowth(unittest.TestCase):
         
         for strategy_name in strategies:
             # Grow heads with this strategy
+            # Use deep copy to avoid any unintended mutations of nested dicts
+            import copy
             grown_params, added_count, added_heads, warmup_schedule = grow_attention_heads_gradually(
                 self.pruning_module,
-                params=pruned_params.copy(),  # Use copy to start from same pruned state
+                params=copy.deepcopy(pruned_params),  # Use deep copy to start from same pruned state
                 active_heads=pruned_active_heads,
                 growth_percentage=growth_percentage,
                 strategy=strategy_name,
@@ -234,9 +238,8 @@ class TestHeadGrowth(unittest.TestCase):
         almost_full_params, few_pruned_heads = self.prune_model(self.original_params, pruning_level)
         
         if len(few_pruned_heads) == 0:
-            # Skip test if no heads were pruned
-            print("Skipping test_zero_growth_possible: unable to create partial pruning")
-            return
+            # Properly mark the test as skipped if no heads were pruned
+            self.skipTest("Unable to create partial pruning for test_zero_growth_possible")
             
         # Get active heads
         almost_full_active_heads = determine_active_heads(self.pruning_module, almost_full_params)
