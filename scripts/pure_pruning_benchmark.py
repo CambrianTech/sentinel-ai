@@ -46,7 +46,7 @@ from torch.utils.data import DataLoader, Subset
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from models.loaders.loader import load_baseline_model, load_adaptive_model
-from datasets.dataset_loader import load_dataset
+from sentinel_data.dataset_loader import load_dataset
 from utils.train_utils import train_epoch, validate
 from utils.metrics import compute_perplexity
 from utils.metrics_logger import MetricsLogger

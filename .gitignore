@@ -32,6 +32,15 @@ datasets/**/*.arrow
 datasets/**/cache/
 ~$*
 
+# Neural plasticity experiment results
+plasticity_experiments/
+neural_plasticity_test/
+legacy_datasets/
+
+# Output directories for experiment results and generated content
+/output/*
+!/output/.gitkeep
+
 # Hugging Face transformers/datasets
 ~/.cache/huggingface/
 ~/.huggingface/
@@ -57,6 +66,7 @@ dist/
 /profiling_results/
 /optimization_results/
 /demo_results/
+model_compatibility_results.json
 
 # Visualization files
 *.png

@@ -31,7 +31,7 @@ import pandas as pd
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from models.loaders.loader import load_baseline_model, load_adaptive_model
-from datasets.dataset_loader import load_dataset
+from sentinel_data.dataset_loader import load_dataset
 from utils.model_wrapper import wrap_model_for_generation
 from utils.checkpoint import save_checkpoint, load_checkpoint
 from utils.generation_wrapper import generate_text

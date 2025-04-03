@@ -30,7 +30,7 @@ from utils.head_metrics import (
     compute_gradient_norms,
     recommend_pruning_growth
 )
-from datasets.dataset_loader import load_and_tokenize_dataset
+from sentinel_data.dataset_loader import load_and_tokenize_dataset
 from utils.training import compute_loss
 
 

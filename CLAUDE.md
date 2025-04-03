@@ -6,6 +6,7 @@
 - Validate notebook: `python notebooks/validate_notebook.py notebook_path`
 - Fix notebook metadata: `python notebooks/fix_notebook_metadata.py`
 - Test pruning: `python scripts/inference_with_pruning.py --strategy entropy --pruning_level 0.5 --prompt "Your text"`
+- Test improved fine-tuner: `python scripts/test_improved_fine_tuner.py --model MODEL --strategy entropy --pruning_level 0.3 --epochs 2`
 - Test model support: `python test_model_support.py --device {cpu,cuda} --verbose`
 
 ## Multi-Model Support
@@ -66,6 +67,7 @@
 2. Use descriptive commit messages with a clear title line.
 3. Include "🤖 Generated with [Claude Code]" tag in commits.
 4. Include co-author attribution.
+5. Increment version number when modifying dependencies or making significant changes to functionality.
 
 ## Workflow Commands
 ```bash
