@@ -1,10 +1,10 @@
 #!/usr/bin/env python
 # coding: utf-8
 
-# # Pruning and Fine-Tuning Benchmark for Google Colab (v0.0.19)
+# # Pruning and Fine-Tuning Benchmark for Google Colab (v0.0.20)
 # 
 # This is the Python script version of our notebook for Google Colab.
-# Version 0.0.19 (April 2025) - Fixed dataset imports and optimized performance
+# Version 0.0.20 (April 2025) - Fixed dataset imports and Colab compatibility
 # 
 # Instructions:
 # 1. Upload to a new Colab notebook using File > Upload notebook > Upload
@@ -31,8 +31,12 @@
 
 # %%
 # Clone the repository but make sure it's not in the Python path yet
-!git clone https://github.com/CambrianTech/sentinel-ai.git
+# Note: We explicitly use branch "refactor/modular-experiment" which contains the optimizations
+!git clone -b refactor/modular-experiment https://github.com/CambrianTech/sentinel-ai.git
 # Don't cd into it yet
+
+# Create symlink to make it easier to access via /content/refactor, which is what Colab may expect
+!ln -sf sentinel-ai refactor
 
 # %%
 # CRITICAL: We need to ensure we're importing the correct HuggingFace datasets
