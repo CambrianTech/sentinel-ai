@@ -1,5 +1,8 @@
 """
 JAX-based pruning library for transformer models
+
+This module provides tools for pruning and fine-tuning transformer models,
+with a focus on attention head pruning and recovery through fine-tuning.
 """
 
 from .environment import Environment
@@ -15,6 +18,7 @@ from .strategies import (
     get_strategy
 )
 from .benchmark import PruningBenchmark
+from .experiment import PruningExperiment, PruningFineTuningExperiment
 
 __all__ = [
     'Environment',
@@ -28,4 +32,6 @@ __all__ = [
     'AttentionEntropyStrategy',
     'get_strategy',
     'PruningBenchmark',
+    'PruningExperiment',
+    'PruningFineTuningExperiment',
 ]
