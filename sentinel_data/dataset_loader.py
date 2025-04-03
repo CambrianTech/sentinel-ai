@@ -1,104 +1,48 @@
-# datasets/dataset_loader.py
+# sentinel_data/dataset_loader.py
 
 import os
 import torch
-import datasets as ds  # Use alias to avoid confusion with our module
 from transformers import AutoTokenizer
-from torch.utils.data import Dataset
+from torch.utils.data import Dataset, DataLoader
 
-def load_and_tokenize_dataset(model_name: str, dataset_name="tiny_shakespeare", block_size=512, 
-                             limit_train=1000, limit_val=200):
-    """
-    Loads a dataset and tokenizes it into blocks of input IDs using the tokenizer for `model_name`.
-    Returns tokenized torch tensors for train and validation splits.
-    """
-    tokenizer = AutoTokenizer.from_pretrained(model_name)
-    tokenizer.pad_token = tokenizer.eos_token  # ensures compatibility with models needing padding
-
-    # Load dataset with trust_remote_code=True for datasets that require it
-    if dataset_name == "tiny_shakespeare":
-        dataset = ds.load_dataset("tiny_shakespeare", trust_remote_code=True)
-    elif dataset_name == "wikitext":
-        dataset = ds.load_dataset("wikitext", "wikitext-2-raw-v1", trust_remote_code=True)
-    elif dataset_name == "openwebtext":
-        dataset = ds.load_dataset("openwebtext", trust_remote_code=True)
-    elif dataset_name == "tiny_stories":
-        dataset = ds.load_dataset("roneneldan/TinyStories", trust_remote_code=True)
-    else:
-        raise ValueError(f"Unsupported dataset: {dataset_name}")
-
-    def tokenize(example):
-        return tokenizer(example["text"], return_special_tokens_mask=False)
-
-    tokenized = dataset.map(tokenize, batched=True, remove_columns=["text"])
-
-    def group_texts(examples):
-        concatenated = sum(examples["input_ids"], [])
-        total_len = (len(concatenated) // block_size) * block_size
-        
-        # Create input_ids
-        input_ids = [concatenated[i:i+block_size] for i in range(0, total_len, block_size)]
-        
-        # Create attention_mask (all 1s since we're using full sequences)
-        attention_mask = [[1] * block_size for _ in range(len(input_ids))]
-        
-        result = {
-            "input_ids": input_ids,
-            "attention_mask": attention_mask
-        }
-        return result
-
-    # Process in smaller batches to avoid memory issues
-    grouped = tokenized.map(group_texts, batched=True, batch_size=10)
-
-    # Limit samples for small-scale training/debugging
-    train_dataset = {
-        "input_ids": grouped["train"]["input_ids"][:limit_train],
-        "attention_mask": grouped["train"]["attention_mask"][:limit_train]
-    }
+class SimpleTokenizedDataset(Dataset):
+    """Simple dataset for language modeling with fixed text."""
     
-    if "validation" in grouped:
-        val_dataset = {
-            "input_ids": grouped["validation"]["input_ids"][:limit_val],
-            "attention_mask": grouped["validation"]["attention_mask"][:limit_val]
-        }
-    else:
-        # Use last part of train as validation if no validation split exists
-        val_dataset = {
-            "input_ids": grouped["train"]["input_ids"][-limit_val:],
-            "attention_mask": grouped["train"]["attention_mask"][-limit_val:]
-        }
-
-    return train_dataset, val_dataset
-
-
-class TokenizedDataset(Dataset):
-    """Dataset for language modeling with prepared input and target tokens."""
-    
-    def __init__(self, dataset_dict, tokenizer, max_length=None):
+    def __init__(self, text, tokenizer, max_length=128):
         """
-        Initialize a tokenized dataset.
+        Initialize a tokenized dataset with a simple fixed text.
         
         Args:
-            dataset_dict: Dictionary with 'input_ids' and 'attention_mask' keys
+            text: Text to tokenize
             tokenizer: Tokenizer instance
             max_length: Maximum sequence length
         """
-        self.input_ids = dataset_dict["input_ids"]
-        self.attention_masks = dataset_dict["attention_mask"]
         self.tokenizer = tokenizer
         self.max_length = max_length
         
+        # Tokenize entire text
+        self.tokens = self.tokenizer.encode(text)
+        
+        # Create chunks of max_length
+        self.chunks = []
+        for i in range(0, len(self.tokens) - max_length, max_length // 2):
+            self.chunks.append(self.tokens[i:i + max_length])
+        
+        if len(self.chunks) == 0 and len(self.tokens) > 0:
+            # If text is too short, pad it
+            chunk = self.tokens + [tokenizer.pad_token_id] * (max_length - len(self.tokens))
+            self.chunks = [chunk]
+        
     def __len__(self):
-        return len(self.input_ids)
+        return len(self.chunks)
     
     def __getitem__(self, idx):
-        # Get sequence of tokens and attention mask
-        tokens = self.input_ids[idx]
-        attention_mask = self.attention_masks[idx]
+        # Get sequence of tokens
+        tokens = self.chunks[idx]
+        attention_mask = [1] * len(tokens)
         
         # Truncate if necessary
-        if self.max_length and len(tokens) > self.max_length:
+        if len(tokens) > self.max_length:
             tokens = tokens[:self.max_length]
             attention_mask = attention_mask[:self.max_length]
         
@@ -116,7 +60,6 @@ class TokenizedDataset(Dataset):
             "labels": labels
         }
 
-
 def load_dataset(dataset_name, tokenizer, max_length=None):
     """
     Load and prepare datasets for training and evaluation.
@@ -129,27 +72,117 @@ def load_dataset(dataset_name, tokenizer, max_length=None):
     Returns:
         Tuple of (train_dataset, eval_dataset)
     """
-    # Set appropriate limits based on dataset size
-    if dataset_name == "tiny_shakespeare":
-        train_limit, val_limit = 5000, 500
-    elif dataset_name == "wikitext":
-        train_limit, val_limit = 2000, 200
-    elif dataset_name in ["openwebtext", "c4"]:
-        train_limit, val_limit = 1000, 100
-    else:
-        train_limit, val_limit = 1000, 100
+    # Simple Shakespeare text for quick experiments
+    shakespeare_text = """
+    ROMEO: But, soft! what light through yonder window breaks?
+    It is the east, and Juliet is the sun.
+    Arise, fair sun, and kill the envious moon,
+    Who is already sick and pale with grief,
+    That thou her maid art far more fair than she.
+
+    JULIET: O Romeo, Romeo! wherefore art thou Romeo?
+    Deny thy father and refuse thy name;
+    Or, if thou wilt not, be but sworn my love,
+    And I'll no longer be a Capulet.
+
+    ROMEO: Shall I hear more, or shall I speak at this?
+
+    JULIET: 'Tis but thy name that is my enemy;
+    Thou art thyself, though not a Montague.
+    What's Montague? it is nor hand, nor foot,
+    Nor arm, nor face, nor any other part
+    Belonging to a man. O, be some other name!
+    What's in a name? that which we call a rose
+    By any other name would smell as sweet;
+    So Romeo would, were he not Romeo call'd,
+    Retain that dear perfection which he owes
+    Without that title. Romeo, doff thy name,
+    And for that name which is no part of thee
+    Take all myself.
+    """
     
-    # Load and tokenize the dataset
-    train_ids, val_ids = load_and_tokenize_dataset(
-        tokenizer.name_or_path,
-        dataset_name=dataset_name,
-        block_size=max_length or 128,
-        limit_train=train_limit,
-        limit_val=val_limit
-    )
+    # Set appropriate max length
+    if max_length is None:
+        max_length = 128
     
     # Create datasets
-    train_dataset = TokenizedDataset(train_ids, tokenizer, max_length)
-    eval_dataset = TokenizedDataset(val_ids, tokenizer, max_length)
+    full_dataset = SimpleTokenizedDataset(shakespeare_text, tokenizer, max_length)
     
-    return train_dataset, eval_dataset
+    # Split into train and eval (80/20 split)
+    train_size = int(0.8 * len(full_dataset))
+    eval_size = len(full_dataset) - train_size
+    train_dataset, eval_dataset = torch.utils.data.random_split(
+        full_dataset, [train_size, eval_size]
+    )
+    
+    # Wrap datasets with DataLoader
+    class DatasetWrapper:
+        def __init__(self, train_dataset, eval_dataset, batch_size=8):
+            self.train_dataset = train_dataset
+            self.eval_dataset = eval_dataset
+            self.batch_size = batch_size
+            self.tokenizer = tokenizer
+            
+            # Create iterators
+            self._train_iterator = self._create_train_iterator()
+            self._eval_iterator = self._create_eval_iterator()
+        
+        def set_tokenizer(self, new_tokenizer):
+            self.tokenizer = new_tokenizer
+        
+        def _create_train_iterator(self):
+            train_loader = DataLoader(
+                self.train_dataset, 
+                batch_size=self.batch_size,
+                shuffle=True
+            )
+            
+            # Convert to JAX format
+            while True:
+                for batch in train_loader:
+                    # Convert to JAX format
+                    jax_batch = {
+                        "input_ids": batch["input_ids"].numpy(),
+                        "attention_mask": batch["attention_mask"].numpy()
+                    }
+                    yield jax_batch
+        
+        def _create_eval_iterator(self):
+            eval_loader = DataLoader(
+                self.eval_dataset, 
+                batch_size=self.batch_size,
+                shuffle=False
+            )
+            
+            # Convert to JAX format
+            while True:
+                for batch in eval_loader:
+                    # Convert to JAX format
+                    jax_batch = {
+                        "input_ids": batch["input_ids"].numpy(),
+                        "attention_mask": batch["attention_mask"].numpy()
+                    }
+                    yield jax_batch
+        
+        @property
+        def train_dataloader(self):
+            return self._train_iterator
+        
+        @property
+        def val_dataloader(self):
+            return self._eval_iterator
+        
+        def get_evaluation_samples(self, num_samples=5):
+            """Get sample texts for evaluation"""
+            # Generate prompts for evaluation
+            prompts = [
+                "Romeo: ",
+                "Juliet: ",
+                "What's in a name? ",
+                "It is the east, and ",
+                "Arise, fair sun, and "
+            ]
+            return prompts[:num_samples]
+    
+    # Create and return the wrapper
+    return DatasetWrapper(train_dataset, eval_dataset, batch_size=8)

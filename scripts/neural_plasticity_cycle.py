@@ -170,93 +170,15 @@ def load_dataset_for_experiment(args, tokenizer=None):
     print(f"Loading dataset {args.dataset}...")
     
     try:
-        # Load train and eval datasets
-        train_dataset, eval_dataset = load_dataset(
+        # Load the dataset directly
+        dataset_wrapper = load_dataset(
             dataset_name=args.dataset,
             tokenizer=tokenizer,
             max_length=args.sequence_length
         )
         
-        # Wrap in a simple class for compatibility with the experiment code
-        class DatasetWrapper:
-            def __init__(self, train_dataset, eval_dataset, batch_size=8):
-                self.train_dataset = train_dataset
-                self.eval_dataset = eval_dataset
-                self.batch_size = batch_size
-                self.tokenizer = tokenizer
-                
-                # Create iterators
-                self._train_iterator = self._create_train_iterator()
-                self._eval_iterator = self._create_eval_iterator()
-            
-            def set_tokenizer(self, new_tokenizer):
-                self.tokenizer = new_tokenizer
-                
-                # Reset datasets with new tokenizer if needed
-                # In this implementation, we don't need to do anything since
-                # the datasets are already tokenized
-                pass
-            
-            def _create_train_iterator(self):
-                import torch
-                from torch.utils.data import DataLoader
-                
-                train_loader = DataLoader(
-                    self.train_dataset, 
-                    batch_size=self.batch_size,
-                    shuffle=True
-                )
-                
-                # Convert to JAX format
-                while True:
-                    for batch in train_loader:
-                        # Convert to JAX format
-                        jax_batch = {
-                            "input_ids": batch["input_ids"].numpy(),
-                            "attention_mask": batch["attention_mask"].numpy()
-                        }
-                        yield jax_batch
-            
-            def _create_eval_iterator(self):
-                import torch
-                from torch.utils.data import DataLoader
-                
-                eval_loader = DataLoader(
-                    self.eval_dataset, 
-                    batch_size=self.batch_size,
-                    shuffle=False
-                )
-                
-                # Convert to JAX format
-                while True:
-                    for batch in eval_loader:
-                        # Convert to JAX format
-                        jax_batch = {
-                            "input_ids": batch["input_ids"].numpy(),
-                            "attention_mask": batch["attention_mask"].numpy()
-                        }
-                        yield jax_batch
-            
-            @property
-            def train_dataloader(self):
-                return self._train_iterator
-            
-            @property
-            def val_dataloader(self):
-                return self._eval_iterator
-            
-            def get_evaluation_samples(self, num_samples=5):
-                """Get sample texts for evaluation"""
-                # Since we have tokenized data, we need to decode some samples
-                samples = []
-                for i in range(min(num_samples, len(self.eval_dataset))):
-                    input_ids = self.eval_dataset[i]["input_ids"]
-                    text = self.tokenizer.decode(input_ids)
-                    samples.append(text)
-                return samples
-        
-        # Create and return the wrapper
-        return DatasetWrapper(train_dataset, eval_dataset, batch_size=args.batch_size)
+        # Our load_dataset now directly returns a DatasetWrapper
+        return dataset_wrapper
         
     except Exception as e:
         print(f"Error loading dataset: {e}")
