@@ -61,7 +61,24 @@ Manages differential learning rates to accelerate adaptation of new heads:
 
 ### Basic Neural Plasticity Cycle
 
-To perform the full neural plasticity cycle, use the provided scripts:
+To run the complete neural plasticity cycle in a single command:
+
+```bash
+# Complete neural plasticity cycle (train → prune → measure → grow → learn)
+python scripts/neural_plasticity_cycle.py --model_name distilgpt2 --dataset tiny_shakespeare
+
+# Advanced configuration
+python scripts/neural_plasticity_cycle.py --model_name gpt2 \
+    --dataset wikitext \
+    --initial_pruning 0.3 \
+    --growth_ratio 0.33 \
+    --pruning_strategy entropy \
+    --growth_strategy gradient_sensitivity \
+    --new_head_lr_multiplier 5.0 \
+    --save_visualizations
+```
+
+You can also run each stage separately if needed:
 
 ```bash
 # 1. Prune a model
@@ -71,16 +88,24 @@ python scripts/prune_heads.py --model_name distilgpt2 --pruning_level 0.3 --stra
 python scripts/expand_heads.py --model_path ./pruned_model.pth --model_name distilgpt2 --growth_percentage 0.1 --growth_strategy gradient_sensitivity --output_path ./grown_model.pth
 
 # 3. Fine-tune the model
-python scripts/fine_tune_model.py --model_path ./grown_model.pth --model_name distilgpt2 --learning_rate 5e-5 --new_head_lr_multiplier 5.0 --epochs 3 --output_path ./fine_tuned_model.pth
+python scripts/finetune_pruned_model.py --model_path ./grown_model.pth --model_name distilgpt2 --learning_rate 5e-5 --new_head_lr_multiplier 5.0 --epochs 3 --output_path ./fine_tuned_model.pth
 ```
 
 ### Complete Experiment
 
-To run a complete neural plasticity experiment with detailed metrics and visualization:
+To run a comprehensive experiment with multiple pruning levels and growth percentages:
 
 ```bash
-python scripts/neural_plasticity_experiment.py --model_name distilgpt2 --pruning_levels 0.1,0.3,0.5 --growth_percentages 0.05,0.1,0.2 --save_visualizations
+python scripts/neural_plasticity_experiment.py --model_name distilgpt2 \
+    --pruning_levels 0.1,0.3,0.5 \
+    --growth_percentages 0.05,0.1,0.2 \
+    --pruning_strategy entropy \
+    --growth_strategy gradient_sensitivity \
+    --learning_steps 100 \
+    --save_visualizations
 ```
+
+This will generate detailed metrics and visualizations comparing the performance across different configurations.
 
 ### Unit Testing
 
@@ -163,9 +188,26 @@ Strategically growing back just 10-20% of the pruned heads can recover most of t
 
 Using higher learning rates for new heads (3-5x the base rate) accelerates their integration and improves overall model adaptation.
 
+## Multi-Cycle Neural Plasticity
+
+The neural plasticity system supports running multiple cycles to enable continuous adaptation:
+
+```bash
+python scripts/neural_plasticity_cycle.py --model_name distilgpt2 --dataset tiny_shakespeare --cycles 3
+```
+
+This performs three consecutive plasticity cycles, with each cycle building on the results of the previous one. The system automatically:
+
+1. Adjusts pruning levels based on previous results
+2. Tracks and visualizes metrics across all cycles
+3. Creates comparative visualizations of model evolution
+4. Generates comprehensive reports on performance trends
+
+Multi-cycle plasticity enables more sophisticated model adaptation and can explore different architectural configurations over time.
+
 ## Future Directions
 
-1. **Iterative Plasticity Cycles**: Multiple cycles of pruning and growth for progressive adaptation
+1. **Iterative Plasticity Cycles**: More advanced mechanisms for progressive adaptation
 2. **Cross-Modal Transfers**: Adapting models across different modalities while preserving knowledge
 3. **Dynamic Adaptive Inference**: Runtime adjustment of active heads based on input complexity
 4. **Structural Knowledge Distillation**: Using neural plasticity for more efficient knowledge transfer
