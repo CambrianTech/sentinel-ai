@@ -154,14 +154,32 @@ class PruningExperiment:
             'large', 'xl', 'xxl'                 # Size indicators
         ])
         
+        # Use custom parameters if provided through environment
+        if batch_size is None and hasattr(self.env, 'batch_size') and self.env.batch_size is not None:
+            batch_size = self.env.batch_size
+            logger.info(f"Using configured batch size: {batch_size}")
+        elif batch_size is None:
+            # Use default batch size based on hardware
+            batch_size = 4  # Default fallback
+        
+        # Get sequence length from environment if set
+        sequence_length = getattr(self.env, 'seq_length', 64) if hasattr(self.env, 'seq_length') else 64
+        
+        # Get stability level from environment if set
+        stability_level = getattr(self.env, 'stability_level', 2) if hasattr(self.env, 'stability_level') else 2
+        
         # Determine which fine-tuner to use
         if self.use_improved_fine_tuner or needs_improved:
-            logger.info(f"Using ImprovedFineTuner for enhanced stability")
+            logger.info(f"Using ImprovedFineTuner (stability level: {stability_level})")
+            logger.info(f"Training parameters: batch_size={batch_size}, sequence_length={sequence_length}")
+            
             fine_tuner = ImprovedFineTuner(
                 pruning_module, 
                 dataset_name=dataset_name,
                 dataset_config=dataset_config,
-                batch_size=batch_size
+                batch_size=batch_size,
+                sequence_length=sequence_length,
+                stability_level=stability_level
             )
         else:
             logger.info(f"Using standard FineTuner")
@@ -281,7 +299,7 @@ class PruningExperiment:
                        baseline_results: Dict[str, Any],
                        pruned_results: Dict[str, Any],
                        fine_tuning_epochs: int = 1,
-                       batch_size: int = 4) -> Dict[str, Any]:
+                       batch_size: Optional[int] = None) -> Dict[str, Any]:
         """
         Fine-tune the pruned model.
         
@@ -762,7 +780,10 @@ class PruningFineTuningExperiment(PruningExperiment):
                  results_dir: str = "pruning_finetuning_results", 
                  use_improved_fine_tuner: bool = True,
                  detect_environment: bool = True,
-                 optimize_memory: bool = True):
+                 optimize_memory: bool = True,
+                 batch_size: Optional[int] = None,
+                 sequence_length: Optional[int] = None,
+                 stability_level: Optional[int] = None):
         """
         Initialize the pruning and fine-tuning experiment.
         
@@ -771,6 +792,9 @@ class PruningFineTuningExperiment(PruningExperiment):
             use_improved_fine_tuner: Whether to use the improved fine-tuner with stability enhancements
             detect_environment: Whether to detect the environment capabilities
             optimize_memory: Whether to optimize memory usage based on model size
+            batch_size: Optional override for batch size during fine-tuning
+            sequence_length: Optional override for sequence length during fine-tuning
+            stability_level: Optional override for stability level during fine-tuning (1-3)
         """
         super().__init__(
             results_dir, 
@@ -778,6 +802,22 @@ class PruningFineTuningExperiment(PruningExperiment):
             detect_environment,
             optimize_memory
         )
+        
+        # Store custom fine-tuning parameters
+        self.batch_size = batch_size
+        self.sequence_length = sequence_length
+        self.stability_level = stability_level
+        
+        # Apply custom parameters to environment if provided
+        if hasattr(self, 'env') and self.env is not None:
+            if self.batch_size is not None:
+                self.env.batch_size = self.batch_size
+            
+            if self.sequence_length is not None:
+                self.env.seq_length = self.sequence_length
+                
+            if self.stability_level is not None:
+                self.env.stability_level = self.stability_level
         
         # Model size limits based on environment and GPU memory
         self.update_model_size_limits()

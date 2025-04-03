@@ -1,10 +1,13 @@
 #!/usr/bin/env python
 # coding: utf-8
 
-# # Pruning and Fine-Tuning Benchmark for Google Colab (v0.0.26)
+# # Pruning and Fine-Tuning Benchmark for Google Colab (v0.0.26.2)
 # 
 # This is the Python script version of our notebook for Google Colab.
-# Version 0.0.26 (April 2025) - Added support for batch_size, sequence_length and stability_level parameters
+# Version 0.0.26.2 (April 2025) - Fixed sequence_length and stability_level assignments
+Version 0.0.26.3 (April 2025) - Added clarification for custom class
+Version 0.0.26.1 (April 2025) - Fixed stability_level parameter inconsistency
+Version 0.0.26 (April 2025) - Added support for batch_size, sequence_length and stability_level parameters
 # Version 0.0.25 (April 2025) - Verified fixed imports with HuggingFace datasets and data_modules
 # Version 0.0.24 (April 2025) - Renamed internal module to fix HuggingFace datasets import
 # 
@@ -120,6 +123,8 @@ print(f"Default backend: {jax.default_backend()}")
 # Let's create an experiment manager to run the full experiment:
 
 # %%
+# Define a custom PruningFineTuningExperiment class for the Colab notebook
+# Note: This is different from the one in utils.pruning.experiment to support additional parameters
 class PruningFineTuningExperiment:
     """Manages the pruning + fine-tuning experiment"""
     
@@ -140,8 +145,10 @@ class PruningFineTuningExperiment:
         self.use_improved_fine_tuner = use_improved_fine_tuner
         self.optimize_memory = optimize_memory
         self.batch_size = batch_size
-        self.sequence_length = sequence_length
-        self.stability_level = stability_level
+        self.# Get sequence length from environment if set
+        sequence_length = getattr(self.env, "seq_length", 64) if hasattr(self.env, "seq_length") else 64
+        self.# Use ImprovedFineTuner with stability level if provided
+        stability_level = getattr(self.env, "stability_level", 2) if hasattr(self.env, "stability_level") else 2
         
         # Initialize environment
         self.env = Environment()
