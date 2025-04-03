@@ -1,9 +1,10 @@
 #!/usr/bin/env python
 # coding: utf-8
 
-# # Pruning and Fine-Tuning Benchmark for Google Colab (v0.0.25)
+# # Pruning and Fine-Tuning Benchmark for Google Colab (v0.0.26)
 # 
 # This is the Python script version of our notebook for Google Colab.
+# Version 0.0.26 (April 2025) - Added support for batch_size, sequence_length and stability_level parameters
 # Version 0.0.25 (April 2025) - Verified fixed imports with HuggingFace datasets and data_modules
 # Version 0.0.24 (April 2025) - Renamed internal module to fix HuggingFace datasets import
 # 
@@ -122,11 +123,25 @@ print(f"Default backend: {jax.default_backend()}")
 class PruningFineTuningExperiment:
     """Manages the pruning + fine-tuning experiment"""
     
-    def __init__(self, results_dir="pruning_finetuning_results"):
+    def __init__(self, 
+                 results_dir="pruning_finetuning_results",
+                 use_improved_fine_tuner=True,
+                 detect_environment=True,
+                 optimize_memory=True,
+                 batch_size=None,
+                 sequence_length=None,
+                 stability_level=None):
         self.results_dir = Path(results_dir)
         self.results_dir.mkdir(exist_ok=True, parents=True)
         self.results = []
         self.current_experiment = {}
+        
+        # Store configuration parameters
+        self.use_improved_fine_tuner = use_improved_fine_tuner
+        self.optimize_memory = optimize_memory
+        self.batch_size = batch_size
+        self.sequence_length = sequence_length
+        self.stability_level = stability_level
         
         # Initialize environment
         self.env = Environment()
@@ -170,6 +185,19 @@ class PruningFineTuningExperiment:
         # Get suitable models for this environment
         self.available_models = self.env.get_suitable_models()
         print(f"Models available: {', '.join(self.available_models)}")
+        
+        # Apply manual configuration overrides if provided
+        if self.batch_size is not None or self.sequence_length is not None or self.stability_level is not None:
+            print(f"Using custom optimization parameters:")
+            if self.batch_size is not None:
+                print(f"  - Batch size: {self.batch_size}")
+                self.env.batch_size = self.batch_size
+            if self.sequence_length is not None:
+                print(f"  - Sequence length: {self.sequence_length}")
+                self.env.seq_length = self.sequence_length
+            if self.stability_level is not None:
+                print(f"  - Stability level: {self.stability_level}")
+                self.env.stability_level = self.stability_level
         
         # Model size limits based on environment - adapt based on detected resources
         self.model_size_limits = {
@@ -364,36 +392,49 @@ class PruningFineTuningExperiment:
         dataset_name = "wikitext"
         dataset_config = "wikitext-2-v1"
         
-        # Determine batch size based on model size and environment
-        if self.env.in_colab and self.env.has_tpu:
-            # TPUs can handle larger batch sizes
-            batch_size = 16
-            # But still reduce for large models
-            if "1.3b" in model.lower() or "large" in model.lower():
-                batch_size = 8
-        elif self.env.in_colab and self.env.has_gpu:
-            batch_size = 8
-            # Reduce batch size for larger models
-            if "1.3b" in model.lower() or "large" in model.lower():
-                batch_size = 4
-            elif "2.7b" in model.lower() or "xl" in model.lower():
-                batch_size = 2
+        # Use custom parameters if provided, otherwise auto-detect
+        if hasattr(self.env, 'batch_size') and self.env.batch_size is not None:
+            batch_size = self.env.batch_size
+            print(f"Using configured batch size: {batch_size}")
         else:
-            # CPU-only case
-            batch_size = 4
-            # Even smaller for large models on CPU
-            if "1.3b" in model.lower() or "large" in model.lower():
-                batch_size = 2
-            elif "2.7b" in model.lower() or "xl" in model.lower():
-                batch_size = 1
+            # Determine batch size based on model size and environment
+            if self.env.in_colab and self.env.has_tpu:
+                # TPUs can handle larger batch sizes
+                batch_size = 16
+                # But still reduce for large models
+                if "1.3b" in model.lower() or "large" in model.lower():
+                    batch_size = 8
+            elif self.env.in_colab and self.env.has_gpu:
+                batch_size = 8
+                # Reduce batch size for larger models
+                if "1.3b" in model.lower() or "large" in model.lower():
+                    batch_size = 4
+                elif "2.7b" in model.lower() or "xl" in model.lower():
+                    batch_size = 2
+            else:
+                # CPU-only case
+                batch_size = 4
+                # Even smaller for large models on CPU
+                if "1.3b" in model.lower() or "large" in model.lower():
+                    batch_size = 2
+                elif "2.7b" in model.lower() or "xl" in model.lower():
+                    batch_size = 1
         
-        # Use ImprovedFineTuner by default for all models to enhance stability
-        print(f"Using ImprovedFineTuner for enhanced stability")
+        # Get sequence length from environment if set
+        sequence_length = getattr(self.env, 'seq_length', 64) if hasattr(self.env, 'seq_length') else 64
+        
+        # Use ImprovedFineTuner with stability level if provided
+        stability_level = getattr(self.env, 'stability_level', 2) if hasattr(self.env, 'stability_level') else 2
+        print(f"Using ImprovedFineTuner (stability level: {stability_level})")
+        print(f"Training parameters: batch_size={batch_size}, sequence_length={sequence_length}")
+        
         fine_tuner = ImprovedFineTuner(
             pruning_module, 
             dataset_name=dataset_name,
             dataset_config=dataset_config,
-            batch_size=batch_size
+            batch_size=batch_size,
+            sequence_length=sequence_length,
+            stability_level=stability_level
         )
         
         # Adjust learning rate based on model size
@@ -814,8 +855,16 @@ class PruningFineTuningExperiment:
 # Now we can run the full experiment:
 
 # %%
-# Initialize experiment
-experiment = PruningFineTuningExperiment("pruning_finetuning_results")
+# Initialize experiment with memory optimizations
+experiment = PruningFineTuningExperiment(
+    results_dir="pruning_finetuning_results",
+    use_improved_fine_tuner=True,      # Use the improved fine-tuner with stability enhancements
+    detect_environment=True,           # Automatically detect Colab environment
+    optimize_memory=True,              # Optimize memory usage based on detected hardware
+    batch_size=2,                      # Override batch size for fine-tuning
+    sequence_length=64,                # Override sequence length for fine-tuning
+    stability_level=2                  # Use enhanced stability measures (1-3, where 3 is max stability)
+)
 
 # %%
 # Configuration
@@ -851,7 +900,15 @@ OVERNIGHT_FINE_TUNING_EPOCHS = 5  # More epochs for better recovery
 OVERNIGHT_MAX_RUNTIME = 24 * 3600  # 24 hours
 
 # Initialize experiment for overnight run
-overnight_experiment = PruningFineTuningExperiment("overnight_results")
+overnight_experiment = PruningFineTuningExperiment(
+    results_dir="overnight_results",
+    use_improved_fine_tuner=True,      # Use stability enhancements for overnight runs
+    detect_environment=True,
+    optimize_memory=True,
+    batch_size=1,                      # Smaller batch for longer sequences
+    sequence_length=128,               # Longer sequences for better quality
+    stability_level=3                  # Maximum stability for overnight runs
+)
 
 # Run overnight experiment (uncomment to run)
 # overnight_results = overnight_experiment.run_experiment(
