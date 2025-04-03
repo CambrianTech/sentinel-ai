@@ -35,13 +35,23 @@
 # Don't cd into it yet
 
 # %%
-# Import huggingface datasets directly before changing directory
-# We want to make sure we're using the system package
+# Explicitly ensure we're using the HuggingFace datasets, not local datasets
+# Force Python to look for the package in the system paths first
+import sys
+original_path = sys.path.copy()
+sys.path = [p for p in sys.path if 'sentinel-ai' not in p]
+
+# Now import datasets from huggingface
 from datasets import load_dataset
 import datasets
 print(f"Using datasets from: {datasets.__file__}")
 
-# Now safely change to the repository directory
+# Safety check to ensure we're using the right datasets package
+if 'sentinel-ai/datasets' in datasets.__file__:
+    raise ImportError("ERROR: Using local datasets package instead of HuggingFace datasets. Please restart the runtime.")
+
+# Restore path and change to the repository directory
+sys.path = original_path
 %cd sentinel-ai
 
 # Import rest of the libraries
@@ -70,7 +80,12 @@ from flax.training.train_state import TrainState
 from transformers import AutoTokenizer, FlaxAutoModelForCausalLM
 
 # Add the current directory to path and import our modules
-sys.path.append(".")
+# Prioritize local imports for our own modules, but keep system modules first
+# This ensures we use our utils package but system's datasets
+system_paths = [p for p in sys.path if '/usr/local' in p or 'python3' in p or 'site-packages' in p]
+local_paths = ["."]  # Current directory first
+other_paths = [p for p in sys.path if p not in system_paths and p != "."]
+sys.path = system_paths + local_paths + other_paths
 from utils.pruning import (
     Environment,
     ResultsManager,
