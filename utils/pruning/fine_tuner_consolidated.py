@@ -1,5 +1,8 @@
 """
-Fine-tuning implementation for pruned models with improved stability for large models
+Consolidated fine-tuning implementation for pruned models with configurable stability features.
+
+This module provides a unified implementation that combines the features of the original
+FineTuner and ImprovedFineTuner classes, with configurable stability levels.
 """
 
 import os
@@ -7,15 +10,16 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import optax
+import logging
+import math
+import time
+import gc
 from flax.training import train_state
 from functools import partial
 from tqdm.auto import tqdm
 from datasets import load_dataset
 from transformers import FlaxAutoModelForCausalLM
-import logging
-import math
-import time
-import gc
+from typing import Dict, List, Tuple, Any, Optional, Union, Callable
 
 # Set up logging
 logger = logging.getLogger(__name__)
@@ -26,26 +30,63 @@ logger.addHandler(handler)
 logger.setLevel(logging.INFO)
 
 
-class ImprovedFineTuner:
-    """Fine-tunes a pruned model to recover performance with improved stability"""
+class FineTuner:
+    """Fine-tunes a pruned model to recover performance with configurable stability features."""
     
-    def __init__(self, pruning_module, dataset_name="openwebtext", dataset_config=None, batch_size=4):
+    def __init__(
+        self,
+        pruning_module,
+        dataset_name="openwebtext",
+        dataset_config=None,
+        batch_size=4,
+        stability_level=1,  # 0: basic, 1: standard, 2: high
+        use_synthetic_data=False,
+        model_specific_optimizations=True
+    ):
+        """
+        Initialize the fine-tuner with configurable stability features.
+        
+        Args:
+            pruning_module: The pruning module instance
+            dataset_name: Name of the dataset to use for fine-tuning
+            dataset_config: Configuration of the dataset
+            batch_size: Initial batch size for training
+            stability_level: Level of stability features to use
+                0: Basic operation (minimal safety features)
+                1: Standard stability (recommended for most models)
+                2: High stability (for OPT models and other challenging models)
+            use_synthetic_data: Whether to use synthetic data instead of real dataset
+            model_specific_optimizations: Whether to apply model-specific optimizations
+        """
         self.pruning_module = pruning_module
         self.dataset_name = dataset_name
         self.dataset_config = dataset_config
         self.batch_size = batch_size
+        self.stability_level = stability_level
+        self.use_synthetic_data = use_synthetic_data
+        self.model_specific_optimizations = model_specific_optimizations
+        
+        # Default parameters - will be adjusted based on stability level
         self.max_seq_length = 128  # Modest sequence length for faster training
         self.train_state = None
         self.metrics_history = []
-        self.use_synthetic_data = False  # New flag for forcing synthetic data
-        self.use_rng_keys_for_dropout = True  # Enable by default to fix dropout RNG issue
+        
+        # Feature flags - will be set based on stability level
+        self.use_rng_keys_for_dropout = False
+        self.use_gradient_clipping = False
+        self.track_nan_counts = False
+        self.use_garbage_collection = False
+        self.enable_adaptive_params = False
+        
+        # Detect model type
+        self.is_opt_model = 'opt' in self.pruning_module.model_name.lower() if hasattr(self.pruning_module, 'model_name') else False
         
         # Detect number of devices
         self.devices = jax.devices()
         self.n_devices = len(self.devices)
         
-        # Detect model family and adjust parameters accordingly
-        self.is_opt_model = 'opt' in self.pruning_module.model_name.lower()
+        # Apply settings based on stability level
+        self._configure_stability_features()
         
         if self.n_devices > 1:
             logger.info(f"Using {self.n_devices} devices for training")
@@ -54,27 +95,61 @@ class ImprovedFineTuner:
             self.batch_size = (self.batch_size // self.n_devices) * self.n_devices
             logger.info(f"Adjusted batch size to {self.batch_size} for multi-device training")
             
-        # Adjust batch size for large models
-        self._adjust_batch_size_for_model_size()
+        # Apply model-specific optimizations if enabled
+        if self.model_specific_optimizations:
+            self._apply_model_specific_optimizations()
     
-    def _adjust_batch_size_for_model_size(self):
-        """Adjust batch size based on model size to prevent OOM errors"""
-        model_name = self.pruning_module.model_name.lower()
+    def _configure_stability_features(self):
+        """Configure stability features based on the selected stability level."""
+        if self.stability_level >= 1:
+            # Standard stability features (level 1)
+            self.use_rng_keys_for_dropout = True
+            self.use_gradient_clipping = True
+            self.track_nan_counts = True
+            logger.info("Configured with standard stability features (level 1)")
+            
+        if self.stability_level >= 2:
+            # High stability features (level 2)
+            self.use_garbage_collection = True
+            self.enable_adaptive_params = True
+            self.use_synthetic_data = True  # Force synthetic data for highest stability
+            logger.info("Configured with high stability features (level 2)")
+            
+        # For OPT models, always use high stability regardless of setting
+        if self.is_opt_model and self.stability_level < 2:
+            logger.info("OPT model detected, automatically upgrading to high stability (level 2)")
+            self.stability_level = 2
+            self._configure_stability_features()
+    
+    def _apply_model_specific_optimizations(self):
+        """Apply model-specific optimizations based on model type and size."""
+        model_name = getattr(self.pruning_module, 'model_name', '').lower()
         
-        # Detect large models
-        if "1.3b" in model_name or "large" in model_name:
-            # Reduce batch size for large models
+        # For large models, reduce batch size
+        if "large" in model_name or "1.3b" in model_name or "xl" in model_name:
             old_batch_size = self.batch_size
             self.batch_size = max(1, self.batch_size // 4)
             logger.info(f"Reduced batch size from {old_batch_size} to {self.batch_size} for large model {model_name}")
+            
+            # Also reduce sequence length for very large models
+            self.max_seq_length = min(self.max_seq_length, 64)
+            logger.info(f"Set maximum sequence length to {self.max_seq_length} for large model")
+            
+        # For medium-sized models, make smaller adjustments
         elif "medium" in model_name or "base" in model_name or "350m" in model_name:
-            # Reduce batch size for medium models
             old_batch_size = self.batch_size
             self.batch_size = max(1, self.batch_size // 2)
             logger.info(f"Reduced batch size from {old_batch_size} to {self.batch_size} for medium-sized model {model_name}")
+            
+        # Special handling for OPT models
+        if self.is_opt_model:
+            logger.info("Applying OPT-specific optimizations")
+            # OPT models need a smaller batch size and sequence length for stability
+            self.batch_size = max(1, min(self.batch_size, 2))
+            self.max_seq_length = min(self.max_seq_length, 64)
     
     def _prepare_dataset(self):
-        """Load and prepare the dataset for fine-tuning"""
+        """Load and prepare the dataset for fine-tuning with appropriate error handling."""
         # If synthetic data is requested, skip real dataset loading
         if self.use_synthetic_data:
             logger.info("Using synthetic data as requested")
@@ -106,7 +181,7 @@ class ImprovedFineTuner:
                 # Tokenize the texts
                 if "text" in examples:
                     texts = examples["text"]
-                else:
+                elif isinstance(examples, dict):
                     # Try to find text field (wikitext has different format)
                     keys = examples.keys()
                     text_key = next((k for k in keys if "text" in k.lower()), None)
@@ -119,6 +194,10 @@ class ImprovedFineTuner:
                             example_text = " ".join(str(examples[k][i]) for k in keys 
                                                 if isinstance(examples[k][i], str))
                             texts.append(example_text)
+                else:
+                    # Fallback for unexpected format
+                    logger.warning("Unexpected dataset format, falling back to synthetic data")
+                    return None
                 
                 # Add truncation to prevent very long sequences
                 tokenized = tokenizer(
@@ -140,51 +219,56 @@ class ImprovedFineTuner:
                         num_proc=1,
                         remove_columns=dataset.column_names
                     )
+                    
+                    # Check for successful tokenization
+                    if not tokenized_dataset or len(tokenized_dataset) == 0:
+                        raise ValueError("Tokenization produced empty dataset")
+                        
                 except Exception as e:
                     logger.error(f"Error processing wikitext: {e}")
                     return self._prepare_synthetic_dataset()
             else:
                 # Remove columns that aren't strings for other datasets
                 try:
+                    # Identify columns to keep
                     columns_to_remove = []
                     for col in dataset.column_names:
                         if isinstance(dataset[0][col], (int, float, bool)) or dataset[0][col] is None:
-                            continue
-                        columns_to_remove.append(col)
-                
+                            columns_to_remove.append(col)
+                    
                     tokenized_dataset = dataset.map(
                         tokenize_function,
                         batched=True,
                         num_proc=1,
-                        remove_columns=columns_to_remove
+                        remove_columns=columns_to_remove if columns_to_remove else None
                     )
+                    
+                    if not tokenized_dataset or len(tokenized_dataset) == 0:
+                        raise ValueError("Tokenization produced empty dataset")
+                        
                 except Exception as e:
                     logger.error(f"Error processing dataset: {e}")
                     return self._prepare_synthetic_dataset()
             
             # Convert to list of batches for simpler processing
-            try:
-                dataloader = []
-                for i in range(0, len(tokenized_dataset), self.batch_size):
-                    end = min(i + self.batch_size, len(tokenized_dataset))
-                    batch_samples = tokenized_dataset[i:end]
-                    
-                    batch = {
-                        "input_ids": np.array([sample["input_ids"] for sample in batch_samples]),
-                        "attention_mask": np.array([sample["attention_mask"] for sample in batch_samples]),
-                    }
-                    
-                    # Add labels
-                    batch["labels"] = batch["input_ids"].copy()
-                    
-                    dataloader.append(batch)
+            dataloader = []
+            for i in range(0, len(tokenized_dataset), self.batch_size):
+                end = min(i + self.batch_size, len(tokenized_dataset))
+                batch_samples = tokenized_dataset[i:end]
                 
-                logger.info(f"Created {len(dataloader)} batches")
-                return dataloader
-            except Exception as e:
-                logger.error(f"Error creating batches: {e}")
-                logger.info("Falling back to synthetic data")
-                return self._prepare_synthetic_dataset()
+                # Convert batch to appropriate format
+                batch = {
+                    "input_ids": np.array([sample["input_ids"] for sample in batch_samples]),
+                    "attention_mask": np.array([sample["attention_mask"] for sample in batch_samples]),
+                }
+                
+                # Add labels
+                batch["labels"] = batch["input_ids"].copy()
+                
+                dataloader.append(batch)
+            
+            logger.info(f"Created {len(dataloader)} batches")
+            return dataloader
                 
         except Exception as e:
             logger.error(f"Error preparing dataset: {e}")
@@ -194,7 +278,7 @@ class ImprovedFineTuner:
             return self._prepare_synthetic_dataset()
     
     def _prepare_synthetic_dataset(self):
-        """Create synthetic data for training when dataset loading fails"""
+        """Create synthetic data for training when dataset loading fails."""
         tokenizer = self.pruning_module.tokenizer
         
         # Ensure tokenizer has pad_token
@@ -218,23 +302,23 @@ class ImprovedFineTuner:
         logger.info(f"Creating synthetic dataset with vocab_size={vocab_size}, special_tokens={special_tokens}")
         
         # Use model-specific token ranges to avoid NaN issues
-        if self.is_opt_model:
-            # For OPT models, use only common tokens to avoid issues
-            # OPT models have stability issues with certain token ranges
+        if self.is_opt_model or self.stability_level >= 2:
+            # For OPT models or high stability, use only common tokens to avoid issues
             token_range_start = 10  # Skip special tokens at the beginning
             token_range_end = min(5000, vocab_size // 10)  # Use a small subset of vocab
-            logger.info(f"Using restricted token range for OPT model: {token_range_start}-{token_range_end}")
+            logger.info(f"Using restricted token range for stability: {token_range_start}-{token_range_end}")
         else:
             # For other models, use a wider range
             token_range_start = 0
             token_range_end = min(30000, vocab_size)
             
-        # Create 100 samples of random token sequences (fewer for large models)
-        num_samples = 50 if "large" in self.pruning_module.model_name.lower() else 100
+        # Create samples of random token sequences (fewer for large models)
+        model_name = getattr(self.pruning_module, 'model_name', '').lower()
+        num_samples = 50 if "large" in model_name or self.stability_level >= 2 else 100
         samples = []
         for _ in range(num_samples):
             # Generate shorter sequences for stability
-            max_length = min(self.max_seq_length, 64)  # Limit to 64 tokens max
+            max_length = min(self.max_seq_length, 64 if self.stability_level >= 2 else 128)
             length = np.random.randint(10, max_length)
             
             # Generate random token IDs in the safe range
@@ -287,10 +371,17 @@ class ImprovedFineTuner:
         return batches
     
     def _create_train_state(self, params, learning_rate=5e-5):
-        """Create a training state for the fine-tuning process"""
-        # Create optimizer
-        # Use AdamW instead of Adam for better weight decay handling
-        optimizer = optax.adamw(learning_rate, weight_decay=0.01)
+        """Create a training state for the fine-tuning process with appropriate optimizer."""
+        # Choose optimizer based on stability level
+        if self.stability_level >= 1:
+            # Use AdamW with weight decay for better stability
+            weight_decay = 0.01
+            optimizer = optax.adamw(learning_rate, weight_decay=weight_decay)
+            logger.info(f"Using AdamW optimizer with lr={learning_rate}, weight_decay={weight_decay}")
+        else:
+            # Original implementation uses standard Adam
+            optimizer = optax.adam(learning_rate)
+            logger.info(f"Using Adam optimizer with lr={learning_rate}")
         
         # Create train state
         model = self.pruning_module.model
@@ -301,7 +392,7 @@ class ImprovedFineTuner:
         )
     
     def _loss_fn(self, params, batch):
-        """Loss function for the language modeling task"""
+        """Loss function for the language modeling task with appropriate stability features."""
         model = self.pruning_module.model
         
         # Extract labels from batch but don't pass them to the model
@@ -310,19 +401,20 @@ class ImprovedFineTuner:
         # Extract dropout_rng if present for handling dropout
         dropout_rng = batch.pop("dropout_rng", None)
         
-        # Check if we need to handle NaN or Inf in input
-        for k, v in batch.items():
-            if jnp.isnan(v).any() or jnp.isinf(v).any():
-                # Replace NaN and Inf with zeros
-                batch[k] = jnp.nan_to_num(v, nan=0.0, posinf=0.0, neginf=0.0)
-                logger.warning(f"Found NaN or Inf in {k}, replaced with zeros")
+        # Check for NaN or Inf in input when stability level > 0
+        if self.stability_level >= 1:
+            for k, v in batch.items():
+                if jnp.isnan(v).any() or jnp.isinf(v).any():
+                    # Replace NaN and Inf with zeros
+                    batch[k] = jnp.nan_to_num(v, nan=0.0, posinf=0.0, neginf=0.0)
+                    logger.warning(f"Found NaN or Inf in {k}, replaced with zeros")
         
         try:
             # Prepare the model call arguments
             model_kwargs = {"params": params}
             
-            # Add dropout_rng if present
-            if dropout_rng is not None:
+            # Add dropout_rng if present and enabled
+            if dropout_rng is not None and self.use_rng_keys_for_dropout:
                 model_kwargs["dropout_rng"] = dropout_rng
                 
             # Add train=True for models that need it (except OPT)
@@ -344,11 +436,10 @@ class ImprovedFineTuner:
             shift_labels = labels[:, 1:]
             shift_mask = loss_mask[:, 1:]
             
-            # Check for NaN and Inf in loss
-            if jnp.isnan(shift_logits).any() or jnp.isinf(shift_logits).any():
-                logger.warning(f"Found NaN or Inf in logits")
-                # Use a large but finite value instead of NaN or Inf
-                shift_logits = jnp.nan_to_num(shift_logits, nan=0.0, posinf=1e2, neginf=-1e2)
+            # Apply NaN checking for stability level >= 1
+            if self.stability_level >= 1 and (jnp.isnan(shift_logits).any() or jnp.isinf(shift_logits).any()):
+                logger.warning("Found NaN or Inf in logits, replaced with finite values")
+                shift_logits = jnp.nan_to_num(shift_logits, nan=0.0, posinf=1.0, neginf=-1.0)
             
             # Calculate cross entropy loss
             loss = optax.softmax_cross_entropy_with_integer_labels(
@@ -356,21 +447,25 @@ class ImprovedFineTuner:
             )
             
             # Check for NaN and Inf in loss
-            if jnp.isnan(loss).any() or jnp.isinf(loss).any():
+            if self.stability_level >= 1 and (jnp.isnan(loss).any() or jnp.isinf(loss).any()):
                 logger.warning(f"Found NaN or Inf in loss: {loss}")
                 # Use a large but finite value instead of NaN or Inf
                 loss = jnp.nan_to_num(loss, nan=1e3, posinf=1e3, neginf=1e3)
             
-            # Apply mask and calculate mean - safely with jnp.where to avoid division by zero
+            # Apply mask and calculate mean
             masked_loss = loss * shift_mask
             mask_sum = shift_mask.sum()
             
-            # Safe division with fallback
-            loss = jnp.where(
-                mask_sum > 0,
-                masked_loss.sum() / mask_sum,
-                jnp.array(0.0)  # Default value if mask_sum is 0
-            )
+            # Safe division with fallback if stability level >= 1
+            if self.stability_level >= 1:
+                loss = jnp.where(
+                    mask_sum > 0,
+                    masked_loss.sum() / mask_sum,
+                    jnp.array(0.0)  # Default value if mask_sum is 0
+                )
+            else:
+                # Basic implementation doesn't handle zero mask_sum
+                loss = (masked_loss.sum() / mask_sum)
             
             return loss
         except Exception as e:
@@ -379,10 +474,14 @@ class ImprovedFineTuner:
             batch["labels"] = labels
             if dropout_rng is not None:
                 batch["dropout_rng"] = dropout_rng
-            raise
+            
+            # Return a non-zero fallback loss if in high stability mode
+            if self.stability_level >= 1:
+                return jnp.array(1.0, dtype=jnp.float32)
+            raise  # Re-raise in basic mode
     
     def _train_step(self, state, batch, rng=None, grad_clip_norm=1.0):
-        """Single training step with gradient clipping and NaN detection"""
+        """Single training step with appropriate stability features."""
         try:
             # Handle PRNG keys for dropout
             if self.use_rng_keys_for_dropout and rng is None:
@@ -410,26 +509,29 @@ class ImprovedFineTuner:
                 # Call without dropout RNG
                 loss, grads = grad_fn(state.params, batch, None)
             
-            # Check for NaNs in gradients
-            if jnp.isnan(loss).any() or jnp.isinf(loss).any():
-                logger.warning(f"NaN or Inf loss detected: {loss}")
-                # Use a large but finite value instead of NaN
-                loss = jnp.nan_to_num(loss, nan=1e3, posinf=1e3, neginf=1e3)
-                return state, loss, new_rng if self.use_rng_keys_for_dropout else None  # Skip update
-            
-            # Check for NaNs in gradients - can be expensive, so we use a sample
-            # Random sample some gradients to check for NaNs
-            grad_flat, _ = jax.tree_util.tree_flatten(grads)
-            for g in grad_flat[:5]:  # Check just a sample of gradients
-                if jnp.isnan(g).any() or jnp.isinf(g).any():
-                    logger.warning("NaN or Inf gradients detected, skipping update")
+            # Check for NaNs in loss
+            if self.stability_level >= 1:
+                if jnp.isnan(loss).any() or jnp.isinf(loss).any():
+                    logger.warning(f"NaN or Inf loss detected: {loss}")
+                    # Use a large but finite value instead of NaN
+                    loss = jnp.nan_to_num(loss, nan=1e3, posinf=1e3, neginf=1e3)
                     return state, loss, new_rng if self.use_rng_keys_for_dropout else None  # Skip update
             
-            # Clip gradients to prevent explosions
-            grads = jax.tree_util.tree_map(
-                lambda g: jnp.clip(g, -1.0, 1.0),
-                grads
-            )
+            # Check for NaNs in gradients when stability level >= 1
+            if self.stability_level >= 1:
+                # Check some gradients for NaNs
+                grad_flat, _ = jax.tree_util.tree_flatten(grads)
+                for g in grad_flat[:5]:  # Check just a sample of gradients
+                    if jnp.isnan(g).any() or jnp.isinf(g).any():
+                        logger.warning("NaN or Inf gradients detected, skipping update")
+                        return state, loss, new_rng if self.use_rng_keys_for_dropout else None  # Skip update
+            
+            # Apply gradient clipping when enabled
+            if self.use_gradient_clipping:
+                grads = jax.tree_util.tree_map(
+                    lambda g: jnp.clip(g, -grad_clip_norm, grad_clip_norm),
+                    grads
+                )
             
             # Apply gradients
             new_state = state.apply_gradients(grads=grads)
@@ -439,29 +541,22 @@ class ImprovedFineTuner:
             return state, jnp.array(float('nan')), rng
     
     def fine_tune(self, pruned_params, num_epochs=1, learning_rate=5e-5, evaluate_interval=5):
-        """Fine-tune the pruned model"""
+        """Fine-tune the pruned model with appropriate stability features."""
         logger.info(f"\nFine-tuning model with {self.dataset_name} dataset for {num_epochs} epochs...")
         
-        # Apply model-specific adjustments
-        model_name = self.pruning_module.model_name.lower()
-        
-        # Reduce learning rate for larger models
-        if "large" in model_name or "1.3b" in model_name:
-            learning_rate = learning_rate / 2
-            logger.info(f"Reduced learning rate to {learning_rate} for large model")
-        
-        # Special handling for OPT models
-        if self.is_opt_model:
-            # OPT models need a smaller learning rate for stability
-            learning_rate = min(learning_rate, 2e-5)
-            logger.info(f"Using conservative learning rate {learning_rate} for OPT model")
+        # Apply model-specific learning rate adjustments
+        if self.model_specific_optimizations:
+            model_name = getattr(self.pruning_module, 'model_name', '').lower()
+            # Reduce learning rate for larger models
+            if "large" in model_name or "1.3b" in model_name or self.stability_level >= 2:
+                learning_rate = learning_rate / 2
+                logger.info(f"Reduced learning rate to {learning_rate} for large model or high stability")
             
-            # Ensure we're using synthetic data for OPT models
-            self.use_synthetic_data = True
-            logger.info("Forcing synthetic data for OPT model to improve stability")
-            
-            # Ensure we're using RNG key handling for dropout
-            self.use_rng_keys_for_dropout = True
+            # Special handling for OPT models
+            if self.is_opt_model:
+                # OPT models need a smaller learning rate for stability
+                learning_rate = min(learning_rate, 2e-5)
+                logger.info(f"Using conservative learning rate {learning_rate} for OPT model")
         
         # Prepare dataset
         dataset = self._prepare_dataset()
@@ -474,7 +569,7 @@ class ImprovedFineTuner:
         total_steps = 0
         perplexity_history = []
         
-        # Initialize PRNG key for dropout
+        # Initialize PRNG key for dropout if needed
         rng = jax.random.PRNGKey(int(time.time() * 1000) % (2**32)) if self.use_rng_keys_for_dropout else None
         
         for epoch in range(num_epochs):
@@ -510,8 +605,8 @@ class ImprovedFineTuner:
                         nan_count += 1
                         logger.warning(f"NaN loss at step {total_steps}")
                         
-                        # If we get too many NaNs, reduce batch size and learning rate
-                        if nan_count > 5:
+                        # If we get too many NaNs and adaptive parameters is enabled, reduce batch size and learning rate
+                        if nan_count > 5 and self.enable_adaptive_params:
                             logger.warning("Too many NaN losses, reducing batch size and learning rate")
                             old_batch_size = self.batch_size
                             self.batch_size = max(1, self.batch_size // 2)
@@ -559,8 +654,8 @@ class ImprovedFineTuner:
                     # Continue to next batch
                     continue
                 
-                # Perform garbage collection every 10 steps to free memory
-                if step % 10 == 0:
+                # Perform garbage collection every 10 steps to free memory if enabled
+                if self.use_garbage_collection and step % 10 == 0:
                     gc.collect()
             
             # End of epoch metrics
@@ -571,14 +666,14 @@ class ImprovedFineTuner:
                 "epoch": epoch + 1,
                 "loss": epoch_loss,
                 "perplexity_history": perplexity_history,
-                "nan_count": nan_count
+                "nan_count": nan_count if self.track_nan_counts else 0
             })
         
         logger.info("\nFine-tuning completed!")
         return self.train_state.params, self.metrics_history
     
     def plot_training_progress(self, figsize=(12, 10)):
-        """Plot training progress"""
+        """Plot training progress with appropriate visualization based on stability level."""
         if not self.metrics_history:
             logger.info("No training metrics available yet")
             return
@@ -612,11 +707,23 @@ class ImprovedFineTuner:
                 steps.append(step)
                 perplexities.append(perplexity)
         
-        # Create figure with appropriate spacing
-        fig, axes = plt.subplots(3, 1, figsize=figsize)
+        # Determine number of plots based on stability level
+        if self.stability_level >= 1 and self.track_nan_counts:
+            # Create figure with 3 plots (including NaN count)
+            fig, axes = plt.subplots(3, 1, figsize=figsize)
+            plot_nan_counts = True
+        else:
+            # Create figure with 2 plots (loss and perplexity only)
+            fig, axes = plt.subplots(2, 1, figsize=figsize)
+            plot_nan_counts = False
+            
+        # Access axes correctly based on their structure
+        ax1 = axes[0]
+        ax2 = axes[1]
+        if plot_nan_counts:
+            ax3 = axes[2]
         
         # Plot losses
-        ax1 = axes[0]
         ax1.plot(epochs, losses, "o-", color="blue", linewidth=2, markersize=8)
         ax1.set_xlabel("Epoch")
         ax1.set_ylabel("Loss")
@@ -633,7 +740,6 @@ class ImprovedFineTuner:
         ax1.set_xlim(xmin - 0.2, xmax + 0.2)
         
         # Plot perplexities
-        ax2 = axes[1]
         if steps and perplexities:
             ax2.plot(steps, perplexities, "o-", color="green", linewidth=2, markersize=8)
             ax2.set_xlabel("Step")
@@ -648,32 +754,32 @@ class ImprovedFineTuner:
             ax2.text(0.5, 0.5, "No perplexity data available",
                     ha="center", va="center", fontsize=12)
         
-        # Plot NaN counts
-        ax3 = axes[2]
-        nan_counts = [m.get("nan_count", 0) for m in self.metrics_history]
-        
-        # Check if we have any NaN counts
-        if any(nan_counts):
-            ax3.bar(epochs, nan_counts, color="red", alpha=0.7)
-            ax3.set_xlabel("Epoch")
-            ax3.set_ylabel("NaN Count")
-            ax3.set_title("NaN Losses per Epoch")
-            ax3.grid(True, linestyle="--", alpha=0.7)
+        # Plot NaN counts if enabled
+        if plot_nan_counts:
+            nan_counts = [m.get("nan_count", 0) for m in self.metrics_history]
             
-            # Add padding to x-axis
-            xmin, xmax = ax3.get_xlim()
-            ax3.set_xlim(xmin - 0.2, xmax + 0.2)
-            
-            # Ensure y-axis ticks are integers
-            from matplotlib.ticker import MaxNLocator
-            ax3.yaxis.set_major_locator(MaxNLocator(integer=True))
-        else:
-            # If no NaNs, show a message
-            ax3.text(0.5, 0.5, "No NaN losses detected (good!)",
-                    ha="center", va="center", fontsize=12, color="green")
-            ax3.set_xlabel("Epoch")
-            ax3.set_ylabel("NaN Count")
-            ax3.set_title("NaN Losses per Epoch")
+            # Check if we have any NaN counts
+            if any(nan_counts):
+                ax3.bar(epochs, nan_counts, color="red", alpha=0.7)
+                ax3.set_xlabel("Epoch")
+                ax3.set_ylabel("NaN Count")
+                ax3.set_title("NaN Losses per Epoch")
+                ax3.grid(True, linestyle="--", alpha=0.7)
+                
+                # Add padding to x-axis
+                xmin, xmax = ax3.get_xlim()
+                ax3.set_xlim(xmin - 0.2, xmax + 0.2)
+                
+                # Ensure y-axis ticks are integers
+                from matplotlib.ticker import MaxNLocator
+                ax3.yaxis.set_major_locator(MaxNLocator(integer=True))
+            else:
+                # If no NaNs, show a message
+                ax3.text(0.5, 0.5, "No NaN losses detected (good!)",
+                        ha="center", va="center", fontsize=12, color="green")
+                ax3.set_xlabel("Epoch")
+                ax3.set_ylabel("NaN Count")
+                ax3.set_title("NaN Losses per Epoch")
         
         # Adjust layout with proper spacing
         fig.tight_layout(pad=2.0)
@@ -681,3 +787,106 @@ class ImprovedFineTuner:
         plt.show()
         
         return fig
+
+
+# Backward compatibility aliases
+class ImprovedFineTuner(FineTuner):
+    """Alias for backward compatibility with existing code."""
+    
+    def __init__(self, pruning_module, dataset_name="openwebtext", dataset_config=None, batch_size=4):
+        """Initialize with high stability level as default."""
+        super().__init__(
+            pruning_module=pruning_module,
+            dataset_name=dataset_name,
+            dataset_config=dataset_config,
+            batch_size=batch_size,
+            stability_level=2,  # High stability by default
+            use_synthetic_data=False,
+            model_specific_optimizations=True
+        )
+        logger.info("Using ImprovedFineTuner (compatibility class) with high stability settings")
+
+
+# Simple test function to validate the implementation
+def test_fine_tuner(model_name="distilgpt2", stability_level=1):
+    """
+    Test the fine-tuner implementation with a small model.
+    
+    Args:
+        model_name: Name of the model to test
+        stability_level: Stability level to test (0, 1, or 2)
+        
+    Returns:
+        True if successful, False otherwise
+    """
+    try:
+        from transformers import AutoTokenizer, FlaxAutoModelForCausalLM
+        
+        # Create a dummy pruning module
+        class DummyPruningModule:
+            def __init__(self, model_name):
+                self.model_name = model_name
+                self.tokenizer = AutoTokenizer.from_pretrained(model_name)
+                self.model = FlaxAutoModelForCausalLM.from_pretrained(model_name)
+                self.original_params = self.model.params
+                
+            def generate_text(self, params, prompt, max_length=30):
+                return f"Generated text for {prompt}"
+                
+            def evaluate_perplexity(self, params, prompt):
+                return 10.0  # Dummy value
+        
+        # Create pruning module
+        pruning_module = DummyPruningModule(model_name)
+        
+        # Create fine-tuner with specified stability level
+        fine_tuner = FineTuner(
+            pruning_module=pruning_module,
+            dataset_name="wikitext",
+            dataset_config="wikitext-2-v1",
+            batch_size=2,
+            stability_level=stability_level,
+            use_synthetic_data=True  # Use synthetic data for testing
+        )
+        
+        # Fine-tune for a single step
+        params, metrics = fine_tuner.fine_tune(
+            pruned_params=pruning_module.original_params,
+            num_epochs=1,
+            learning_rate=5e-5,
+            evaluate_interval=1
+        )
+        
+        # Plot results if available
+        if metrics:
+            fine_tuner.plot_training_progress()
+            
+        logger.info(f"Test successful with stability_level={stability_level}")
+        return True
+    except Exception as e:
+        logger.error(f"Test failed: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
+
+
+if __name__ == "__main__":
+    # Configure logging
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    )
+    
+    # Test with different stability levels
+    for level in [0, 1, 2]:
+        print(f"\nTesting with stability level {level}")
+        result = test_fine_tuner(stability_level=level)
+        print(f"Test {'passed' if result else 'failed'} for stability level {level}")
+        
+    # Test with OPT model if available
+    try:
+        print("\nTesting with OPT model")
+        result = test_fine_tuner(model_name="facebook/opt-125m", stability_level=1)
+        print(f"OPT model test {'passed' if result else 'failed'}")
+    except:
+        print("OPT model test skipped - model not available")

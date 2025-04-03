@@ -8,8 +8,14 @@ with a focus on attention head pruning and recovery through fine-tuning.
 from .environment import Environment
 from .results_manager import ResultsManager
 from .pruning_module import PruningModule
-from .fine_tuner import FineTuner
-from .fine_tuner_improved import ImprovedFineTuner
+# Original fine tuner implementations - using one or both depending on what's available
+try:
+    # Try to import from the consolidated version first
+    from .fine_tuner_consolidated import FineTuner, ImprovedFineTuner
+except ImportError:
+    # Fall back to original implementations
+    from .fine_tuner import FineTuner
+    from .fine_tuner_improved import ImprovedFineTuner
 from .strategies import (
     PruningStrategy,
     RandomStrategy,

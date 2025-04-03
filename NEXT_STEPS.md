@@ -10,6 +10,13 @@ This document outlines prioritized tasks and future directions for the Sentinel-
 - [x] Integrate gradient accumulation for larger effective batch sizes
 - [x] Implement per-head learning rate adjustments for pruning and regrowth
 - [ ] Implement model distillation from fully-expanded to pruned model
+- [ ] Consolidate FineTuner and ImprovedFineTuner into a single robust implementation
+  - Create a single `FineTuner` class that incorporates all stability enhancements from `ImprovedFineTuner`
+  - Add a `stability_level` parameter (0: basic, 1: standard, 2: high) to control which stability features are enabled
+  - Maintain backward compatibility with existing experiments through parameter defaults
+  - Update the experiment framework to use the new consolidated implementation
+  - Add comprehensive documentation explaining the stability features and when to use them
+  - Add unit tests to validate the stability features under different scenarios
 
 ### 2. Visualization Enhancements
 - [ ] Create interactive dashboard for real-time gate activity monitoring
