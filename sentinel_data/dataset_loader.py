@@ -1,8 +1,17 @@
-# datasets/dataset_loader.py
+# sentinel_data/dataset_loader.py
 
 import os
 import torch
-import datasets as ds  # Use alias to avoid confusion with our module
+# Import Hugging Face datasets with absolute import to avoid confusion
+import sys
+import importlib.util
+spec = importlib.util.find_spec('datasets')
+if spec:
+    datasets = importlib.import_module('datasets')
+else:
+    # Mock datasets library if not available
+    datasets = None
+    print("Warning: Hugging Face datasets library not found.")
 from transformers import AutoTokenizer
 from torch.utils.data import Dataset
 
@@ -16,14 +25,17 @@ def load_and_tokenize_dataset(model_name: str, dataset_name="tiny_shakespeare", 
     tokenizer.pad_token = tokenizer.eos_token  # ensures compatibility with models needing padding
 
     # Load dataset with trust_remote_code=True for datasets that require it
+    if datasets is None:
+        raise ImportError("Hugging Face datasets library is required to load datasets")
+        
     if dataset_name == "tiny_shakespeare":
-        dataset = ds.load_dataset("tiny_shakespeare", trust_remote_code=True)
+        dataset = datasets.load_dataset("tiny_shakespeare", trust_remote_code=True)
     elif dataset_name == "wikitext":
-        dataset = ds.load_dataset("wikitext", "wikitext-2-raw-v1", trust_remote_code=True)
+        dataset = datasets.load_dataset("wikitext", "wikitext-2-raw-v1", trust_remote_code=True)
     elif dataset_name == "openwebtext":
-        dataset = ds.load_dataset("openwebtext", trust_remote_code=True)
+        dataset = datasets.load_dataset("openwebtext", trust_remote_code=True)
     elif dataset_name == "tiny_stories":
-        dataset = ds.load_dataset("roneneldan/TinyStories", trust_remote_code=True)
+        dataset = datasets.load_dataset("roneneldan/TinyStories", trust_remote_code=True)
     else:
         raise ValueError(f"Unsupported dataset: {dataset_name}")
 
