@@ -235,8 +235,8 @@ def parse_args():
                       help="Model name (default: distilgpt2)")
     parser.add_argument("--dataset", type=str, default="tiny_shakespeare",
                       help="Dataset name (default: tiny_shakespeare)")
-    parser.add_argument("--save_dir", type=str, default="./data/plasticity_experiments",
-                      help="Directory to save experiment results (default: ./data/plasticity_experiments)")
+    parser.add_argument("--save_dir", type=str, default="./output/plasticity_experiments",
+                      help="Directory to save experiment results (default: ./output/plasticity_experiments)")
     
     # Cycle parameters
     parser.add_argument("--cycles", type=int, default=1,
