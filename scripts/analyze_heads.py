@@ -25,7 +25,7 @@ import matplotlib.pyplot as plt
 from transformers import AutoTokenizer
 from models.loaders.loader import load_baseline_model, load_adaptive_model
 from models.adaptive_transformer import AdaptiveCausalLmWrapper
-from data_modules.dataset_loader import load_and_tokenize_dataset
+from sentinel_data.dataset_loader import load_and_tokenize_dataset
 from utils.checkpoint import load_checkpoint
 from utils.head_metrics import (
     compute_attention_entropy,
