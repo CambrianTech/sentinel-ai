@@ -46,12 +46,14 @@ logger.setLevel(logging.INFO)
 class ImprovedFineTuner:
     """Fine-tunes a pruned model to recover performance with improved stability"""
     
-    def __init__(self, pruning_module, dataset_name="openwebtext", dataset_config=None, batch_size=4):
+    def __init__(self, pruning_module, dataset_name="openwebtext", dataset_config=None, batch_size=4, 
+                 sequence_length=None, stability_level=None):
         self.pruning_module = pruning_module
         self.dataset_name = dataset_name
         self.dataset_config = dataset_config
         self.batch_size = batch_size
-        self.max_seq_length = 128  # Modest sequence length for faster training
+        self.max_seq_length = 128 if sequence_length is None else sequence_length
+        self.stability_level = 2 if stability_level is None else stability_level
         self.train_state = None
         self.metrics_history = []
         self.use_synthetic_data = False  # New flag for forcing synthetic data
