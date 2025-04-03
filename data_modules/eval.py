@@ -6,7 +6,7 @@ from transformers import AutoTokenizer
 from models.loaders.loader import load_baseline_model, load_adaptive_model
 from utils.checkpoint import load_checkpoint
 from utils.model_wrapper import wrap_model_for_generation
-from datasets.dataset_loader import load_and_tokenize_dataset
+from data_modules.dataset_loader import load_and_tokenize_dataset
 import torch.nn.functional as F
 import math
 

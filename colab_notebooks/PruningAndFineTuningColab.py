@@ -1,10 +1,10 @@
 #!/usr/bin/env python
 # coding: utf-8
 
-# # Pruning and Fine-Tuning Benchmark for Google Colab (v0.0.23)
+# # Pruning and Fine-Tuning Benchmark for Google Colab (v0.0.24)
 # 
 # This is the Python script version of our notebook for Google Colab.
-# Version 0.0.23 (April 2025) - Critical fix for datasets import in Colab environment
+# Version 0.0.24 (April 2025) - Renamed internal module to fix HuggingFace datasets import
 # 
 # Instructions:
 # 1. Upload to a new Colab notebook using File > Upload notebook > Upload
@@ -32,136 +32,23 @@ print("🔧 Installing dependencies...")
 !pip install -q 'datasets>=2.0.0' multiprocess
 
 # %%
-# CRITICAL: This cell contains a robust fix for the datasets import conflict
+# Clone the repository 
+# Note: We use the refactor/modular-experiment branch which contains our optimizations
+print("📦 Cloning the repository...")
+!git clone -b refactor/modular-experiment https://github.com/CambrianTech/sentinel-ai.git
 
-# First, utility function to make the fix more maintainable
-def fix_datasets_import():
-    """Comprehensively fix the datasets module conflict in Colab"""
-    import os
-    import sys
-    import shutil
-    
-    print("\n🧩 CRITICAL FIX: Resolving datasets import conflict...")
-    print("This fix resolves conflicts between the HuggingFace datasets library and local datasets directory")
-    
-    # Approach 1: Move any existing code repository out of the path first
-    # This ensures the right datasets module is imported first
-    
-    # Clean module cache first to be safe
-    for k in list(sys.modules.keys()):
-        if k == 'datasets' or k.startswith('datasets.'):
-            del sys.modules[k]
-            print(f"  ✓ Removed {k} from module cache")
-    
-    # Explicitly install the correct datasets again
-    print("  ✓ Reinstalling datasets package...")
-    !pip install --force-reinstall -q datasets>=2.0.0
-    
-    # Safe import of datasets before touching the repository
-    # This ensures Python caches the right module first
-    print("  ✓ Preloading correct datasets module...")
-    try:
-        # Import the correct datasets module
-        print("  ✓ Importing datasets library from pip installation...")
-        import datasets as ds_correct
-        from datasets import load_dataset as ld_correct
-        print(f"  ✓ Successfully preloaded datasets from: {ds_correct.__file__}")
-    except ImportError as e:
-        print(f"  ✗ Error preloading datasets: {e}")
-        print("  ✓ Will try alternative approach")
-        
-    # Approach 2: Clone the repository only after the correct dataset module is cached
-    print("\n🔄 Cloning the repository...")
-    !git clone -b refactor/modular-experiment https://github.com/CambrianTech/sentinel-ai.git
-    
-    # Create symlink for Colab compatibility
-    !ln -sf sentinel-ai refactor
-    
-    # CRITICAL: Now we need to handle the local datasets directory to prevent conflicts
-    # It's safe to physically remove it since we've preloaded the correct module
-    if os.path.exists('/content/sentinel-ai/datasets'):
-        print("\n🧹 Backing up and removing local datasets directory...")
-        
-        # First, backup the directory content
-        try:
-            backup_dir = '/content/datasets_backup'
-            os.makedirs(backup_dir, exist_ok=True)
-            
-            # Simple directory copy
-            for item in os.listdir('/content/sentinel-ai/datasets'):
-                src = os.path.join('/content/sentinel-ai/datasets', item)
-                dst = os.path.join(backup_dir, item)
-                if os.path.isdir(src):
-                    # Use shell copy for reliability in Colab
-                    !cp -r "{src}" "{dst}"
-                else:
-                    !cp "{src}" "{dst}"
-            
-            print("  ✓ Backed up datasets directory")
-            
-            # Now remove the directory using a shell command (most reliable in Colab)
-            !rm -rf /content/sentinel-ai/datasets
-            print("  ✓ Removed datasets directory")
-            
-        except Exception as e:
-            print(f"  ✗ Error handling datasets directory: {e}")
-            print("  ✓ Trying direct shell commands...")
-            
-            # Fallback to pure shell commands
-            !mkdir -p /content/datasets_backup
-            !cp -r /content/sentinel-ai/datasets/* /content/datasets_backup/ 2>/dev/null || true
-            !rm -rf /content/sentinel-ai/datasets
-            print("  ✓ Used shell commands to handle directory")
-    
-    # Change to the repository directory now that it's safe
-    print("\n📂 Changing to repository directory...")
-    %cd /content/sentinel-ai
-    
-    # Final verification - make sure we have the right datasets module
-    print("\n🔍 Verifying datasets module...")
-    try:
-        import datasets
-        from datasets import load_dataset
-        
-        # Verify content
-        if hasattr(datasets, 'load_dataset'):
-            print(f"✅ SUCCESS! Using correct datasets module from: {datasets.__file__}")
-            # Add file to make sure our directory is never accidentally imported
-            if not os.path.exists('datasets'):
-                os.makedirs('datasets', exist_ok=True)
-            with open('datasets/__init__.py', 'w') as f:
-                f.write('# This is a placeholder to prevent accidental imports\n')
-                f.write('# The real datasets module is from HuggingFace\n')
-                f.write('raise ImportError("Please import datasets from HuggingFace, not this local directory")\n')
-            print("✅ Created safety placeholder in local datasets directory")
-        else:
-            print(f"⚠️ Warning: datasets module loaded but missing load_dataset function")
-            
-    except ImportError as e:
-        print(f"❌ ERROR importing datasets after fix: {e}")
-        print("Please restart the runtime and try again")
-    
-    # Restore the saved version of the datasets directory
-    # This is safe to do after the correct module is cached by Python
-    if os.path.exists('/content/datasets_backup'):
-        if os.path.exists('datasets'):
-            print("  ✓ Local datasets directory already exists, not restoring backup")
-        else:
-            print("  ✓ Restoring datasets directory content...")
-            !cp -r /content/datasets_backup/* datasets/ 2>/dev/null || true
-            
-    print("\n✅ IMPORT FIX COMPLETE - you can now run the rest of the notebook")
-    return True
+# Create symlink for Colab compatibility
+!ln -sf sentinel-ai refactor
 
-# Run the fix function
-fix_datasets_import()
+# Change to the repository directory
+print("📂 Changing to repository directory...")
+%cd /content/sentinel-ai
 
 # %%
-# At this point we should have the correct datasets module imported
-# Now import the rest of what we need
+# Import datasets from HuggingFace (no conflicts anymore since our module is now data_modules)
 import datasets
 from datasets import load_dataset
-print(f"Using datasets from: {datasets.__file__}")
+print(f"Using HuggingFace datasets from: {datasets.__file__}")
 
 # Import rest of the libraries
 import os
