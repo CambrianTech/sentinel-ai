@@ -67,6 +67,7 @@
 2. Use descriptive commit messages with a clear title line.
 3. Include "🤖 Generated with [Claude Code]" tag in commits.
 4. Include co-author attribution.
+5. Increment version number when modifying dependencies or making significant changes to functionality.
 
 ## Workflow Commands
 ```bash
