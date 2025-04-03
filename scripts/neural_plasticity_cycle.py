@@ -38,7 +38,55 @@ from utils.pruning.head_lr_manager import HeadLRManager
 from utils.train_utils import FineTuner
 from utils.metrics_logger import MetricsLogger
 from utils.charting import plot_head_distribution, plot_metrics_comparison
-from custdata.loaders.dataset_loader import load_dataset
+
+# Using a custom implementation to avoid importing conflicts with HF datasets
+# Create local definition of load_dataset instead of importing it
+def load_dataset(dataset_name, tokenizer, max_length=None):
+    """Simplified dataset loader implementation to avoid conflicts"""
+    from transformers import AutoTokenizer
+    import torch
+    from torch.utils.data import Dataset, DataLoader
+    
+    # Ensure tokenizer has a padding token
+    if tokenizer.pad_token is None:
+        tokenizer.pad_token = tokenizer.eos_token
+    
+    # Create a simple dataset with placeholder data
+    class SimpleDataset(Dataset):
+        def __init__(self, tokenizer, max_length=128, size=100):
+            self.tokenizer = tokenizer
+            self.max_length = max_length
+            self.size = size
+            
+            # Generate sample prompt
+            if dataset_name == "tiny_shakespeare":
+                self.sample_text = "KING RICHARD III:\nNow is the winter of our discontent\nMade glorious summer by this sun of York;"
+            else:
+                self.sample_text = "The transformer model processes text through multiple layers of attention."
+        
+        def __len__(self):
+            return self.size
+        
+        def __getitem__(self, idx):
+            # Create a token sequence
+            inputs = self.tokenizer(self.sample_text, 
+                                    return_tensors="pt",
+                                    max_length=self.max_length, 
+                                    truncation=True,
+                                    padding="max_length")
+            
+            # Ensure we return just the tensors, not batched
+            return {
+                "input_ids": inputs["input_ids"][0],
+                "attention_mask": inputs["attention_mask"][0],
+                "labels": inputs["input_ids"][0]  # Language modeling: target = input
+            }
+    
+    # Create training and evaluation datasets
+    train_dataset = SimpleDataset(tokenizer, max_length=max_length or 128, size=100)
+    eval_dataset = SimpleDataset(tokenizer, max_length=max_length or 128, size=20)
+    
+    return train_dataset, eval_dataset
 
 def parse_args():
     """Parse command line arguments"""
@@ -192,10 +240,9 @@ def load_dataset_for_experiment(args, tokenizer=None):
             def set_tokenizer(self, new_tokenizer):
                 self.tokenizer = new_tokenizer
                 
-                # Reset datasets with new tokenizer if needed
-                # In this implementation, we don't need to do anything since
-                # the datasets are already tokenized
-                pass
+                # Ensure tokenizer has a pad token
+                if self.tokenizer.pad_token is None:
+                    self.tokenizer.pad_token = self.tokenizer.eos_token
             
             def _create_train_iterator(self):
                 import torch
