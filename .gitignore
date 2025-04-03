@@ -57,6 +57,7 @@ dist/
 /profiling_results/
 /optimization_results/
 /demo_results/
+model_compatibility_results.json
 
 # Visualization files
 *.png
