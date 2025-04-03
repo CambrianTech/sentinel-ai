@@ -18,6 +18,13 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Tuple, Any, Optional, Union, Callable
 
+# Import visualization utilities when available
+try:
+    from .visualization import plot_experiment_summary
+except ImportError:
+    # Fallback if visualization module is not available
+    plot_experiment_summary = None
+
 from tqdm.auto import tqdm
 
 # Set up logging
@@ -541,6 +548,14 @@ class PruningExperiment:
             print("No data available for plotting")
             return
         
+        # Use the modular visualization if available, otherwise fall back to inline implementation
+        if plot_experiment_summary is not None:
+            # Use the external implementation
+            fig = plot_experiment_summary(self.results_df, figsize=figsize)
+            plt.show()
+            return fig
+        
+        # Fall back to built-in implementation if visualization module is not available
         try:
             import seaborn as sns
             sns.set_theme(style="whitegrid")

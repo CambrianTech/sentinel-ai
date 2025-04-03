@@ -20,6 +20,19 @@ from .strategies import (
 from .benchmark import PruningBenchmark
 from .experiment import PruningExperiment, PruningFineTuningExperiment
 
+# Import visualization module if available
+try:
+    from .visualization import (
+        plot_experiment_summary,
+        plot_strategy_comparison,
+        plot_recovery_comparison,
+        visualize_head_importance
+    )
+    has_visualization = True
+except ImportError:
+    has_visualization = False
+
+# Export all public interfaces
 __all__ = [
     'Environment',
     'ResultsManager',
@@ -35,3 +48,12 @@ __all__ = [
     'PruningExperiment',
     'PruningFineTuningExperiment',
 ]
+
+# Add visualization functions if available
+if has_visualization:
+    __all__.extend([
+        'plot_experiment_summary',
+        'plot_strategy_comparison',
+        'plot_recovery_comparison',
+        'visualize_head_importance'
+    ])
