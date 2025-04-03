@@ -27,7 +27,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from utils.pruning.pruning_module import PruningModule
 from utils.pruning.strategies import get_strategy as get_pruning_strategy
 from utils.pruning.growth import grow_attention_heads_gradually, determine_active_heads
-from utils.head_lr_manager import HeadLRManager
+from utils.pruning.head_lr_manager import HeadLRManager
 
 def parse_args():
     """Parse command line arguments"""
@@ -279,7 +279,6 @@ def simulate_learning(pruning_module, params, active_heads, added_heads,
     
     # Create head learning rate manager
     head_lr_manager = HeadLRManager(
-        pruning_module=pruning_module,
         base_lr=learning_rate,
         new_head_multiplier=head_lr_multiplier,
         new_heads=added_heads
