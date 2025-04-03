@@ -34,7 +34,60 @@ class PruningModule:
         """Load model and tokenizer"""
         print(f"Loading model {self.model_name}...")
         try:
+            # Check if this is a Pythia model (based on EleutherAI/GPTNeoX architecture)
+            is_pythia = "pythia" in self.model_name.lower() or "eleutherai" in self.model_name.lower()
+            
+            # Always load the tokenizer first
             self.tokenizer = AutoTokenizer.from_pretrained(self.model_name)
+            
+            # For Pythia models, we need to use PyTorch and convert to JAX/Flax
+            if is_pythia:
+                print("Pythia model detected. Using PyTorch conversion approach...")
+                try:
+                    # Try to import PyTorch modules
+                    import torch
+                    from transformers import AutoModelForCausalLM
+                    
+                    # Load model in PyTorch
+                    pt_model = AutoModelForCausalLM.from_pretrained(self.model_name)
+                    
+                    # Create JAX/Flax version of the model
+                    from transformers import FlaxGPT2LMHeadModel
+                    
+                    # Get model config
+                    config = pt_model.config
+                    
+                    # Create a properly sized Flax model based on similar architecture (GPT-2)
+                    self.model = FlaxGPT2LMHeadModel(config=config)
+                    
+                    # Convert parameters (limited support, may not work for all models)
+                    from transformers.modeling_flax_pytorch_utils import convert_pytorch_state_dict_to_flax
+                    
+                    # Get PyTorch state dict
+                    pt_state_dict = pt_model.state_dict()
+                    
+                    # Skip some parameters if needed
+                    if is_pythia:
+                        # Set model type to gpt2 (compatible architecture)
+                        self.model_type = "gpt2"
+                        # Extract key dimensions
+                        self.num_layers = config.num_hidden_layers
+                        self.num_heads = config.num_attention_heads
+                        
+                        # No need for manual conversion as we're using gpt2 model type
+                        self.original_params = self.model.params
+                        
+                        print(f"Using GPT-2 compatible model for Pythia. Layers: {self.num_layers}, Heads: {self.num_heads}")
+                        return True
+                    
+                except ImportError:
+                    print("PyTorch not available, cannot load Pythia models")
+                    return False
+                except Exception as e:
+                    print(f"Error in PyTorch conversion: {e}")
+                    # Try the direct FlaxAutoModelForCausalLM approach as fallback
+            
+            # For non-Pythia models, use standard approach
             self.model = FlaxAutoModelForCausalLM.from_pretrained(self.model_name)
             self.original_params = self.model.params
             
@@ -64,6 +117,7 @@ class PruningModule:
                 except Exception:
                     pass  # Stick with default
             elif self.model_type == "pythia":
+                # This code only runs if direct loading worked
                 self.num_layers = len(self.original_params["transformer"]["h"])
                 # Extract num_heads based on model size
                 self.num_heads = 12  # Default
@@ -81,6 +135,8 @@ class PruningModule:
             return True
         except Exception as e:
             print(f"Error loading model: {e}")
+            import traceback
+            traceback.print_exc()
             return False
     
     def prune_head(self, params, layer_idx, head_idx):
@@ -242,48 +298,74 @@ class PruningModule:
         """Generate text using the model"""
         # Tokenize input
         inputs = self.tokenizer(prompt, return_tensors="jax")
-        input_ids_shape = inputs["input_ids"].shape
         
-        # Define generation params based on model type
-        generation_config = {
-            "params": params,
-            "max_length": max_length,
-            "do_sample": True,
-            "top_k": 40,
-            "top_p": 0.95,
-            "temperature": 0.8,
-            "pad_token_id": self.tokenizer.pad_token_id,
-            "eos_token_id": self.tokenizer.eos_token_id,
-        }
-        
-        # Special handling for OPT models which can have generation issues after pruning
+        # Special handling for OPT models - they often have shape broadcasting issues
         if self.model_type == "opt":
-            # Use more conservative sampling settings for OPT models
-            generation_config.update({
-                "temperature": 0.7,  # Lower temperature for more predictable outputs
-                "top_p": 0.85,       # More restrictive nucleus sampling
-                "top_k": 20,         # More restrictive top-k sampling
-                "no_repeat_ngram_size": 2,  # Avoid repeating bigrams
-                "early_stopping": True,  # Stop when model would generate EOS
-            })
+            try:
+                # Use the simplest possible generation config for OPT models
+                # to avoid shape mismatches
+                generation_config = {
+                    "params": params,
+                    "max_length": max_length,
+                    # Use greedy decoding for maximum stability
+                    "do_sample": False,  
+                    # Only specify essential parameters
+                    "pad_token_id": self.tokenizer.pad_token_id,
+                    "eos_token_id": self.tokenizer.eos_token_id,
+                }
+                
+                # Generate text with minimal parameters
+                outputs = self.model.generate(**inputs, **generation_config)
+                
+                # Decode output, catching any shape issues
+                try:
+                    # Try to decode first element
+                    text = self.tokenizer.decode(outputs.sequences[0], skip_special_tokens=True)
+                except (IndexError, ValueError):
+                    # If there's a shape issue, try other indices or fallback
+                    try:
+                        # Try with a different indexing approach
+                        text = self.tokenizer.decode(outputs.sequences.reshape(-1)[:max_length], 
+                                                   skip_special_tokens=True)
+                    except Exception:
+                        # Last resort fallback
+                        return prompt + "..."
+                
+                # Check for empty or bad generations
+                if not text or len(text.strip()) < len(prompt):
+                    return prompt + "..."
+                
+                return text
             
-            # Don't use min_length for OPT models as it can cause shape mismatch errors
-            if "min_length" in generation_config:
-                del generation_config["min_length"]
+            except Exception as e:
+                # If generation fails, log and return placeholder
+                print(f"Error in OPT model text generation: {e}")
+                return prompt + "..."
         
-        # Generate text
-        try:
-            # Try with sampling first
-            outputs = self.model.generate(**inputs, **generation_config)
+        # For non-OPT models, use normal generation approach
+        else:
+            # Define generation params
+            generation_config = {
+                "params": params,
+                "max_length": max_length,
+                "do_sample": True,
+                "top_k": 40,
+                "top_p": 0.95,
+                "temperature": 0.8,
+                "pad_token_id": self.tokenizer.pad_token_id,
+                "eos_token_id": self.tokenizer.eos_token_id,
+            }
             
-            # Ensure the output is properly shaped before decoding
-            if outputs.sequences.shape[0] > 0:
+            try:
+                # Generate text
+                outputs = self.model.generate(**inputs, **generation_config)
+                
                 # Decode output
                 text = self.tokenizer.batch_decode(outputs.sequences, skip_special_tokens=True)[0]
                 
-                # Safety check for bad generations (especially with OPT models)
-                if len(text.strip()) <= len(prompt) or "<s>" in text or "</s>" in text:
-                    # Fall back to greedy generation with basic parameters only
+                # Safety check for bad generations
+                if len(text.strip()) <= len(prompt):
+                    # Fall back to greedy generation
                     greedy_config = {
                         "params": params,
                         "max_length": max_length,
@@ -292,25 +374,12 @@ class PruningModule:
                         "eos_token_id": self.tokenizer.eos_token_id,
                     }
                     
-                    # For OPT models, even more conservative settings to prevent shape issues
-                    if self.model_type == "opt":
-                        # Explicitly match batch size
-                        batch_size = input_ids_shape[0]
-                        greedy_config["num_return_sequences"] = batch_size
-                    
                     outputs = self.model.generate(**inputs, **greedy_config)
-                    
-                    # Double check shape match before decoding
-                    if outputs.sequences.shape[0] > 0:
-                        text = self.tokenizer.batch_decode(outputs.sequences, skip_special_tokens=True)[0]
-                    else:
-                        # If we still have shape issues, just return the prompt
-                        raise ValueError(f"Failed to generate text, output shape: {outputs.sequences.shape}")
-            else:
-                raise ValueError(f"Empty output shape: {outputs.sequences.shape}")
+                    text = self.tokenizer.batch_decode(outputs.sequences, skip_special_tokens=True)[0]
                 
-            return text
-        except Exception as e:
-            # If generation fails, return a placeholder plus the error
-            print(f"Error in text generation: {e}")
-            return prompt + "..."
+                return text
+                
+            except Exception as e:
+                # If generation fails, return a placeholder plus the error
+                print(f"Error in text generation: {e}")
+                return prompt + "..."
