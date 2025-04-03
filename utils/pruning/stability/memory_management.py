@@ -323,6 +323,31 @@ def optimize_fine_tuner(fine_tuner, model_name: str, gpu_memory_gb: Optional[flo
         old_seq_length = fine_tuner.max_seq_length
         fine_tuner.max_seq_length = params["sequence_length"]
         logger.info(f"Optimized sequence length: {old_seq_length} → {fine_tuner.max_seq_length}")
+    
+    # For XL models or large models, force synthetic data with small batch size
+    model_name_lower = model_name.lower()
+    is_xl_model = ("xl" in model_name_lower or 
+                  "1.3b" in model_name_lower or 
+                  "2.7b" in model_name_lower or
+                  "large" in model_name_lower or
+                  "1b" in model_name_lower)
+    
+    # Force synthetic data for large models
+    if is_xl_model:
+        # Force smallest possible batch size for large models
+        fine_tuner.batch_size = 1
+        fine_tuner.max_seq_length = min(64, fine_tuner.max_seq_length)
+        
+        # Add flag for synthetic data if supported
+        if hasattr(fine_tuner, 'use_synthetic_data'):
+            fine_tuner.use_synthetic_data = True
+        
+        logger.info(f"Using minimal parameters for large model {model_name}")
+    
+    # Add dropout RNG key handling if supported
+    if hasattr(fine_tuner, 'use_rng_keys_for_dropout'):
+        fine_tuner.use_rng_keys_for_dropout = True
+        logger.info("Enabled RNG keys for dropout layers")
         
     return fine_tuner
 

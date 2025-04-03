@@ -37,6 +37,8 @@ class ImprovedFineTuner:
         self.max_seq_length = 128  # Modest sequence length for faster training
         self.train_state = None
         self.metrics_history = []
+        self.use_synthetic_data = False  # New flag for forcing synthetic data
+        self.use_rng_keys_for_dropout = True  # Enable by default to fix dropout RNG issue
         
         # Detect number of devices
         self.devices = jax.devices()
@@ -73,6 +75,11 @@ class ImprovedFineTuner:
     
     def _prepare_dataset(self):
         """Load and prepare the dataset for fine-tuning"""
+        # If synthetic data is requested, skip real dataset loading
+        if self.use_synthetic_data:
+            logger.info("Using synthetic data as requested")
+            return self._prepare_synthetic_dataset()
+        
         try:
             # Try to load a small portion of the dataset for faster loading
             if self.dataset_config:
@@ -130,39 +137,38 @@ class ImprovedFineTuner:
                     continue
                 columns_to_remove.append(col)
             
-            tokenized_dataset = dataset.map(
-                tokenize_function,
-                batched=True,
-                num_proc=1,
-                remove_columns=columns_to_remove
-            )
-            
-            # Create data loader
-            def create_batch(samples):
-                # Prepare batch of appropriate shape
-                batch = {k: np.array(v) for k, v in samples.items()}
+            try:
+                tokenized_dataset = dataset.map(
+                    tokenize_function,
+                    batched=True,
+                    num_proc=1,
+                    remove_columns=columns_to_remove
+                )
                 
-                # Create 'labels' for the causal language modeling task - stored separately
-                batch["labels"] = batch["input_ids"].copy()
+                # Convert to list of batches for simpler processing
+                dataloader = []
+                for i in range(0, len(tokenized_dataset), self.batch_size):
+                    end = min(i + self.batch_size, len(tokenized_dataset))
+                    batch_samples = tokenized_dataset[i:end]
+                    
+                    batch = {
+                        "input_ids": np.array([sample["input_ids"] for sample in batch_samples]),
+                        "attention_mask": np.array([sample["attention_mask"] for sample in batch_samples]),
+                    }
+                    
+                    # Add labels
+                    batch["labels"] = batch["input_ids"].copy()
+                    
+                    dataloader.append(batch)
                 
-                # Get sequence lengths
-                seq_lengths = (batch["input_ids"] != tokenizer.pad_token_id).sum(axis=1)
+                logger.info(f"Created {len(dataloader)} batches")
+                return dataloader
                 
-                # Ensure at least 2 tokens for each example
-                for i, length in enumerate(seq_lengths):
-                    if length < 2:
-                        # Mark examples with insufficient tokens
-                        batch["attention_mask"][i] = 0
-                        logger.warning(f"Found example with insufficient tokens: {length}")
+            except Exception as e:
+                logger.error(f"Error creating batches: {e}")
+                logger.info("Falling back to synthetic data")
+                return self._prepare_synthetic_dataset()
                 
-                return batch
-            
-            # Create data loader
-            dataloader = tokenized_dataset.batch(self.batch_size)
-            dataloader = dataloader.map(create_batch, batched=True)
-            
-            return dataloader
-        
         except Exception as e:
             logger.error(f"Error preparing dataset: {e}")
             logger.info("Falling back to synthetic data for training")
@@ -270,6 +276,9 @@ class ImprovedFineTuner:
         # Extract labels from batch but don't pass them to the model
         labels = batch.pop("labels", None)
         
+        # Extract dropout_rng if present for handling dropout
+        dropout_rng = batch.pop("dropout_rng", None)
+        
         # Check if we need to handle NaN or Inf in input
         for k, v in batch.items():
             if jnp.isnan(v).any() or jnp.isinf(v).any():
@@ -278,14 +287,19 @@ class ImprovedFineTuner:
                 logger.warning(f"Found NaN or Inf in {k}, replaced with zeros")
         
         try:
-            # Get logits from model - don't pass 'train' param for OPT models
-            if self.is_opt_model:
-                # OPT models don't accept 'train' parameter
-                outputs = model(**batch, params=params)
-            else:
-                # Other models like GPT-2 might need the 'train' parameter
-                outputs = model(**batch, params=params, train=True)
+            # Prepare the model call arguments
+            model_kwargs = {"params": params}
+            
+            # Add dropout_rng if present
+            if dropout_rng is not None:
+                model_kwargs["dropout_rng"] = dropout_rng
                 
+            # Add train=True for models that need it (except OPT)
+            if not self.is_opt_model:
+                model_kwargs["train"] = True
+            
+            # Get logits from model with appropriate arguments
+            outputs = model(**batch, **model_kwargs)
             logits = outputs.logits
             
             # Add labels back to batch for next iteration
@@ -326,20 +340,45 @@ class ImprovedFineTuner:
             logger.error(f"Model inference error: {e}")
             # Add labels back to batch
             batch["labels"] = labels
+            if dropout_rng is not None:
+                batch["dropout_rng"] = dropout_rng
             raise
     
-    def _train_step(self, state, batch, grad_clip_norm=1.0):
+    def _train_step(self, state, batch, rng=None, grad_clip_norm=1.0):
         """Single training step with gradient clipping and NaN detection"""
         try:
-            grad_fn = jax.value_and_grad(self._loss_fn)
-            loss, grads = grad_fn(state.params, batch)
+            # Handle PRNG keys for dropout
+            if self.use_rng_keys_for_dropout and rng is None:
+                # Create a new PRNG key if none is provided
+                rng = jax.random.PRNGKey(int(time.time() * 1000) % (2**32))
+            
+            # Create a function that includes PRNG key handling
+            def loss_fn_with_dropout(params, batch, dropout_rng):
+                # If using RNG keys for dropout, add it to the batch
+                if self.use_rng_keys_for_dropout:
+                    # Add dropout_rng to the arguments
+                    batch = dict(batch)  # Make a copy to avoid modifying the original
+                    batch["dropout_rng"] = dropout_rng
+                return self._loss_fn(params, batch)
+            
+            # Create value and grad function
+            grad_fn = jax.value_and_grad(loss_fn_with_dropout)
+            
+            if self.use_rng_keys_for_dropout:
+                # Split the RNG key for this step
+                dropout_rng, new_rng = jax.random.split(rng)
+                # Call with dropout RNG
+                loss, grads = grad_fn(state.params, batch, dropout_rng)
+            else:
+                # Call without dropout RNG
+                loss, grads = grad_fn(state.params, batch, None)
             
             # Check for NaNs in gradients
             if jnp.isnan(loss).any() or jnp.isinf(loss).any():
                 logger.warning(f"NaN or Inf loss detected: {loss}")
                 # Use a large but finite value instead of NaN
                 loss = jnp.nan_to_num(loss, nan=1e3, posinf=1e3, neginf=1e3)
-                return state, loss  # Skip update
+                return state, loss, new_rng if self.use_rng_keys_for_dropout else None  # Skip update
             
             # Check for NaNs in gradients - can be expensive, so we use a sample
             # Random sample some gradients to check for NaNs
@@ -347,7 +386,7 @@ class ImprovedFineTuner:
             for g in grad_flat[:5]:  # Check just a sample of gradients
                 if jnp.isnan(g).any() or jnp.isinf(g).any():
                     logger.warning("NaN or Inf gradients detected, skipping update")
-                    return state, loss  # Skip update
+                    return state, loss, new_rng if self.use_rng_keys_for_dropout else None  # Skip update
             
             # Clip gradients to prevent explosions
             grads = jax.tree_util.tree_map(
@@ -357,10 +396,10 @@ class ImprovedFineTuner:
             
             # Apply gradients
             new_state = state.apply_gradients(grads=grads)
-            return new_state, loss
+            return new_state, loss, new_rng if self.use_rng_keys_for_dropout else None
         except Exception as e:
             logger.error(f"Error in training step: {e}")
-            return state, jnp.array(float('nan'))
+            return state, jnp.array(float('nan')), rng
     
     def fine_tune(self, pruned_params, num_epochs=1, learning_rate=5e-5, evaluate_interval=5):
         """Fine-tune the pruned model"""
@@ -383,6 +422,9 @@ class ImprovedFineTuner:
         total_steps = 0
         perplexity_history = []
         
+        # Initialize PRNG key for dropout
+        rng = jax.random.PRNGKey(int(time.time() * 1000) % (2**32)) if self.use_rng_keys_for_dropout else None
+        
         for epoch in range(num_epochs):
             # Shuffled dataset for each epoch (if it's a list of batches)
             if isinstance(dataset, list):
@@ -404,7 +446,11 @@ class ImprovedFineTuner:
             for step, batch in progress_bar:
                 # Train step
                 try:
-                    self.train_state, loss = self._train_step(self.train_state, batch)
+                    self.train_state, loss, new_rng = self._train_step(self.train_state, batch, rng)
+                    # Update RNG for next step if using dropout
+                    if self.use_rng_keys_for_dropout:
+                        rng = new_rng
+                        
                     total_steps += 1
                     
                     # Check for NaN loss
