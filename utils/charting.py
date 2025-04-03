@@ -598,7 +598,13 @@ def plot_metrics_comparison(metrics_data, title="Neural Plasticity Experiment Re
     try:
         # Extract metric types and stages
         metric_types = list(metrics_data.keys())
-        stages = list(metrics_data[metric_types[0]].keys())
+        
+        # Collect all possible stages across all metrics
+        all_stages = set()
+        for metric in metric_types:
+            all_stages.update(metrics_data[metric].keys())
+        
+        stages = sorted(list(all_stages))
         
         # Create figure with multiple subplots
         fig, axes = plt.subplots(len(metric_types), 1, figsize=figsize)
@@ -608,13 +614,21 @@ def plot_metrics_comparison(metrics_data, title="Neural Plasticity Experiment Re
         # Plot each metric
         for i, metric in enumerate(metric_types):
             ax = axes[i]
-            values = [metrics_data[metric][stage] for stage in stages]
+            
+            # Get values, using None for missing stages
+            values = []
+            valid_stages = []
+            
+            for stage in stages:
+                if stage in metrics_data[metric]:
+                    values.append(metrics_data[metric][stage])
+                    valid_stages.append(stage)
             
             # Bar colors
             colors = ['#3274A1', '#E1812C', '#3A923A', '#C03D3E']
             
             # Create bars
-            bars = ax.bar(stages, values, color=colors[:len(stages)])
+            bars = ax.bar(valid_stages, values, color=colors[:len(valid_stages)])
             
             # Set title and grid
             ax.set_title(f'{metric.replace("_", " ").title()}')
