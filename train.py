@@ -37,7 +37,7 @@ import random
 from torch.utils.data import DataLoader
 from transformers import AutoTokenizer, get_scheduler
 from models.loaders.loader import load_baseline_model, load_adaptive_model
-from sentinel_data.dataset_loader import load_dataset
+from custdata.loaders.dataset_loader import load_dataset
 from utils.metrics_logger import MetricsLogger
 from utils.checkpoint import save_checkpoint, load_checkpoint
 from utils.progress_tracker import ProgressTracker

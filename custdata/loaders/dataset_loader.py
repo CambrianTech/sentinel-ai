@@ -1,4 +1,4 @@
-# sentinel_data/dataset_loader.py
+# custdata/loaders/dataset_loader.py
 
 import os
 import torch

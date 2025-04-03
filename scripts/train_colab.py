@@ -4,7 +4,7 @@ import os
 import torch
 from transformers import AutoTokenizer
 from models.loaders.loader import load_baseline_model, load_adaptive_model
-from sentinel_data.dataset_loader import load_and_tokenize_dataset
+from custdata.loaders.dataset_loader import load_and_tokenize_dataset
 from utils.model_wrapper import wrap_model_for_generation
 from utils.training import train_model
 from utils.paths import CHECKPOINT_PATH
