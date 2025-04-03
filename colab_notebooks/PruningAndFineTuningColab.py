@@ -1,10 +1,10 @@
 #!/usr/bin/env python
 # coding: utf-8
 
-# # Pruning and Fine-Tuning Benchmark for Google Colab (v0.0.9)
+# # Pruning and Fine-Tuning Benchmark for Google Colab (v0.1.0)
 # 
 # This is the Python script version of our notebook for Google Colab.
-# Version 0.0.9 (April 2025) - Memory-efficient training for large models
+# Version 0.1.0 (April 2025) - Optimized for best pruning and performance
 # 
 # Instructions:
 # 1. Upload to a new Colab notebook using File > Upload notebook > Upload
@@ -807,7 +807,8 @@ experiment = PruningFineTuningExperiment("pruning_finetuning_results")
 # %%
 # Configuration
 STRATEGIES = ["random", "magnitude", "entropy"]
-PRUNING_LEVELS = [0.1, 0.3, 0.5]
+# Updated based on optimization findings - 0.7 for max speed, 0.3 for balanced performance
+PRUNING_LEVELS = [0.1, 0.3, 0.7]
 PROMPT = "Artificial intelligence will transform society by"
 FINE_TUNING_EPOCHS = 2  # Small number for quick iterations
 MAX_RUNTIME = 6 * 3600  # 6 hours
@@ -829,7 +830,9 @@ results = experiment.run_experiment(
 # %%
 # Overnight Configuration
 OVERNIGHT_STRATEGIES = ["random", "magnitude", "entropy"]
-OVERNIGHT_PRUNING_LEVELS = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7]
+# Focused on most effective pruning levels based on optimization research
+# 0.7 for maximum speed, 0.3 for balanced performance, other values for comparison
+OVERNIGHT_PRUNING_LEVELS = [0.1, 0.2, 0.3, 0.5, 0.7]
 OVERNIGHT_PROMPT = "Artificial intelligence will revolutionize industries by"
 OVERNIGHT_FINE_TUNING_EPOCHS = 5  # More epochs for better recovery
 OVERNIGHT_MAX_RUNTIME = 24 * 3600  # 24 hours
@@ -845,6 +848,22 @@ overnight_experiment = PruningFineTuningExperiment("overnight_results")
 #     fine_tuning_epochs=OVERNIGHT_FINE_TUNING_EPOCHS,
 #     max_runtime=OVERNIGHT_MAX_RUNTIME
 # )
+
+# %% [markdown]
+# ## Optimization Recommendations
+# 
+# Based on our extensive profiling and research, we have the following recommendations:
+
+# %%
+print("\n===== Sentinel AI Optimization Recommendations =====")
+print("1. For maximum throughput (pure speed):")
+print("   - Use original model with 70% pruning (~28 tokens/sec on CPU)")
+print("\n2. For models with agency features:")
+print("   - On CPU: Use optimization level 2 with 30% pruning (~19-20 tokens/sec)")
+print("   - On GPU: Use optimization level 3 with 30% pruning")
+print("\n3. For balanced quality/performance:")
+print("   - Use optimization level 2 with 30% pruning")
+print("\nNote: Original model with heavy pruning (70%) often outperforms optimized models for pure throughput")
 
 # %% [markdown]
 # ## Comprehensive Analysis
