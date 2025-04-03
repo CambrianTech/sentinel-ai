@@ -1,270 +1,308 @@
 #!/usr/bin/env python
 """
-Dynamically expand attention heads in an adaptive transformer model.
+Expansion script to grow attention heads in pruned models.
 
-This script demonstrates the dynamic architecture adjustment capabilities
-of the adaptive transformer, allowing it to expand capacity in specific layers
-based on metrics like attention entropy and gradient activity.
-
-Usage:
-    python scripts/expand_heads.py --model_path /path/to/checkpoint.pth \
-                                 --layers 3 6 9 \
-                                 --heads_per_layer 2 \
-                                 --output_path /path/to/expanded_model.pth
+This script loads a pruned model, identifies which heads to grow,
+and saves a new model with additional attention heads.
 """
 
 import os
 import argparse
-import torch
-import torch.nn as nn
-import copy
+import time
+import json
+import jax
+import jax.numpy as jnp
+import numpy as np
 from transformers import AutoTokenizer
-from models.loaders.loader import load_baseline_model, load_adaptive_model
-from utils.checkpoint import load_checkpoint, save_checkpoint
-from utils.head_metrics import compute_attention_entropy
 
+# Add parent directory to path for imports
+import sys
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-def expand_attention_heads(model, layer_indices, heads_per_layer):
-    """
-    Expand attention heads in specified layers.
+from utils.pruning.pruning_module import PruningModule
+from utils.pruning.growth import grow_attention_heads_gradually
+
+def parse_args():
+    """Parse command line arguments"""
+    parser = argparse.ArgumentParser(description="Grow attention heads in a pruned transformer model")
     
-    Args:
-        model: The adaptive transformer model
-        layer_indices: List of layer indices to expand
-        heads_per_layer: Number of heads to add per layer
-        
-    Returns:
-        Modified model with expanded heads
-    """
-    for layer_idx in layer_indices:
-        if layer_idx >= len(model.blocks):
-            print(f"Warning: Layer {layer_idx} does not exist, skipping")
-            continue
-            
-        # Get the block to modify
-        block = model.blocks[layer_idx]
-        attn_module = block["attn"]
-        
-        # Current number of heads and dimensions
-        current_heads = attn_module.num_heads
-        embed_dim = attn_module.embed_dim
-        head_dim = attn_module.head_dim
-        
-        # Target number of heads
-        new_heads = current_heads + heads_per_layer
-        
-        print(f"Expanding layer {layer_idx} from {current_heads} to {new_heads} heads")
-        
-        # Create new projection modules for each component
-        new_W_q = nn.ModuleList([nn.Linear(embed_dim, head_dim, bias=True) for _ in range(new_heads)])
-        new_W_k = nn.ModuleList([nn.Linear(embed_dim, head_dim, bias=True) for _ in range(new_heads)])
-        new_W_v = nn.ModuleList([nn.Linear(embed_dim, head_dim, bias=True) for _ in range(new_heads)])
-        new_W_o = nn.ModuleList([nn.Linear(head_dim, embed_dim, bias=True) for _ in range(new_heads)])
-        
-        # Copy existing weights
-        for i in range(current_heads):
-            new_W_q[i].weight.data.copy_(attn_module.W_q[i].weight.data)
-            new_W_q[i].bias.data.copy_(attn_module.W_q[i].bias.data)
-            
-            new_W_k[i].weight.data.copy_(attn_module.W_k[i].weight.data)
-            new_W_k[i].bias.data.copy_(attn_module.W_k[i].bias.data)
-            
-            new_W_v[i].weight.data.copy_(attn_module.W_v[i].weight.data)
-            new_W_v[i].bias.data.copy_(attn_module.W_v[i].bias.data)
-            
-            new_W_o[i].weight.data.copy_(attn_module.W_o[i].weight.data)
-            new_W_o[i].bias.data.copy_(attn_module.W_o[i].bias.data)
-        
-        # Initialize new heads
-        # We'll use a combination of:
-        # 1. Clone and slightly perturb existing heads (for stability)
-        # 2. Initialize new heads with small random values (for diversity)
-        for i in range(current_heads, new_heads):
-            # Choose a source head to clone (pick heads with highest activity)
-            gate_values = attn_module.gate.detach().cpu().numpy()
-            source_idx = gate_values.argmax().item()
-            
-            # Q, K, V projections - clone with random perturbation
-            new_W_q[i].weight.data.copy_(attn_module.W_q[source_idx].weight.data)
-            new_W_q[i].weight.data += torch.randn_like(new_W_q[i].weight.data) * 0.01
-            new_W_q[i].bias.data.copy_(attn_module.W_q[source_idx].bias.data)
-            new_W_q[i].bias.data += torch.randn_like(new_W_q[i].bias.data) * 0.01
-            
-            new_W_k[i].weight.data.copy_(attn_module.W_k[source_idx].weight.data)
-            new_W_k[i].weight.data += torch.randn_like(new_W_k[i].weight.data) * 0.01
-            new_W_k[i].bias.data.copy_(attn_module.W_k[source_idx].bias.data)
-            new_W_k[i].bias.data += torch.randn_like(new_W_k[i].bias.data) * 0.01
-            
-            new_W_v[i].weight.data.copy_(attn_module.W_v[source_idx].weight.data)
-            new_W_v[i].weight.data += torch.randn_like(new_W_v[i].weight.data) * 0.01
-            new_W_v[i].bias.data.copy_(attn_module.W_v[source_idx].bias.data)
-            new_W_v[i].bias.data += torch.randn_like(new_W_v[i].bias.data) * 0.01
-            
-            # Output projection - initialize with small values for stability
-            new_W_o[i].weight.data.normal_(mean=0.0, std=0.01)
-            new_W_o[i].bias.data.zero_()
-            
-        # Create new gate values tensor
-        new_gate = nn.Parameter(torch.zeros(new_heads))
-        # Copy existing gates
-        new_gate.data[:current_heads].copy_(attn_module.gate.data)
-        # Initialize new gates with slightly conservative values
-        new_gate.data[current_heads:].fill_(0.5)  # Start at 0.5 (moderate contribution)
-        
-        # Replace the module components
-        attn_module.W_q = new_W_q
-        attn_module.W_k = new_W_k
-        attn_module.W_v = new_W_v
-        attn_module.W_o = new_W_o
-        attn_module.gate = new_gate
-        attn_module.num_heads = new_heads
-        
-    return model
-
-
-def get_expansion_candidates(model, entropy_dict, importance_dict=None, num_layers=3):
-    """
-    Determine which layers would benefit most from head expansion.
+    # Model parameters
+    parser.add_argument("--model_path", type=str, required=True, 
+                      help="Path to the pruned model checkpoint")
+    parser.add_argument("--output_path", type=str, default=None,
+                      help="Path to save the expanded model (default: model_path with _expanded suffix)")
+    parser.add_argument("--model_name", type=str, default="distilgpt2",
+                      help="Base model name (default: distilgpt2)")
     
-    Args:
-        model: The adaptive transformer model
-        entropy_dict: Dictionary of entropy values per head
-        importance_dict: Optional dictionary of importance values per head
-        num_layers: Number of layers to recommend for expansion
-        
-    Returns:
-        List of layer indices recommended for expansion
-    """
-    layer_metrics = {}
+    # Growth parameters
+    parser.add_argument("--growth_percentage", type=float, default=0.05,
+                      help="Percentage of total heads to add (default: 0.05 = 5%%)")
+    parser.add_argument("--growth_strategy", type=str, default="gradient_sensitivity",
+                      choices=["gradient_sensitivity", "entropy_gap", "balanced", "random"],
+                      help="Strategy for selecting which heads to grow (default: gradient_sensitivity)")
+    parser.add_argument("--initial_scale", type=float, default=0.01,
+                      help="Initial weight scale for new heads (default: 0.01)")
     
-    # Calculate metrics per layer
-    for layer_idx in range(len(model.blocks)):
-        # Get gate values for this layer
-        gate_values = model.blocks[layer_idx]["attn"].gate.detach().cpu()
+    # Evaluation parameters
+    parser.add_argument("--eval_text", type=str, default=None,
+                      help="Sample text for evaluation (default: None)")
+    parser.add_argument("--warmup_steps", type=int, default=100,
+                      help="Steps for linear warmup of new heads (default: 100)")
+    
+    # Output options
+    parser.add_argument("--verbose", action="store_true",
+                      help="Enable verbose output")
+    
+    return parser.parse_args()
+
+def determine_active_heads_percent(pruning_module, params):
+    """Determine what percentage of heads are currently active"""
+    from utils.pruning.growth import determine_active_heads
+    
+    active_heads = determine_active_heads(pruning_module, params)
+    total_heads = pruning_module.num_layers * pruning_module.num_heads
+    
+    return len(active_heads) / total_heads
+
+def summarize_model_state(pruning_module, params=None):
+    """Summarize the current state of the model"""
+    if params is None:
+        params = pruning_module.model.params
+    
+    from utils.pruning.growth import determine_active_heads
+    
+    # Get active heads
+    active_heads = determine_active_heads(pruning_module, params)
+    total_heads = pruning_module.num_layers * pruning_module.num_heads
+    
+    # Count active heads per layer
+    layer_counts = {}
+    for layer_idx in range(pruning_module.num_layers):
+        active_in_layer = sum(1 for l, h in active_heads if l == layer_idx)
+        layer_counts[layer_idx] = active_in_layer
+    
+    # Prepare summary
+    summary = {
+        "model_name": pruning_module.model_name,
+        "total_heads": total_heads,
+        "active_heads": len(active_heads),
+        "active_percent": f"{len(active_heads) / total_heads * 100:.1f}%",
+        "layer_distribution": layer_counts
+    }
+    
+    return summary
+
+def visualize_head_distribution(pruning_module, active_heads):
+    """Create a visual representation of head distribution"""
+    num_layers = pruning_module.num_layers
+    num_heads = pruning_module.num_heads
+    
+    # Create a layer-by-layer visualization
+    visual = ["Head Distribution (■=active, □=inactive):"]
+    
+    for layer_idx in range(num_layers):
+        layer_visual = [f"Layer {layer_idx}: "]
         
-        # Count active heads
-        active_heads = (gate_values > 0.2).sum().item()
+        for head_idx in range(num_heads):
+            if (layer_idx, head_idx) in active_heads:
+                layer_visual.append("■")
+            else:
+                layer_visual.append("□")
         
-        # Get average entropy for active heads
-        layer_entropy = entropy_dict[layer_idx]
-        active_entropy = layer_entropy[gate_values > 0.2].mean().item() if active_heads > 0 else 0
-        
-        # Calculate capacity utilization (% of heads active)
-        capacity_utilization = active_heads / len(gate_values)
-        
-        # Calculate importance score if available
-        importance_score = 0
-        if importance_dict is not None:
-            importance_score = importance_dict[layer_idx].mean().item()
-        
-        # Compute expansion score:
-        # - High if many heads are active (high utilization)
-        # - High if active heads have low entropy (specialized) 
-        # - High if layer has high importance to the model
-        expansion_score = (
-            capacity_utilization * 0.5 +  # Weight for utilization
-            (1.0 - active_entropy / 5.0) * 0.3 +  # Weight for entropy (inverted)
-            importance_score * 0.2  # Weight for importance
+        visual.append("".join(layer_visual))
+    
+    return "\n".join(visual)
+
+def save_growth_info(output_path, growth_info):
+    """Save growth information to a JSON file"""
+    info_path = output_path.replace(".pth", "_growth_info.json")
+    
+    with open(info_path, 'w') as f:
+        json.dump(growth_info, f, indent=2)
+    
+    return info_path
+
+def evaluate_model(pruning_module, params, eval_text=None):
+    """Evaluate model with specified parameters"""
+    if eval_text is None:
+        eval_text = (
+            "The transformer model architecture has gained popularity due to its "
+            "effectiveness in natural language processing tasks. It has been applied "
+            "to various domains including machine translation, text generation, and "
+            "sentiment analysis."
         )
-        
-        layer_metrics[layer_idx] = {
-            'active_heads': active_heads,
-            'total_heads': len(gate_values),
-            'utilization': capacity_utilization,
-            'avg_entropy': active_entropy,
-            'importance': importance_score,
-            'expansion_score': expansion_score
-        }
     
-    # Sort layers by expansion score
-    sorted_layers = sorted(layer_metrics.items(), 
-                         key=lambda x: x[1]['expansion_score'], 
-                         reverse=True)
+    # Generate text
+    generated_text = pruning_module.generate_text(params, eval_text[:50], max_length=100)
     
-    # Return top layers
-    return [layer_idx for layer_idx, _ in sorted_layers[:num_layers]]
-
+    # Calculate perplexity
+    perplexity = pruning_module.evaluate_perplexity(params, eval_text)
+    
+    return {
+        "perplexity": perplexity,
+        "generated_text": generated_text
+    }
 
 def main():
-    parser = argparse.ArgumentParser(description="Expand attention heads in adaptive transformer")
-    parser.add_argument("--model_path", type=str, required=True, help="Path to model checkpoint")
-    parser.add_argument("--model_name", type=str, default="gpt2", help="Base model name")
-    parser.add_argument("--layers", type=int, nargs="+", help="Layer indices to expand")
-    parser.add_argument("--heads_per_layer", type=int, default=2, help="Heads to add per layer")
-    parser.add_argument("--auto_select", action="store_true", help="Automatically select layers to expand")
-    parser.add_argument("--num_auto_layers", type=int, default=3, help="Number of layers to auto-select")
-    parser.add_argument("--output_path", type=str, required=True, help="Output checkpoint path")
-    parser.add_argument("--device", type=str, choices=["cpu", "cuda"], default=None,
-                      help="Device to use (defaults to CUDA if available)")
-    args = parser.parse_args()
+    """Main function"""
+    # Parse arguments
+    args = parse_args()
     
-    # Determine device
-    device = torch.device(args.device if args.device else ("cuda" if torch.cuda.is_available() else "cpu"))
-    print(f"Using device: {device}")
+    # Set output path if not specified
+    if args.output_path is None:
+        args.output_path = args.model_path.replace(".pth", "_expanded.pth")
+        # If no .pth extension, add _expanded suffix
+        if args.output_path == args.model_path:
+            args.output_path = args.model_path + "_expanded"
     
-    # Load models
-    baseline_model = load_baseline_model(args.model_name, device)
-    model = load_adaptive_model(args.model_name, baseline_model, device)
+    # Create pruning module
+    pruning_module = PruningModule(args.model_name)
     
-    # Load checkpoint
-    if os.path.exists(args.model_path):
-        optimizer = torch.optim.AdamW(model.parameters())
-        head_lr_multipliers = {}
-        model, optimizer, head_lr_multipliers, epoch, step = load_checkpoint(
-            model, optimizer, head_lr_multipliers, args.model_path, device)
-        print(f"Loaded checkpoint from {args.model_path} (epoch {epoch}, step {step})")
-    else:
-        print(f"Warning: Checkpoint {args.model_path} not found, using freshly initialized model")
-        optimizer = torch.optim.AdamW(model.parameters())
-        head_lr_multipliers = {}
-        epoch, step = 0, 0
+    # Load model
+    if not pruning_module.load_model():
+        print(f"Failed to load model {args.model_name}")
+        return
     
-    # Determine which layers to expand
-    if args.auto_select:
-        print("Computing metrics for automatic layer selection...")
-        entropy_dict = compute_attention_entropy(model, device=device)
+    # Load checkpoint parameters
+    import pickle
+    try:
+        with open(args.model_path, 'rb') as f:
+            checkpoint = pickle.load(f)
         
-        print("Determining layers to expand...")
-        layer_indices = get_expansion_candidates(model, entropy_dict, num_layers=args.num_auto_layers)
-        print(f"Selected layers for expansion: {layer_indices}")
-    else:
-        if not args.layers:
-            raise ValueError("Must specify --layers or --auto_select")
-        layer_indices = args.layers
+        # If checkpoint is a dictionary with 'model_params', use those
+        if isinstance(checkpoint, dict) and 'model_params' in checkpoint:
+            params = checkpoint['model_params']
+        else:
+            # Assume checkpoint is the model parameters directly
+            params = checkpoint
+            
+        print(f"Loaded checkpoint from {args.model_path}")
+    except Exception as e:
+        print(f"Error loading checkpoint: {e}")
+        return
     
-    # Expand heads
-    print(f"Expanding {len(layer_indices)} layers with {args.heads_per_layer} heads each")
-    expanded_model = expand_attention_heads(model, layer_indices, args.heads_per_layer)
+    # Analyze initial model state
+    print("Analyzing initial model state...")
+    initial_state = summarize_model_state(pruning_module, params)
     
-    # Update head learning rate multipliers for the new heads
-    new_multipliers = {}
-    for layer_idx, block in enumerate(expanded_model.blocks):
-        attn_module = block["attn"]
-        for head_idx in range(attn_module.num_heads):
-            key = (layer_idx, head_idx)
-            if key in head_lr_multipliers:
-                new_multipliers[key] = head_lr_multipliers[key]
-            else:
-                # New head gets standard learning rate
-                new_multipliers[key] = 1.0
+    if args.verbose:
+        print(f"Initial model state: {json.dumps(initial_state, indent=2)}")
+        from utils.pruning.growth import determine_active_heads
+        active_heads = determine_active_heads(pruning_module, params)
+        print(visualize_head_distribution(pruning_module, active_heads))
+    
+    # Evaluate initial model
+    print("Evaluating initial model...")
+    initial_eval = evaluate_model(pruning_module, params, args.eval_text)
+    
+    if args.verbose:
+        print(f"Initial perplexity: {initial_eval['perplexity']:.2f}")
+        print(f"Initial generation sample: {initial_eval['generated_text'][:100]}...")
+    
+    # Grow attention heads
+    print(f"Growing heads using {args.growth_strategy} strategy...")
+    start_time = time.time()
+    
+    new_params, added_count, added_heads, warmup_schedule = grow_attention_heads_gradually(
+        pruning_module,
+        params=params,
+        growth_percentage=args.growth_percentage,
+        strategy=args.growth_strategy,
+        initial_scale=args.initial_scale,
+        warmup_steps=args.warmup_steps
+    )
+    
+    growth_time = time.time() - start_time
+    
+    # If no heads were added, exit
+    if added_count == 0:
+        print("No heads were added - model may already be fully active")
+        return
+    
+    # Analyze expanded model state
+    print("Analyzing expanded model state...")
+    expanded_state = summarize_model_state(pruning_module, new_params)
+    
+    if args.verbose:
+        print(f"Expanded model state: {json.dumps(expanded_state, indent=2)}")
+        from utils.pruning.growth import determine_active_heads
+        new_active_heads = determine_active_heads(pruning_module, new_params)
+        print(visualize_head_distribution(pruning_module, new_active_heads))
+    
+    # Evaluate expanded model
+    print("Evaluating expanded model...")
+    expanded_eval = evaluate_model(pruning_module, new_params, args.eval_text)
+    
+    if args.verbose:
+        print(f"Expanded perplexity: {expanded_eval['perplexity']:.2f}")
+        print(f"Expanded generation sample: {expanded_eval['generated_text'][:100]}...")
+    
+    # Calculate change in metrics
+    perplexity_change = expanded_eval['perplexity'] - initial_eval['perplexity']
+    
+    # Prepare growth info
+    growth_info = {
+        "timestamp": time.strftime("%Y%m%d-%H%M%S"),
+        "model_name": args.model_name,
+        "growth_strategy": args.growth_strategy,
+        "growth_percentage": args.growth_percentage,
+        "initial_scale": args.initial_scale,
+        "warmup_steps": args.warmup_steps,
+        "initial_state": initial_state,
+        "expanded_state": expanded_state,
+        "added_count": added_count,
+        "added_heads": [(int(l), int(h)) for l, h in added_heads],  # Convert to int for JSON
+        "growth_time_seconds": growth_time,
+        "metrics": {
+            "initial_perplexity": float(initial_eval['perplexity']),
+            "expanded_perplexity": float(expanded_eval['perplexity']),
+            "perplexity_change": float(perplexity_change)
+        }
+    }
     
     # Save expanded model
-    print(f"Saving expanded model to {args.output_path}")
-    save_checkpoint(args.output_path, expanded_model, optimizer, new_multipliers, epoch, step)
+    print(f"Saving expanded model to {args.output_path}...")
+    try:
+        # Create checkpoint with expanded parameters
+        if isinstance(checkpoint, dict) and 'model_params' in checkpoint:
+            checkpoint['model_params'] = new_params
+            checkpoint['growth_info'] = {
+                "timestamp": time.strftime("%Y%m%d-%H%M%S"),
+                "strategy": args.growth_strategy,
+                "added_count": added_count,
+                "added_heads": [(int(l), int(h)) for l, h in added_heads]
+            }
+            save_data = checkpoint
+        else:
+            # Just save the parameters
+            save_data = new_params
+        
+        # Ensure directory exists
+        os.makedirs(os.path.dirname(os.path.abspath(args.output_path)), exist_ok=True)
+        
+        # Save checkpoint
+        with open(args.output_path, 'wb') as f:
+            pickle.dump(save_data, f)
+        
+        print(f"Saved expanded model to {args.output_path}")
+        
+        # Save growth info
+        info_path = save_growth_info(args.output_path, growth_info)
+        print(f"Saved growth info to {info_path}")
+    except Exception as e:
+        print(f"Error saving expanded model: {e}")
     
-    # Print summary
-    print("\nExpansion summary:")
-    print(f"  Original model: {sum(p.numel() for p in model.parameters()):,} parameters")
-    print(f"  Expanded model: {sum(p.numel() for p in expanded_model.parameters()):,} parameters")
+    # Summary
+    print("\nSummary:")
+    print(f"- Added {added_count} heads ({args.growth_percentage*100:.1f}% of total)")
+    print(f"- Active heads: {initial_state['active_heads']} → {expanded_state['active_heads']} " +
+          f"({initial_state['active_percent']} → {expanded_state['active_percent']})")
+    print(f"- Perplexity: {initial_eval['perplexity']:.2f} → {expanded_eval['perplexity']:.2f} " +
+          f"({perplexity_change:+.2f})")
     
-    added_params = sum(p.numel() for p in expanded_model.parameters()) - sum(p.numel() for p in model.parameters())
-    print(f"  Added parameters: {added_params:,} ({added_params / sum(p.numel() for p in model.parameters()) * 100:.2f}%)")
-    
-    print("\nExpanded model head counts:")
-    for layer_idx, block in enumerate(expanded_model.blocks):
-        attn_module = block["attn"]
-        print(f"  Layer {layer_idx}: {attn_module.num_heads} heads")
-    
+    print(f"\nExpanded model saved to {args.output_path}")
+    print(f"To use this model in training, load the checkpoint and initialize with the new parameters")
+    print(f"For gradual integration, use the warmup schedule function over {args.warmup_steps} steps")
 
 if __name__ == "__main__":
     main()
