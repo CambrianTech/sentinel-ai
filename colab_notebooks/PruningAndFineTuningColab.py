@@ -1,10 +1,10 @@
 #!/usr/bin/env python
 # coding: utf-8
 
-# # Pruning and Fine-Tuning Benchmark for Google Colab (v0.0.3)
+# # Pruning and Fine-Tuning Benchmark for Google Colab (v0.0.5)
 # 
 # This is the Python script version of our notebook for Google Colab.
-# Version 0.0.3 (April 2025) - Updated with ImprovedFineTuner for enhanced stability
+# Version 0.0.5 (April 2025) - Improved memory management and adaptive model selection
 # 
 # Instructions:
 # 1. Upload to a new Colab notebook using File > Upload notebook > Upload
@@ -117,9 +117,74 @@ class PruningFineTuningExperiment:
         # Initialize environment
         self.env = Environment()
         
+        # Add has_high_ram attribute if not present in Environment class
+        # This ensures backward compatibility while also providing better memory detection
+        if not hasattr(self.env, 'has_high_ram'):
+            self.env.has_high_ram = False
+            try:
+                import psutil
+                total_ram = psutil.virtual_memory().total / (1024**3)  # Convert to GB
+                self.env.has_high_ram = total_ram > 12
+                print(f"Detected {total_ram:.1f}GB RAM, high RAM: {self.env.has_high_ram}")
+            except:
+                print("Could not detect RAM, assuming standard memory")
+                
+        # Detect GPU memory if possible
+        self.gpu_memory_gb = 0
+        if self.env.has_gpu:
+            try:
+                import torch
+                gpu_props = torch.cuda.get_device_properties(0)
+                self.gpu_memory_gb = gpu_props.total_memory / (1024**3)
+                print(f"Detected GPU with {self.gpu_memory_gb:.1f}GB VRAM")
+            except:
+                try:
+                    # Alternative method for JAX
+                    device = jax.devices()[0]
+                    if hasattr(device, 'memory_stats') and callable(device.memory_stats):
+                        memory_stats = device.memory_stats()
+                        if 'bytes_limit' in memory_stats:
+                            self.gpu_memory_gb = memory_stats['bytes_limit'] / (1024**3)
+                            print(f"Detected GPU with approximately {self.gpu_memory_gb:.1f}GB VRAM")
+                except:
+                    # Estimate based on common GPU types
+                    if self.env.in_colab:
+                        # T4 in Colab typically has 16GB
+                        self.gpu_memory_gb = 16
+                        print(f"Estimating Colab GPU with {self.gpu_memory_gb}GB VRAM")
+        
         # Get suitable models for this environment
         self.available_models = self.env.get_suitable_models()
         print(f"Models available: {', '.join(self.available_models)}")
+        
+        # Model size limits based on environment - adapt based on detected resources
+        self.model_size_limits = {
+            "gpt2": 1.0,  # Always allow GPT-2 (124M params)
+            "gpt2-medium": 1.0,  # Always allow GPT-2 Medium (355M params)
+            "opt-350m": 1.0,  # Always allow OPT-350M
+            "opt-125m": 1.0,  # Always allow OPT-125M
+            "facebook/opt-125m": 1.0,  # Always allow OPT-125M
+            "facebook/opt-350m": 1.0,  # Always allow OPT-350M
+            "EleutherAI/pythia-160m": 1.0,  # Always allow Pythia-160M
+            "EleutherAI/pythia-410m": 1.0,  # Always allow Pythia-410M
+        }
+        
+        # Add larger models only if we have enough resources
+        if self.env.has_gpu and self.gpu_memory_gb >= 8:
+            # If we have a GPU with 8+ GB, allow medium-sized models
+            self.model_size_limits.update({
+                "gpt2-large": 1.0,  # Allow GPT-2 Large (774M params) with sufficient GPU
+                "EleutherAI/pythia-1b": 0.5,  # Allow Pythia-1B with pruning
+                "facebook/opt-1.3b": 0.3,  # Allow OPT-1.3B with significant pruning only
+            })
+            
+            if self.gpu_memory_gb >= 16:
+                # If we have 16+ GB VRAM, allow larger models
+                self.model_size_limits.update({
+                    "gpt2-xl": 0.3,  # Allow GPT-2 XL with pruning
+                    "facebook/opt-1.3b": 0.5,  # Allow OPT-1.3B with moderate pruning
+                    "facebook/opt-2.7b": 0.2,  # Allow OPT-2.7B with heavy pruning
+                })
         
         # Setup Results Manager
         self.results_manager = ResultsManager(str(self.results_dir))
@@ -208,6 +273,9 @@ class PruningFineTuningExperiment:
             print(f"Failed to load model {model}")
             return None
         
+        # Store model name for architecture detection
+        pruning_module.model_name = model
+        
         # Setup experiment record
         self.current_experiment = {
             "model": model,
@@ -275,107 +343,185 @@ class PruningFineTuningExperiment:
             "head_indices": head_indices
         }
         
-        # 3. Fine-tune the pruned model
+        # 3. Fine-tune the pruned model - with improved stability
         print("\n>> Stage 3: Fine-tuning the pruned model")
         
-        # Create fine-tuner - use specific wikitext config and OpenWebText as fallback
-        dataset_name = "wikitext-2-v1"  # Specify the config name
-        dataset_config = "wikitext"
+        # Create fine-tuner with dataset config
+        dataset_name = "wikitext"
+        dataset_config = "wikitext-2-v1"
         
+        # Determine batch size based on model size and environment
         if self.env.in_colab and self.env.has_tpu:
             # TPUs can handle larger batch sizes
             batch_size = 16
+            # But still reduce for large models
+            if "1.3b" in model.lower() or "large" in model.lower():
+                batch_size = 8
         elif self.env.in_colab and self.env.has_gpu:
             batch_size = 8
+            # Reduce batch size for larger models
+            if "1.3b" in model.lower() or "large" in model.lower():
+                batch_size = 4
+            elif "2.7b" in model.lower() or "xl" in model.lower():
+                batch_size = 2
         else:
+            # CPU-only case
             batch_size = 4
+            # Even smaller for large models on CPU
+            if "1.3b" in model.lower() or "large" in model.lower():
+                batch_size = 2
+            elif "2.7b" in model.lower() or "xl" in model.lower():
+                batch_size = 1
         
-        # Check if model name indicates this might be a large model (OPT-1.3B, etc.)
+        # Use ImprovedFineTuner by default for all models to enhance stability
+        print(f"Using ImprovedFineTuner for enhanced stability")
+        fine_tuner = ImprovedFineTuner(
+            pruning_module, 
+            dataset_name=dataset_name,
+            dataset_config=dataset_config,
+            batch_size=batch_size
+        )
+        
+        # Adjust learning rate based on model size
         model_name = model.lower()
-        use_improved_tuner = any(x in model_name for x in ['opt', 'large', '1.3b', 'bloom'])
-        
-        if use_improved_tuner:
-            print(f"Using ImprovedFineTuner for model {model} to enhance stability")
-            # Initialize improved fine-tuner with better stability for large models
-            fine_tuner = ImprovedFineTuner(
-                pruning_module, 
-                dataset_name=dataset_config, 
-                dataset_config=dataset_name,
-                batch_size=batch_size
-            )
-            # Use lower learning rate for large models
-            learning_rate = 1e-5
-        else:
-            # Use standard fine-tuner for smaller models
-            fine_tuner = FineTuner(
-                pruning_module, 
-                dataset_name=dataset_config, 
-                dataset_config=dataset_name,
-                batch_size=batch_size
-            )
-            learning_rate = 5e-5
+        is_large_model = any(x in model_name for x in ['opt', '1.3b', 'large', 'bloom', '2.7b', 'xl'])
+        learning_rate = 1e-5 if is_large_model else 5e-5
         
         # Fine-tune model
         try:
+            # Install a emergency NaN detection system
+            def emergency_fix_loss_fn(params, batch):
+                """Safe loss function that prevents NaN values"""
+                model = pruning_module.model
+                
+                # Extract labels from batch but don't pass them to the model
+                labels = batch.pop("labels", None)
+                
+                # Check for NaNs in input
+                for k, v in batch.items():
+                    if jnp.isnan(v).any() or jnp.isinf(v).any():
+                        # Replace NaNs with zeros
+                        batch[k] = jnp.nan_to_num(v, nan=0.0, posinf=0.0, neginf=0.0)
+                        print(f"Warning: Found NaN in {k}, replaced with zeros")
+                
+                try:
+                    # Handle different model architectures
+                    is_opt_model = 'opt' in model_name
+                    
+                    if is_opt_model:
+                        # OPT models don't accept 'train' parameter
+                        outputs = model(**batch, params=params)
+                    else:
+                        # Other models might need the 'train' parameter
+                        outputs = model(**batch, params=params, train=True)
+                        
+                    logits = outputs.logits
+                    
+                    # Add labels back to batch
+                    batch["labels"] = labels
+                    
+                    # Create mask for padding tokens
+                    pad_token_id = pruning_module.tokenizer.pad_token_id  
+                    loss_mask = (labels != pad_token_id)
+                    
+                    # Shift logits and labels
+                    shift_logits = logits[:, :-1]
+                    shift_labels = labels[:, 1:]
+                    shift_mask = loss_mask[:, 1:]
+                    
+                    # Check for NaNs in logits
+                    if jnp.isnan(shift_logits).any() or jnp.isinf(shift_logits).any():
+                        print("Warning: Found NaN/Inf in logits - replacing with finite values")
+                        shift_logits = jnp.nan_to_num(shift_logits, nan=0.0, posinf=1.0, neginf=-1.0)
+                    
+                    # Safe cross entropy computation
+                    loss = optax.softmax_cross_entropy_with_integer_labels(
+                        shift_logits, shift_labels
+                    )
+                    
+                    # Check and fix NaNs in loss
+                    if jnp.isnan(loss).any() or jnp.isinf(loss).any():
+                        print("Warning: Found NaN/Inf in loss - replacing with finite values")
+                        loss = jnp.nan_to_num(loss, nan=1.0, posinf=1.0, neginf=1.0)
+                    
+                    # Safe mean calculation
+                    masked_loss = loss * shift_mask
+                    mask_sum = shift_mask.sum()
+                    
+                    # Safe division
+                    computed_loss = jnp.where(
+                        mask_sum > 0,
+                        masked_loss.sum() / mask_sum,
+                        jnp.array(0.0, dtype=loss.dtype)
+                    )
+                    
+                    if jnp.isnan(computed_loss) or jnp.isinf(computed_loss):
+                        print("CRITICAL: NaN/Inf in final loss - using fallback value")
+                        return jnp.array(1.0, dtype=loss.dtype)
+                        
+                    return computed_loss
+                    
+                except Exception as e:
+                    print(f"Error in loss function: {e}")
+                    # Return a safe default value
+                    batch["labels"] = labels  # Restore labels
+                    return jnp.array(1.0)  # Safe fallback
+            
+            # For OPT models, install our emergency fix
+            if 'opt' in model_name.lower():
+                if hasattr(fine_tuner, '_loss_fn'):
+                    print("⚠️ Installing NaN-safe loss function for OPT model")
+                    fine_tuner._loss_fn = emergency_fix_loss_fn
+            
+            # Proceed with fine-tuning
             tuned_params, metrics = fine_tuner.fine_tune(
                 pruned_params, 
                 num_epochs=fine_tuning_epochs,
                 learning_rate=learning_rate,
                 evaluate_interval=5
             )
+            
+            # Plot training progress
+            fine_tuner.plot_training_progress()
+            
+            # Evaluate fine-tuned model
+            perplexity_tuned = pruning_module.evaluate_perplexity(tuned_params, prompt)
+            print(f"Fine-tuned perplexity: {perplexity_tuned:.4f}")
+            
+            generated_tuned = pruning_module.generate_text(tuned_params, prompt)
+            print(f"Fine-tuned generated: {generated_tuned}")
+            
+            # Record fine-tuning results
+            self.current_experiment["stages"]["fine_tuned"] = {
+                "perplexity": float(perplexity_tuned),
+                "perplexity_change_from_baseline": float(perplexity_tuned - perplexity_baseline),
+                "perplexity_change_from_pruned": float(perplexity_tuned - perplexity_pruned),
+                "generated_text": generated_tuned,
+                "training_epochs": fine_tuning_epochs,
+                "training_metrics": metrics
+            }
+            
+            # Compute recovery percentage
+            if perplexity_pruned > perplexity_baseline:
+                # Calculate how much of the perplexity increase was recovered
+                perplexity_increase = perplexity_pruned - perplexity_baseline
+                perplexity_recovery = perplexity_pruned - perplexity_tuned
+                recovery_percentage = (perplexity_recovery / perplexity_increase) * 100 if perplexity_increase > 0 else 0
+                
+                self.current_experiment["stages"]["fine_tuned"]["recovery_percentage"] = float(recovery_percentage)
+                print(f"Recovery percentage: {recovery_percentage:.2f}%")
+            else:
+                # Pruning improved perplexity, so we measure improvement from baseline
+                improvement_percentage = ((perplexity_baseline - perplexity_tuned) / perplexity_baseline) * 100
+                
+                self.current_experiment["stages"]["fine_tuned"]["improvement_percentage"] = float(improvement_percentage)
+                print(f"Improvement percentage: {improvement_percentage:.2f}%")
+        
         except Exception as e:
             print(f"Error during fine-tuning: {e}")
-            # If standard tuner fails, fall back to improved tuner
-            if not use_improved_tuner:
-                print("Falling back to ImprovedFineTuner after error")
-                fine_tuner = ImprovedFineTuner(
-                    pruning_module, 
-                    dataset_name=dataset_config, 
-                    dataset_config=dataset_name,
-                    batch_size=max(1, batch_size // 2)  # Reduce batch size
-                )
-                tuned_params, metrics = fine_tuner.fine_tune(
-                    pruned_params,
-                    num_epochs=fine_tuning_epochs,
-                    learning_rate=1e-5,  # Lower learning rate for stability
-                    evaluate_interval=5
-                )
-        
-        # Plot training progress
-        fine_tuner.plot_training_progress()
-        
-        # Evaluate fine-tuned model
-        perplexity_tuned = pruning_module.evaluate_perplexity(tuned_params, prompt)
-        print(f"Fine-tuned perplexity: {perplexity_tuned:.4f}")
-        
-        generated_tuned = pruning_module.generate_text(tuned_params, prompt)
-        print(f"Fine-tuned generated: {generated_tuned}")
-        
-        # Record fine-tuning results
-        self.current_experiment["stages"]["fine_tuned"] = {
-            "perplexity": float(perplexity_tuned),
-            "perplexity_change_from_baseline": float(perplexity_tuned - perplexity_baseline),
-            "perplexity_change_from_pruned": float(perplexity_tuned - perplexity_pruned),
-            "generated_text": generated_tuned,
-            "training_epochs": fine_tuning_epochs,
-            "training_metrics": metrics
-        }
-        
-        # Compute recovery percentage
-        if perplexity_pruned > perplexity_baseline:
-            # Calculate how much of the perplexity increase was recovered
-            perplexity_increase = perplexity_pruned - perplexity_baseline
-            perplexity_recovery = perplexity_pruned - perplexity_tuned
-            recovery_percentage = (perplexity_recovery / perplexity_increase) * 100 if perplexity_increase > 0 else 0
-            
-            self.current_experiment["stages"]["fine_tuned"]["recovery_percentage"] = float(recovery_percentage)
-            print(f"Recovery percentage: {recovery_percentage:.2f}%")
-        else:
-            # Pruning improved perplexity, so we measure improvement from baseline
-            improvement_percentage = ((perplexity_baseline - perplexity_tuned) / perplexity_baseline) * 100
-            
-            self.current_experiment["stages"]["fine_tuned"]["improvement_percentage"] = float(improvement_percentage)
-            print(f"Improvement percentage: {improvement_percentage:.2f}%")
+            # Continue with partial results
+            import traceback
+            traceback.print_exc()
         
         # 4. Save results
         print("\n>> Stage 4: Saving results")
