@@ -1,0 +1,101 @@
+{
+  "model_loading": {
+    "operation": "model_loading",
+    "baseline_model": {
+      "load_time": 1.0210299491882324,
+      "memory_usage": 497759232,
+      "parameter_count": 124439808
+    },
+    "original_model": {
+      "load_time": 1.091520071029663,
+      "memory_usage": 554825280,
+      "parameter_count": 138706320
+    },
+    "optimized_model": {
+      "load_time": 1.3861949443817139,
+      "memory_usage": 554825280,
+      "parameter_count": 138706320
+    }
+  },
+  "pruning_comparison": {
+    "original": {
+      "0": {
+        "model_type": "original",
+        "pruning_level": 0,
+        "generation_times": [
+          1.0562610626220703,
+          0.9698936939239502,
+          1.0057480335235596,
+          1.001495122909546,
+          1.0204801559448242
+        ],
+        "avg_generation_time": 1.01077561378479,
+        "tokens_per_second": 19.786785244166282,
+        "first_token_time": 1.0562567710876465,
+        "profile_data": null,
+        "generated_text": "The transformer model architecture revolutionized natural language processing by the world's a public, no one of a second. The mainstay of a big deal was"
+      },
+      "50": {
+        "model_type": "original",
+        "pruning_level": 50,
+        "generation_times": [
+          1.162397861480713,
+          1.1763181686401367,
+          1.1658997535705566,
+          1.1628389358520508,
+          1.1220149993896484
+        ],
+        "avg_generation_time": 1.1578939437866211,
+        "tokens_per_second": 17.272739103025863,
+        "first_token_time": 1.1623950004577637,
+        "profile_data": null,
+        "generated_text": "The transformer model architecture revolutionized natural language processing by a few, and he was a bit of the first in their own a bit of this is not"
+      }
+    },
+    "optimized": {
+      "0": {
+        "model_type": "optimized",
+        "pruning_level": 0,
+        "generation_times": [
+          1.0872910022735596,
+          1.1508231163024902,
+          1.0529470443725586,
+          1.0686180591583252,
+          1.0816481113433838
+        ],
+        "avg_generation_time": 1.0882654666900635,
+        "tokens_per_second": 18.377868830874124,
+        "first_token_time": 1.0872888565063477,
+        "profile_data": null,
+        "generated_text": "The transformer model architecture revolutionized natural language processing by a day, and I've been a lot of the first, this year. The to be able"
+      },
+      "50": {
+        "model_type": "optimized",
+        "pruning_level": 50,
+        "generation_times": [
+          0.9569931030273438,
+          0.965327262878418,
+          0.9214231967926025,
+          0.9382588863372803,
+          0.8939230442047119
+        ],
+        "avg_generation_time": 0.9351850986480713,
+        "tokens_per_second": 21.38614059282225,
+        "first_token_time": 0.9569909572601318,
+        "profile_data": null,
+        "generated_text": "The transformer model architecture revolutionized natural language processing by a way to be unable to the in their own day, I was a high.\n\n\n"
+      }
+    }
+  },
+  "timestamp": 1743617149.137832,
+  "args": {
+    "model_name": "gpt2",
+    "device": "cpu",
+    "optimization_level": 1,
+    "pruning_levels": "0,50",
+    "profile_mode": "basic",
+    "multi_model_comparison": false,
+    "compare_models": null,
+    "model_family": null
+  }
+}

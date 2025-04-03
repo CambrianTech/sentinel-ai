@@ -612,6 +612,34 @@ For detailed compatibility information, sample outputs, and usage instructions f
 
 ---
 
+## Fine-Tuning for Pruned Models
+
+Sentinel-AI includes robust fine-tuning capabilities for pruned models, even for challenging cases like large language models (OPT-1.3B, etc.) that are prone to training instabilities:
+
+- **ImprovedFineTuner** — Enhanced fine-tuning implementation with stability features:
+  - Automatic batch size adjustment based on model size
+  - NaN detection and recovery with gradient clipping
+  - Model architecture-specific optimizations (OPT, BLOOM, etc.)
+  - Dynamic learning rate reduction when instabilities occur
+  - Safe computation patterns with fallbacks
+  
+- **CPU/GPU Optimizations** — Fine-tuning optimized for different execution environments:
+  - Memory-efficient operation for large models
+  - Specialized learning rates per architecture
+  - Automatic dataset format detection and handling
+  
+This allows Sentinel-AI to effectively fine-tune a wide range of models after pruning, restoring or improving their performance while maintaining the speed benefits of pruning.
+
+For detailed documentation on the improved fine-tuner, see [improved_fine_tuner.md](./docs/improved_fine_tuner.md).
+
+```bash
+# Test the improved fine-tuner with an OPT model
+python scripts/test_improved_fine_tuner.py --model facebook/opt-350m --strategy entropy --pruning_level 0.3 --epochs 2
+
+# Benchmark fine-tuning on a large OPT model
+python scripts/test_improved_fine_tuner.py --model facebook/opt-1.3b --use_improved
+```
+
 ## Pruning Effectiveness
 
 Our research conclusively demonstrates that the Sentinel-AI framework effectively prunes transformer attention heads without degrading model performance.
