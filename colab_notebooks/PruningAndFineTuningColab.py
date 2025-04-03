@@ -1,10 +1,10 @@
 #!/usr/bin/env python
 # coding: utf-8
 
-# # Pruning and Fine-Tuning Benchmark for Google Colab (v0.0.7)
+# # Pruning and Fine-Tuning Benchmark for Google Colab (v0.0.8)
 # 
 # This is the Python script version of our notebook for Google Colab.
-# Version 0.0.7 (April 2025) - Fixed NaN prevention for all model types
+# Version 0.0.8 (April 2025) - Modular NaN prevention with stability utilities
 # 
 # Instructions:
 # 1. Upload to a new Colab notebook using File > Upload notebook > Upload
@@ -79,6 +79,7 @@ from utils.pruning import (
     FineTuner,
     ImprovedFineTuner
 )
+from utils.pruning.stability import patch_fine_tuner
 
 # Set up plotting
 plt.style.use('ggplot')
@@ -467,9 +468,9 @@ class PruningFineTuningExperiment:
                     batch["labels"] = labels  # Restore labels
                     return jnp.array(1.0)  # Safe fallback
             
-            # For OPT models or any model, install our emergency fix to prevent NaN
-            print("⚠️ Installing NaN-safe loss function for all models")
-            fine_tuner._loss_fn = emergency_fix_loss_fn
+            # Patch the fine tuner with our stability utilities
+            print("⚠️ Installing NaN-safe loss function")
+            fine_tuner = patch_fine_tuner(fine_tuner, model_name=model)
             
             # Proceed with fine-tuning
             tuned_params, metrics = fine_tuner.fine_tune(
