@@ -533,6 +533,21 @@ class ImprovedFineTuner:
         
         import matplotlib.pyplot as plt
         
+        # Reset matplotlib parameters to ensure clean styling
+        plt.rcParams.update(plt.rcParamsDefault)
+        
+        # Set better styling parameters
+        plt.rcParams.update({
+            'figure.figsize': figsize,
+            'figure.titlesize': 14,
+            'axes.titlesize': 12,
+            'axes.labelsize': 11,
+            'xtick.labelsize': 10,
+            'ytick.labelsize': 10,
+            'legend.fontsize': 9,
+            'font.family': 'sans-serif'
+        })
+        
         # Extract epoch losses
         epochs = [m["epoch"] for m in self.metrics_history]
         losses = [m["loss"] for m in self.metrics_history]
@@ -545,36 +560,72 @@ class ImprovedFineTuner:
                 steps.append(step)
                 perplexities.append(perplexity)
         
-        # Create figure
-        fig, (ax1, ax2, ax3) = plt.subplots(3, 1, figsize=figsize)
+        # Create figure with appropriate spacing
+        fig, axes = plt.subplots(3, 1, figsize=figsize)
         
         # Plot losses
-        ax1.plot(epochs, losses, "o-", color="blue")
+        ax1 = axes[0]
+        ax1.plot(epochs, losses, "o-", color="blue", linewidth=2, markersize=8)
         ax1.set_xlabel("Epoch")
         ax1.set_ylabel("Loss")
         ax1.set_title("Training Loss")
         ax1.grid(True, linestyle="--", alpha=0.7)
         
+        # Make sure y-axis includes zero for better perspective
+        ymin, ymax = ax1.get_ylim()
+        if ymin > 0:
+            ax1.set_ylim(bottom=0)
+            
+        # Add padding to x-axis for better display
+        xmin, xmax = ax1.get_xlim()
+        ax1.set_xlim(xmin - 0.2, xmax + 0.2)
+        
         # Plot perplexities
+        ax2 = axes[1]
         if steps and perplexities:
-            ax2.plot(steps, perplexities, "o-", color="green")
+            ax2.plot(steps, perplexities, "o-", color="green", linewidth=2, markersize=8)
             ax2.set_xlabel("Step")
             ax2.set_ylabel("Perplexity")
             ax2.set_title("Perplexity During Training")
             ax2.grid(True, linestyle="--", alpha=0.7)
+            
+            # Add padding to x-axis
+            xmin, xmax = ax2.get_xlim()
+            ax2.set_xlim(xmin - 0.5, xmax + 0.5)
         else:
             ax2.text(0.5, 0.5, "No perplexity data available",
                     ha="center", va="center", fontsize=12)
-                    
-        # Plot NaN counts
-        nan_counts = [m.get("nan_count", 0) for m in self.metrics_history]
-        ax3.bar(epochs, nan_counts, color="red")
-        ax3.set_xlabel("Epoch")
-        ax3.set_ylabel("NaN Count")
-        ax3.set_title("NaN Losses per Epoch")
-        ax3.grid(True, linestyle="--", alpha=0.7)
         
-        plt.tight_layout()
+        # Plot NaN counts
+        ax3 = axes[2]
+        nan_counts = [m.get("nan_count", 0) for m in self.metrics_history]
+        
+        # Check if we have any NaN counts
+        if any(nan_counts):
+            ax3.bar(epochs, nan_counts, color="red", alpha=0.7)
+            ax3.set_xlabel("Epoch")
+            ax3.set_ylabel("NaN Count")
+            ax3.set_title("NaN Losses per Epoch")
+            ax3.grid(True, linestyle="--", alpha=0.7)
+            
+            # Add padding to x-axis
+            xmin, xmax = ax3.get_xlim()
+            ax3.set_xlim(xmin - 0.2, xmax + 0.2)
+            
+            # Ensure y-axis ticks are integers
+            from matplotlib.ticker import MaxNLocator
+            ax3.yaxis.set_major_locator(MaxNLocator(integer=True))
+        else:
+            # If no NaNs, show a message
+            ax3.text(0.5, 0.5, "No NaN losses detected (good!)",
+                    ha="center", va="center", fontsize=12, color="green")
+            ax3.set_xlabel("Epoch")
+            ax3.set_ylabel("NaN Count")
+            ax3.set_title("NaN Losses per Epoch")
+        
+        # Adjust layout with proper spacing
+        fig.tight_layout(pad=2.0)
+        plt.subplots_adjust(hspace=0.3)
         plt.show()
         
         return fig
