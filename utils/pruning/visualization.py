@@ -32,7 +32,10 @@ def plot_experiment_summary(results_df: pd.DataFrame, figsize: tuple = (12, 10))
                 ha="center", va="center", fontsize=14)
         return fig
     
-    # Set better plot styling
+    # Reset plot parameters to avoid contamination from previous plots
+    plt.rcParams.update(plt.rcParamsDefault)
+    
+    # Set better plot styling - Use standard layout, not constrained layout
     plt.rcParams.update({
         'figure.figsize': figsize,
         'figure.titlesize': 14,
@@ -41,15 +44,11 @@ def plot_experiment_summary(results_df: pd.DataFrame, figsize: tuple = (12, 10))
         'xtick.labelsize': 10,
         'ytick.labelsize': 10,
         'legend.fontsize': 9,
-        'font.family': 'sans-serif',
-        'figure.constrained_layout': True  # Use constrained layout instead of tight_layout
+        'font.family': 'sans-serif'
     })
     
-    # Create figure
-    fig = plt.figure(figsize=figsize)
-    
-    # 1. Perplexity across stages by model and strategy
-    plt.subplot(2, 2, 1)
+    # Create figure with subplots explicitly
+    fig, axs = plt.subplots(2, 2, figsize=figsize)
     
     # Get unique models and strategies
     models = results_df["model"].unique()
@@ -57,6 +56,9 @@ def plot_experiment_summary(results_df: pd.DataFrame, figsize: tuple = (12, 10))
     
     # For display, shorten model names
     model_display = {m: m.split('/')[-1] if '/' in m else m for m in models}
+    
+    # 1. Perplexity across stages (top-left)
+    ax1 = axs[0, 0]
     
     # Filter to main stages
     stages_df = results_df[results_df["stage"].isin(["baseline", "pruned", "fine_tuned"])]
@@ -77,18 +79,18 @@ def plot_experiment_summary(results_df: pd.DataFrame, figsize: tuple = (12, 10))
                 
                 # Plot if we have at least two stages
                 if len(experiment_df) >= 2:
-                    label = f"{model_display[model][:6]}, {strategy[:3]}, {pruning_level:.1f}"
-                    plt.plot(experiment_df["stage"], experiment_df["perplexity"], "o-", label=label)
+                    label = f"{model_display[model][:6]}-{strategy[:3]}-{pruning_level:.1f}"
+                    ax1.plot(experiment_df["stage"], experiment_df["perplexity"], "o-", label=label)
     
-    plt.title("Perplexity Across Stages")
-    plt.xlabel("Stage")
-    plt.ylabel("Perplexity")
-    plt.xticks(rotation=45)
-    plt.legend(fontsize=7, loc='best', ncol=2)
-    plt.grid(True, alpha=0.3)
+    ax1.set_title("Perplexity Across Stages")
+    ax1.set_xlabel("Stage")
+    ax1.set_ylabel("Perplexity")
+    ax1.tick_params(axis='x', rotation=45)
+    ax1.legend(fontsize=7, loc='upper right', ncol=2)
+    ax1.grid(True, alpha=0.3)
     
-    # 2. Recovery percentage vs pruning level
-    plt.subplot(2, 2, 2)
+    # 2. Recovery percentage vs pruning level (top-right)
+    ax2 = axs[0, 1]
     
     # Get data with recovery information
     recovery_df = results_df[results_df["stage"] == "fine_tuned"].copy()
@@ -109,25 +111,28 @@ def plot_experiment_summary(results_df: pd.DataFrame, figsize: tuple = (12, 10))
                     if not model_strategy_df.empty:
                         # Sort by pruning level
                         model_strategy_df = model_strategy_df.sort_values("pruning_level")
-                        plt.plot(model_strategy_df["pruning_level"], model_strategy_df["recovery"], 
-                                "o-", label=f"{model_display[model][:6]}, {strategy[:3]}")
+                        ax2.plot(model_strategy_df["pruning_level"], model_strategy_df["recovery"], 
+                                "o-", label=f"{model_display[model][:6]}-{strategy[:3]}")
         
-        plt.axhline(y=0, color="k", linestyle="--", alpha=0.3)
-        plt.axhline(y=100, color="g", linestyle="--", alpha=0.3)
-        plt.text(0.01, 100, "Full Recovery", color="green", ha="left", va="bottom", fontsize=8)
-        plt.text(0.01, -5, "Improvement", color="blue", ha="left", va="top", fontsize=8)
+        ax2.axhline(y=0, color="k", linestyle="--", alpha=0.3)
+        ax2.axhline(y=100, color="g", linestyle="--", alpha=0.3)
         
-        plt.title("Recovery/Improvement by Pruning Level")
-        plt.xlabel("Pruning Level")
-        plt.ylabel("Recovery % (negative means improvement)")
-        plt.legend(fontsize=7, loc='best')
-        plt.grid(True, alpha=0.3)
+        # Add labels at positions that don't interfere with data
+        # Move "Full Recovery" label closer to y-axis
+        ax2.text(0.05, 95, "Full Recovery", color="green", ha="left", va="top", fontsize=8)
+        ax2.text(0.05, 5, "Improvement", color="blue", ha="left", va="bottom", fontsize=8)
+        
+        ax2.set_title("Recovery/Improvement by Pruning Level")
+        ax2.set_xlabel("Pruning Level")
+        ax2.set_ylabel("% (negative = improvement)")
+        ax2.legend(fontsize=7, loc='best')
+        ax2.grid(True, alpha=0.3)
     else:
-        plt.text(0.5, 0.5, "No recovery data available yet", 
+        ax2.text(0.5, 0.5, "No recovery data available yet", 
                 ha="center", va="center", fontsize=12)
     
-    # 3. Perplexity change: pruning vs fine-tuning effect
-    plt.subplot(2, 2, 3)
+    # 3. Perplexity change: pruning vs fine-tuning effect (bottom-left)
+    ax3 = axs[1, 0]
     
     if "perplexity_change" in results_df.columns and "perplexity_change_from_pruned" in results_df.columns:
         # Get pruning change
@@ -153,41 +158,41 @@ def plot_experiment_summary(results_df: pd.DataFrame, figsize: tuple = (12, 10))
                     for model in models:
                         model_df = strategy_df[strategy_df["model"] == model]
                         if not model_df.empty:
-                            plt.scatter(
+                            ax3.scatter(
                                 model_df["perplexity_change"], 
                                 model_df["perplexity_change_from_pruned"],
                                 s=model_df["pruning_level"] * 300,  # Size based on pruning level
-                                label=f"{model_display[model][:6]}, {strategy[:3]}",
+                                label=f"{model_display[model][:6]}-{strategy[:3]}",
                                 alpha=0.7
                             )
             
-            plt.axhline(y=0, color="k", linestyle="--", alpha=0.3)
-            plt.axvline(x=0, color="k", linestyle="--", alpha=0.3)
+            ax3.axhline(y=0, color="k", linestyle="--", alpha=0.3)
+            ax3.axvline(x=0, color="k", linestyle="--", alpha=0.3)
             
-            # Add quadrant labels (smaller font)
-            plt.text(-5, -5, "Both improved", fontsize=8, ha="center", va="center",
+            # Add quadrant labels (smaller font, closer to axes)
+            ax3.text(-2, -2, "Both improved", fontsize=8, ha="center", va="center",
                     bbox=dict(facecolor="lightgreen", alpha=0.5))
-            plt.text(5, -5, "Pruning hurt,\nFine-tuning fixed", fontsize=8, ha="center", va="center",
+            ax3.text(2, -2, "Pruning hurt,\nFine-tuning fixed", fontsize=8, ha="center", va="center",
                     bbox=dict(facecolor="lightblue", alpha=0.5))
-            plt.text(-5, 5, "Pruning helped,\nFine-tuning hurt", fontsize=8, ha="center", va="center",
+            ax3.text(-2, 2, "Pruning helped,\nFine-tuning hurt", fontsize=8, ha="center", va="center",
                     bbox=dict(facecolor="lightyellow", alpha=0.5))
-            plt.text(5, 5, "Both hurt", fontsize=8, ha="center", va="center",
+            ax3.text(2, 2, "Both hurt", fontsize=8, ha="center", va="center",
                     bbox=dict(facecolor="lightcoral", alpha=0.5))
             
-            plt.title("Effect of Pruning vs. Fine-tuning")
-            plt.xlabel("Perplexity Change from Pruning")
-            plt.ylabel("Perplexity Change from Fine-tuning")
-            plt.legend(fontsize=7, loc='best')
-            plt.grid(True, alpha=0.3)
+            ax3.set_title("Effect of Pruning vs. Fine-tuning")
+            ax3.set_xlabel("Perplexity Change from Pruning")
+            ax3.set_ylabel("Perplexity Change from Fine-tuning")
+            ax3.legend(fontsize=7, loc='best')
+            ax3.grid(True, alpha=0.3)
         else:
-            plt.text(0.5, 0.5, "No effect data available yet", 
+            ax3.text(0.5, 0.5, "No effect data available yet", 
                     ha="center", va="center", fontsize=12)
     else:
-        plt.text(0.5, 0.5, "No effect data available yet", 
+        ax3.text(0.5, 0.5, "No effect data available yet", 
                 ha="center", va="center", fontsize=12)
     
-    # 4. Final results: perplexity reduction by pruning level and strategy
-    plt.subplot(2, 2, 4)
+    # 4. Final results: perplexity reduction by pruning level and strategy (bottom-right)
+    ax4 = axs[1, 1]
     
     if "perplexity_change_from_baseline" in results_df.columns:
         # Get baseline and final results
@@ -215,23 +220,23 @@ def plot_experiment_summary(results_df: pd.DataFrame, figsize: tuple = (12, 10))
             pivot_df = grouped.pivot(index="pruning_level", columns="strategy", values="perplexity_change_from_baseline")
             
             # Plot
-            pivot_df.plot(kind="bar", ax=plt.gca())
+            pivot_df.plot(kind="bar", ax=ax4)
             
-            plt.axhline(y=0, color="k", linestyle="--", alpha=0.3)
-            plt.title("Final Perplexity Change from Baseline")
-            plt.xlabel("Pruning Level")
-            plt.ylabel("Perplexity Change")
-            plt.legend(title="Strategy", fontsize=7)
-            plt.grid(True, alpha=0.3, axis="y")
+            ax4.axhline(y=0, color="k", linestyle="--", alpha=0.3)
+            ax4.set_title("Final Perplexity Change from Baseline")
+            ax4.set_xlabel("Pruning Level")
+            ax4.set_ylabel("Perplexity Change")
+            ax4.legend(title="Strategy", fontsize=7)
+            ax4.grid(True, alpha=0.3, axis="y")
         else:
-            plt.text(0.5, 0.5, "No final results available yet", 
+            ax4.text(0.5, 0.5, "No final results available yet", 
                     ha="center", va="center", fontsize=12)
     else:
-        plt.text(0.5, 0.5, "No final results available yet", 
+        ax4.text(0.5, 0.5, "No final results available yet", 
                 ha="center", va="center", fontsize=12)
     
-    # Use constrained layout instead of tight_layout
-    # No explicit call to tight_layout needed here
+    # Adjust layout
+    plt.tight_layout()
     return fig
 
 
@@ -253,6 +258,9 @@ def plot_strategy_comparison(comparison_df: pd.DataFrame,
     Returns:
         Matplotlib figure object
     """
+    # Reset style parameters
+    plt.rcParams.update(plt.rcParamsDefault)
+    
     fig, ax = plt.subplots(figsize=figsize)
     
     # Plot baseline, pruned, and fine-tuned perplexity for each strategy
@@ -296,7 +304,8 @@ def plot_strategy_comparison(comparison_df: pd.DataFrame,
                     f"{row['Fine-tuned Perplexity']:.1f}", 
                     ha="center", va="bottom", fontsize=9)
     
-    # Use constrained layout instead of tight_layout
+    # Adjust layout
+    plt.tight_layout()
     return fig
 
 
@@ -320,6 +329,9 @@ def plot_recovery_comparison(comparison_df: pd.DataFrame,
     """
     if "Recovery %" not in comparison_df.columns and "Improvement %" not in comparison_df.columns:
         return None
+    
+    # Reset style parameters
+    plt.rcParams.update(plt.rcParamsDefault)
         
     fig, ax = plt.subplots(figsize=figsize)
     
@@ -359,8 +371,9 @@ def plot_recovery_comparison(comparison_df: pd.DataFrame,
     plt.ylabel("Percentage")
     plt.title(f"Recovery or Improvement by Strategy ({model_name}, {pruning_level*100:.0f}% pruning)")
     plt.grid(True, alpha=0.3)
-    # Use constrained layout instead of tight_layout
     
+    # Adjust layout
+    plt.tight_layout()
     return fig
 
 
@@ -382,6 +395,9 @@ def visualize_head_importance(model_name: str,
     Returns:
         Matplotlib figure object
     """
+    # Reset style parameters
+    plt.rcParams.update(plt.rcParamsDefault)
+    
     if figsize is None:
         figsize = (12, 1.5 * num_layers)
         
@@ -414,7 +430,7 @@ def visualize_head_importance(model_name: str,
             axes[layer, i].set_yticklabels([f"Layer {layer}"])
             axes[layer, i].set_xticks(range(num_heads))
             axes[layer, i].set_xticklabels([f"H{h}" for h in range(num_heads)], 
-                                         rotation=90 if num_heads > 8 else 0)
+                                       rotation=90 if num_heads > 8 else 0)
             
             # Add importance values as text
             for h in range(num_heads):
@@ -424,12 +440,11 @@ def visualize_head_importance(model_name: str,
                 else:
                     text_color = "white" if score > 0.5 else "black"
                 axes[layer, i].text(h, 0, f"{score:.2f}", ha="center", va="center", 
-                                   color=text_color, fontsize=8)
+                               color=text_color, fontsize=8)
     
     # Add a colorbar
     fig.colorbar(cax, ax=axes.ravel().tolist(), shrink=0.6)
     
-    # Use constrained layout which automatically handles spacings for titles
-    # Adjust figure layout to make room for the title
-    fig.set_constrained_layout_pads(w_pad=4./72., h_pad=4./72., hspace=0.2, wspace=0.2)
+    # Make sure there's enough space between subplots
+    plt.subplots_adjust(hspace=0.3, wspace=0.3, top=0.9, bottom=0.05, left=0.05, right=0.95)
     return fig
