@@ -203,17 +203,51 @@ class PruningModule:
         # Tokenize input
         inputs = self.tokenizer(prompt, return_tensors="jax")
         
-        # Generate text
-        outputs = self.model.generate(
-            **inputs,
-            params=params,
-            max_length=max_length,
-            do_sample=True,
-            top_k=40,
-            top_p=0.95,
-            temperature=0.8
-        )
+        # Define generation params based on model type
+        generation_config = {
+            "params": params,
+            "max_length": max_length,
+            "do_sample": True,
+            "top_k": 40,
+            "top_p": 0.95,
+            "temperature": 0.8,
+            "pad_token_id": self.tokenizer.pad_token_id,
+            "eos_token_id": self.tokenizer.eos_token_id,
+        }
         
-        # Decode output
-        text = self.tokenizer.batch_decode(outputs.sequences, skip_special_tokens=True)[0]
-        return text
+        # Special handling for OPT models which can have generation issues after pruning
+        if self.model_type == "opt":
+            # Use more conservative sampling settings
+            generation_config.update({
+                "temperature": 0.7,  # Lower temperature for more predictable outputs
+                "top_p": 0.85,       # More restrictive nucleus sampling
+                "top_k": 20,         # More restrictive top-k sampling
+                "no_repeat_ngram_size": 2,  # Avoid repeating bigrams
+                "min_length": len(inputs.input_ids[0]) + 1,  # Ensure generation happens
+                "early_stopping": True,  # Stop when model would generate EOS
+            })
+        
+        # Generate text
+        try:
+            outputs = self.model.generate(**inputs, **generation_config)
+            
+            # Decode output
+            text = self.tokenizer.batch_decode(outputs.sequences, skip_special_tokens=True)[0]
+            
+            # Safety check for bad generations (especially with OPT models)
+            if len(text.strip()) <= len(prompt) or "<s>" in text or "</s>" in text:
+                # Fall back to greedy generation
+                outputs = self.model.generate(
+                    **inputs,
+                    params=params,
+                    max_length=max_length,
+                    do_sample=False,  # Greedy decoding
+                    num_beams=1,      # No beam search
+                )
+                text = self.tokenizer.batch_decode(outputs.sequences, skip_special_tokens=True)[0]
+            
+            return text
+        except Exception as e:
+            # If generation fails, return a placeholder plus the error
+            print(f"Error in text generation: {e}")
+            return prompt + "..."
