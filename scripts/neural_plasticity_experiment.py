@@ -528,15 +528,15 @@ def main():
                     # Get head sets for visualization
                     original_active_heads = set(
                         (layer_idx, head_idx) 
-                        for (layer_idx, head_idx) in eval(str(result["head_maps"]["original"]))
+                        for layer_idx, head_idx in eval(str(result["head_maps"]["original"]))
                     )
                     pruned_active_heads = set(
                         (layer_idx, head_idx) 
-                        for (layer_idx, head_idx) in eval(str(result["head_maps"]["pruned"]))
+                        for layer_idx, head_idx in eval(str(result["head_maps"]["pruned"]))
                     )
                     grown_active_heads = set(
                         (layer_idx, head_idx) 
-                        for (layer_idx, head_idx) in eval(str(result["head_maps"]["grown"]))
+                        for layer_idx, head_idx in eval(str(result["head_maps"]["grown"]))
                     )
                     
                     # Generate visualizations

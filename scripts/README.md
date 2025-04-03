@@ -1,108 +1,83 @@
-# Scripts
+# Sentinel AI Scripts
 
-This directory contains utility scripts for working with Sentinel-AI.
+This directory contains utility scripts for various functions of the Sentinel AI system.
 
-## Training and Evaluation
+## Overview
 
-- **`train_colab.py`**: Streamlined training script optimized for Google Colab
-- **`eval_colab.py`**: Evaluation script for Google Colab environments
+These scripts serve multiple purposes including training, evaluation, benchmark generation, 
+publication-ready figure generation, and experimentation with new features.
 
-## Analysis Tools
+## Key Scripts
 
-- **`analyze_heads.py`**: Analyze attention head activity and gate values
-- **`benchmark.py`**: Performance benchmarking across model configurations
-- **`benchmark_pruning.py`**: Comprehensive analysis of different pruning strategies and levels
-- **`profile_full_model.py`**: Detailed model profiling to identify bottlenecks
-- **`profile_attention_optimization.py`**: Profile attention mechanism optimizations
-- **`pruning_impact_analyzer.py`**: Focused analysis of pruning impact on model performance
-- **`prune_heads.py`**: Manually prune specific attention heads for testing
-- **`expand_heads.py`**: Test head expansion for specific model structures
-- **`inference.py`**: Stand-alone inference script for deployment scenarios
+- `train.py`: Main training script for all model types
+- `main.py`: Primary entry point for inference and text generation
+- `benchmark.py`: Run standard benchmarks on model configurations
+- `generate_publication_figures.py`: Create figures for papers and presentations
+- `inference.py`: Run text generation inference with loaded models
+
+## Neural Plasticity Scripts
+
+- `neural_plasticity_cycle.py`: Run the complete neural plasticity cycle (train → prune → measure → grow → learn)
+- `neural_plasticity_experiment.py`: Run comprehensive experiments with multiple pruning/growth configurations
+- `test_head_growth.py`: Test and validate head growth functionality
+- `test_head_growth_unit.py`: Unit tests for head growth implementation
+
+## Pruning Scripts
+
+- `prune_heads.py`: Apply pruning to attention heads using various strategies
+- `analyze_heads.py`: Analyze importance of attention heads in models
+- `benchmark_pruning.py`: Compare the performance impact of different pruning strategies
+- `pruning_impact_analyzer.py`: Analyze the impact of pruning on different model metrics
+- `finetune_pruned_model.py`: Fine-tune models after pruning to recover performance
+- `expand_heads.py`: Grow new heads in strategically selected positions
+- `inference_with_pruning.py`: Test inference with various pruning strategies
+
+## Agency Scripts
+
+- `benchmark_agency.py`: Run benchmarks on agency specialization techniques
+- `run_agency_validation.py`: Validate agency behavior against requirements
+- `runtime_specialization.py`: Test dynamic specialization capabilities
+
+## Optimization Scripts
+
+- `profile_full_model.py`: Profile performance of the full model
+- `profile_attention_optimization.py`: Profile optimized attention mechanism
+- `test_optimization_levels.py`: Test different optimization levels
+- `benchmark_optimization.py`: Benchmark optimization techniques
 
 ## Usage Examples
 
-### Training on Colab
+### Neural Plasticity Cycle
 
 ```bash
-python scripts/train_colab.py \
-  --model gpt2 \
-  --dataset wikitext \
-  --epochs 3 \
-  --batch_size 4 \
-  --enable_controller \
-  --enable_unet
+# Run a basic neural plasticity cycle
+python scripts/neural_plasticity_cycle.py --model_name distilgpt2 --dataset tiny_shakespeare
+
+# Run multiple cycles with visualization
+python scripts/neural_plasticity_cycle.py --model_name gpt2 --dataset wikitext --cycles 3 --save_visualizations
+
+# Comprehensive experiment with multiple configurations
+python scripts/neural_plasticity_experiment.py --model_name distilgpt2 \
+    --pruning_levels 0.1,0.3,0.5 \
+    --growth_percentages 0.05,0.1,0.2 \
+    --save_visualizations
 ```
 
-### Analyzing Head Behavior
+### Pruning Operations
 
 ```bash
-python scripts/analyze_heads.py \
-  --model_path checkpoints/model.pth \
-  --output_dir analysis_results \
-  --plot_gates \
-  --compute_entropy
+# Prune a model and test inference
+python scripts/prune_heads.py --model_name distilgpt2 --pruning_level 0.3 --strategy entropy
+python scripts/inference_with_pruning.py --model_name distilgpt2 --strategy entropy --pruning_level 0.3
+
+# Analyze head importance
+python scripts/analyze_heads.py --model_name gpt2 --output_path ./head_analysis.json
 ```
 
-### Benchmarking
+## Expanding Functionality
 
-```bash
-# General performance benchmarking
-python scripts/benchmark.py \
-  --models gpt2,distilgpt2 \
-  --pruning_levels 0.0,0.3,0.5,0.7 \
-  --batch_sizes 1,4,8 \
-  --measure_latency \
-  --measure_memory
-
-# Comprehensive pruning strategy analysis
-python scripts/benchmark_pruning.py \
-  --model gpt2 \
-  --pruning_levels 0.0 0.1 0.3 0.5 0.7 \
-  --strategies entropy gradient random combined \
-  --test_perplexity \
-  --test_speed \
-  --test_memory
-
-# Quick pruning impact visualization
-python scripts/pruning_impact_analyzer.py \
-  --model gpt2 \
-  --pruning_levels 0.0 0.1 0.3 0.5 0.7 0.9 \
-  --metric perplexity
-```
-
-### Profiling
-
-```bash
-# Profile full model execution
-python scripts/profile_full_model.py \
-  --model_name gpt2 \
-  --device cuda \
-  --profile_mode all \
-  --pruning_levels 0,30,50,70 \
-  --optimization_level 2 \
-  --visualize
-
-# Compare model architectures
-./scripts/run_multi_model_profile.sh \
-  --models "gpt2,gpt2-medium,facebook/opt-125m,bigscience/bloom-560m" \
-  --device cuda \
-  --iterations 3
-
-# Test integration optimizations
-python scripts/profile_full_model.py \
-  --model_name gpt2 \
-  --test_integration_points \
-  --pruning_levels 0,50 \
-  --optimization_level 3 \
-  --visualize
-```
-
-### Running Inference
-
-```bash
-python scripts/inference.py \
-  --model_path checkpoints/model.pth \
-  --prompt "Once upon a time" \
-  --max_length 100 \
-  --temperature 0.7
-```
+When adding new scripts, please:
+1. Follow the project coding standards
+2. Add clear documentation and help text
+3. Include a brief description in this README
+4. Add comprehensive error handling
