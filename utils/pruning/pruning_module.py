@@ -63,14 +63,23 @@ class PruningModule:
                         neox_config = pt_model.config
                         
                         # Create a GPT-2 compatible config with the same dimensions
+                        # Safely access attributes with getattr to avoid attribute errors
+                        vocab_size = getattr(neox_config, "vocab_size", 50257)
+                        n_positions = getattr(neox_config, "max_position_embeddings", 1024)
+                        hidden_size = getattr(neox_config, "hidden_size", 768)
+                        num_hidden_layers = getattr(neox_config, "num_hidden_layers", 12)
+                        num_attention_heads = getattr(neox_config, "num_attention_heads", 12)
+                        
                         gpt2_config = GPT2Config(
-                            vocab_size=neox_config.vocab_size,
-                            n_positions=neox_config.max_position_embeddings,
-                            n_embd=neox_config.hidden_size,
-                            n_layer=neox_config.num_hidden_layers,
-                            n_head=neox_config.num_attention_heads,
-                            activation_function="gelu_new",
-                            resid_pdrop=0.1,  # Default dropout rates
+                            vocab_size=vocab_size,
+                            n_positions=n_positions,
+                            n_embd=hidden_size,
+                            n_layer=num_hidden_layers,
+                            n_head=num_attention_heads,
+                            # Fixed attributes that won't cause attribute errors
+                            activation_function="gelu_new", 
+                            # Use fixed values for dropout parameters to avoid Pythia's embd_pdrop issue
+                            resid_pdrop=0.1,
                             embd_pdrop=0.1,
                             attn_pdrop=0.1,
                             layer_norm_epsilon=1e-5,

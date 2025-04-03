@@ -141,28 +141,59 @@ class FineTuner:
         """Apply model-specific optimizations based on model type and size."""
         model_name = getattr(self.pruning_module, 'model_name', '').lower()
         
-        # For large models, reduce batch size
-        if "large" in model_name or "1.3b" in model_name or "xl" in model_name:
+        # Detect very large models (XL, 1B+)
+        is_very_large = any(x in model_name for x in ["xl", "1.3b", "1b"])
+        
+        # Detect large models 
+        is_large = is_very_large or any(x in model_name for x in ["large", "pythia-410m"])
+        
+        # Detect medium models
+        is_medium = not (is_large or is_very_large) and any(x in model_name for x in 
+                                                          ["medium", "base", "350m", "pythia-160m"])
+        
+        # For very large models, use aggressive optimizations
+        if is_very_large:
+            old_batch_size = self.batch_size
+            # Extremely small batch size for XL and billion-parameter models
+            self.batch_size = 1
+            logger.info(f"Reduced batch size from {old_batch_size} to {self.batch_size} for very large model {model_name}")
+            
+            # Drastically reduce sequence length for memory efficiency
+            self.max_seq_length = min(self.max_seq_length, 32)
+            logger.info(f"Set maximum sequence length to {self.max_seq_length} for very large model")
+            
+        # For large models, reduce batch size substantially
+        elif is_large:
             old_batch_size = self.batch_size
             self.batch_size = max(1, self.batch_size // 4)
             logger.info(f"Reduced batch size from {old_batch_size} to {self.batch_size} for large model {model_name}")
             
-            # Also reduce sequence length for very large models
-            self.max_seq_length = min(self.max_seq_length, 64)
+            # Also reduce sequence length for large models
+            self.max_seq_length = min(self.max_seq_length, 48)
             logger.info(f"Set maximum sequence length to {self.max_seq_length} for large model")
             
         # For medium-sized models, make smaller adjustments
-        elif "medium" in model_name or "base" in model_name or "350m" in model_name:
+        elif is_medium:
             old_batch_size = self.batch_size
             self.batch_size = max(1, self.batch_size // 2)
             logger.info(f"Reduced batch size from {old_batch_size} to {self.batch_size} for medium-sized model {model_name}")
+            
+            # Slightly reduce sequence length for medium models
+            self.max_seq_length = min(self.max_seq_length, 64)
+        
+        # Special handling for all Pythia models
+        if "pythia" in model_name:
+            logger.info("Applying Pythia-specific optimizations")
+            # Pythia models need careful memory management
+            self.batch_size = max(1, min(self.batch_size, 2))
+            self.max_seq_length = min(self.max_seq_length, 48)
             
         # Special handling for OPT models
         if self.is_opt_model:
             logger.info("Applying OPT-specific optimizations")
             # OPT models need a smaller batch size and sequence length for stability
             self.batch_size = max(1, min(self.batch_size, 2))
-            self.max_seq_length = min(self.max_seq_length, 64)
+            self.max_seq_length = min(self.max_seq_length, 48)
     
     def _prepare_dataset(self):
         """Load and prepare the dataset for fine-tuning with appropriate error handling."""
@@ -268,20 +299,41 @@ class FineTuner:
             
             # Convert to list of batches for simpler processing
             dataloader = []
-            for i in range(0, len(tokenized_dataset), self.batch_size):
-                end = min(i + self.batch_size, len(tokenized_dataset))
-                batch_samples = tokenized_dataset[i:end]
-                
-                # Convert batch to appropriate format
-                batch = {
-                    "input_ids": np.array([sample["input_ids"] for sample in batch_samples]),
-                    "attention_mask": np.array([sample["attention_mask"] for sample in batch_samples]),
-                }
-                
-                # Add labels
-                batch["labels"] = batch["input_ids"].copy()
-                
-                dataloader.append(batch)
+            
+            try:
+                for i in range(0, len(tokenized_dataset), self.batch_size):
+                    end = min(i + self.batch_size, len(tokenized_dataset))
+                    batch_samples = tokenized_dataset[i:end]
+                    
+                    # Convert batch to appropriate format - handle different dataset structures
+                    if isinstance(batch_samples, dict):
+                        # If batch_samples is already a dict with keys (newer datasets format)
+                        batch = {}
+                        if "input_ids" in batch_samples:
+                            batch["input_ids"] = np.array(batch_samples["input_ids"][:end-i])
+                            batch["attention_mask"] = np.array(batch_samples["attention_mask"][:end-i])
+                        else:
+                            # Fall back to synthetic data
+                            logger.warning("Unexpected dataset format - input_ids not found")
+                            return self._prepare_synthetic_dataset()
+                    else:
+                        # If batch_samples is a list of individual samples (older format)
+                        try:
+                            batch = {
+                                "input_ids": np.array([sample["input_ids"] for sample in batch_samples]),
+                                "attention_mask": np.array([sample["attention_mask"] for sample in batch_samples]),
+                            }
+                        except (KeyError, TypeError) as e:
+                            logger.error(f"Error processing batch: {e}")
+                            return self._prepare_synthetic_dataset()
+                    
+                    # Add labels
+                    batch["labels"] = batch["input_ids"].copy()
+                    
+                    dataloader.append(batch)
+            except Exception as e:
+                logger.error(f"Error creating batches: {e}")
+                return self._prepare_synthetic_dataset()
             
             logger.info(f"Created {len(dataloader)} batches")
             return dataloader
@@ -295,66 +347,114 @@ class FineTuner:
     
     def _prepare_synthetic_dataset(self):
         """Create synthetic data for training when dataset loading fails."""
-        tokenizer = self.pruning_module.tokenizer
-        
-        # Ensure tokenizer has pad_token
-        if tokenizer.pad_token is None:
-            if tokenizer.eos_token is not None:
-                tokenizer.pad_token = tokenizer.eos_token
+        try:
+            tokenizer = self.pruning_module.tokenizer
+            
+            # Ensure tokenizer has pad_token
+            if tokenizer.pad_token is None:
+                if tokenizer.eos_token is not None:
+                    tokenizer.pad_token = tokenizer.eos_token
+                else:
+                    tokenizer.pad_token = tokenizer.eos_token = "[PAD]"
+                logger.info(f"Set pad_token to {tokenizer.pad_token}")
+            
+            # Generate random token IDs (avoid special tokens)
+            vocab_size = tokenizer.vocab_size
+            
+            # Get special token IDs (safely)
+            special_tokens = set()
+            for token_name in ['pad_token_id', 'eos_token_id', 'bos_token_id', 'unk_token_id']:
+                token_id = getattr(tokenizer, token_name, None)
+                if token_id is not None:
+                    special_tokens.add(token_id)
+            
+            logger.info(f"Creating synthetic dataset with vocab_size={vocab_size}, special_tokens={special_tokens}")
+            
+            # Get model name for model-specific optimizations
+            model_name = getattr(self.pruning_module, 'model_name', '').lower()
+            
+            # Detect model size categories
+            is_very_large = any(x in model_name for x in ["xl", "1.3b", "1b"])
+            is_large = is_very_large or any(x in model_name for x in ["large", "pythia-410m"])
+            is_medium = not (is_large or is_very_large) and any(x in model_name for x in 
+                                                              ["medium", "base", "350m", "pythia-160m"])
+            
+            # Use model-specific token ranges to avoid NaN issues
+            if self.is_opt_model or "pythia" in model_name or self.stability_level >= 2:
+                # For OPT/Pythia models or high stability, use only common tokens to avoid issues
+                token_range_start = 10  # Skip special tokens at the beginning
+                token_range_end = min(1000, vocab_size // 20)  # Use a very small subset of vocab for stability
+                logger.info(f"Using extremely restricted token range for stability: {token_range_start}-{token_range_end}")
             else:
-                tokenizer.pad_token = tokenizer.eos_token = "[PAD]"
-            logger.info(f"Set pad_token to {tokenizer.pad_token}")
-        
-        # Generate random token IDs (avoid special tokens)
-        vocab_size = tokenizer.vocab_size
-        
-        # Get special token IDs (safely)
-        special_tokens = set()
-        for token_name in ['pad_token_id', 'eos_token_id', 'bos_token_id', 'unk_token_id']:
-            token_id = getattr(tokenizer, token_name, None)
-            if token_id is not None:
-                special_tokens.add(token_id)
-        
-        logger.info(f"Creating synthetic dataset with vocab_size={vocab_size}, special_tokens={special_tokens}")
-        
-        # Use model-specific token ranges to avoid NaN issues
-        if self.is_opt_model or self.stability_level >= 2:
-            # For OPT models or high stability, use only common tokens to avoid issues
-            token_range_start = 10  # Skip special tokens at the beginning
-            token_range_end = min(5000, vocab_size // 10)  # Use a small subset of vocab
-            logger.info(f"Using restricted token range for stability: {token_range_start}-{token_range_end}")
-        else:
-            # For other models, use a wider range
-            token_range_start = 0
-            token_range_end = min(30000, vocab_size)
+                # For other models, use a wider range but still restricted for safety
+                token_range_start = 0
+                token_range_end = min(5000, vocab_size // 5)
             
-        # Create samples of random token sequences (fewer for large models)
-        model_name = getattr(self.pruning_module, 'model_name', '').lower()
-        num_samples = 50 if "large" in model_name or self.stability_level >= 2 else 100
-        samples = []
-        for _ in range(num_samples):
-            # Generate shorter sequences for stability
-            max_length = min(self.max_seq_length, 64 if self.stability_level >= 2 else 128)
-            length = np.random.randint(10, max_length)
+            # Create samples of random token sequences (fewer for large models)
+            # Adjust sample count based on model size
+            if is_very_large:
+                num_samples = 20  # Minimal samples for largest models
+                logger.info(f"Using minimal sample count ({num_samples}) for very large model")
+            elif is_large or self.stability_level >= 2:
+                num_samples = 40  # Reduced samples for large models
+                logger.info(f"Using reduced sample count ({num_samples}) for large model")
+            elif is_medium:
+                num_samples = 60  # Moderate samples for medium models
+            else:
+                num_samples = 80  # Standard sample count for small models
             
-            # Generate random token IDs in the safe range
-            token_ids = np.random.randint(token_range_start, token_range_end, size=length)
+            samples = []
+            for _ in range(num_samples):
+                # Generate shorter sequences for stability based on model size
+                if is_very_large:
+                    max_length = min(16, self.max_seq_length)  # Ultra-short sequences
+                elif is_large or self.stability_level >= 2:
+                    max_length = min(32, self.max_seq_length)  # Very short sequences
+                else:
+                    max_length = min(self.max_seq_length, 64)  # Normal short sequences
+                
+                # Random length but ensure at least a few tokens
+                length = np.random.randint(max(4, max_length // 4), max_length)
+                
+                # Generate random token IDs in the safe range
+                token_ids = np.random.randint(token_range_start, token_range_end, size=length)
+                
+                # Replace special tokens with normal tokens
+                for i, token_id in enumerate(token_ids):
+                    if token_id in special_tokens:
+                        token_ids[i] = (token_id + 1) % (token_range_end - token_range_start) + token_range_start
+                        # Make sure we're not just cycling through special tokens
+                        while token_ids[i] in special_tokens:
+                            token_ids[i] = (token_ids[i] + 1) % (token_range_end - token_range_start) + token_range_start
+                
+                # Create sample
+                sample = {
+                    "input_ids": token_ids,
+                    "attention_mask": np.ones_like(token_ids),
+                    "labels": token_ids.copy()
+                }
+                samples.append(sample)
+                
+            # For large models, run garbage collection to free memory
+            if is_large or self.stability_level >= 2:
+                gc.collect()
+                
+        except Exception as e:
+            # If we fail creating sophisticated synthetic data, fall back to ultra-simple data
+            logger.error(f"Error creating synthetic dataset: {e}")
+            logger.info("Creating ultra-simple synthetic dataset as fallback")
             
-            # Replace special tokens with normal tokens
-            for i, token_id in enumerate(token_ids):
-                if token_id in special_tokens:
-                    token_ids[i] = (token_id + 1) % (token_range_end - token_range_start) + token_range_start
-                    # Make sure we're not just cycling through special tokens
-                    while token_ids[i] in special_tokens:
-                        token_ids[i] = (token_ids[i] + 1) % (token_range_end - token_range_start) + token_range_start
-            
-            # Create sample
-            sample = {
-                "input_ids": token_ids,
-                "attention_mask": np.ones_like(token_ids),
-                "labels": token_ids.copy()
-            }
-            samples.append(sample)
+            # Ultra-simple data with minimal tokens and length
+            samples = []
+            for _ in range(10):  # Ultra-minimal sample count
+                # Generate a very small sequence with a tiny vocab
+                token_ids = np.array([1, 2, 3, 4, 5], dtype=np.int32)
+                sample = {
+                    "input_ids": token_ids,
+                    "attention_mask": np.ones_like(token_ids),
+                    "labels": token_ids.copy()
+                }
+                samples.append(sample)
         
         # Create batches
         batches = []
@@ -560,13 +660,33 @@ class FineTuner:
         """Fine-tune the pruned model with appropriate stability features."""
         logger.info(f"\nFine-tuning model with {self.dataset_name} dataset for {num_epochs} epochs...")
         
-        # Apply model-specific learning rate adjustments
+        # Apply model-specific learning rate and memory optimizations
         if self.model_specific_optimizations:
             model_name = getattr(self.pruning_module, 'model_name', '').lower()
-            # Reduce learning rate for larger models
-            if "large" in model_name or "1.3b" in model_name or self.stability_level >= 2:
+            
+            # Detect model size for optimizations
+            is_very_large = any(x in model_name for x in ["xl", "1.3b", "1b"])
+            is_large = is_very_large or any(x in model_name for x in ["large", "pythia-410m"])
+            
+            # Very large models need extremely conservative parameters
+            if is_very_large:
+                # Ultra-conservative learning rate
+                learning_rate = learning_rate / 4
+                # Very short training for big models
+                num_epochs = max(1, num_epochs // 2)
+                # Less frequent evaluation to save memory
+                evaluate_interval = max(10, evaluate_interval * 2)
+                logger.info(f"Extreme memory optimization for very large model: LR={learning_rate}, epochs={num_epochs}")
+            # Large models need substantial adjustments
+            elif is_large or self.stability_level >= 2:
                 learning_rate = learning_rate / 2
                 logger.info(f"Reduced learning rate to {learning_rate} for large model or high stability")
+            
+            # Special handling for Pythia models
+            if "pythia" in model_name:
+                # Pythia models need careful parameter handling
+                learning_rate = min(learning_rate, 2e-5)
+                logger.info(f"Using conservative learning rate {learning_rate} for Pythia model")
             
             # Special handling for OPT models
             if self.is_opt_model:
