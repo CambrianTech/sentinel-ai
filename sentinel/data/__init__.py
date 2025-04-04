@@ -1,13 +1,14 @@
 """
-DEPRECATED: This module has moved to sentinel.data.__init__
-This import stub will be removed in a future version.
-"""
-import warnings
-warnings.warn(
-    "Importing from sentinel_data.__init__ is deprecated. "
-    "Use sentinel.data.__init__ instead.",
-    DeprecationWarning, 
-    stacklevel=2
-)
+Sentinel data loading module
 
-from sentinel.data.__init__ import *
+This module provides data loading and processing functionality for the sentinel-ai project.
+It handles dataset loading, preprocessing, and transformation for training and evaluation.
+"""
+
+from sentinel.data.loaders.dataset_loader import load_dataset, load_dataset_for_testing, create_dataloader
+
+__all__ = [
+    "load_dataset",
+    "load_dataset_for_testing",
+    "create_dataloader"
+]

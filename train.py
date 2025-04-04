@@ -36,14 +36,14 @@ import numpy as np
 import random
 from torch.utils.data import DataLoader
 from transformers import AutoTokenizer, get_scheduler
-from models.loaders.loader import load_baseline_model, load_adaptive_model
-from sentinel_data.dataset_loader import load_dataset
-from utils.metrics_logger import MetricsLogger
-from utils.checkpoint import save_checkpoint, load_checkpoint
-from utils.progress_tracker import ProgressTracker
-from utils.training import compute_loss
-from utils.head_lr_manager import HeadLRManager
-from controller.controller_manager import ControllerManager
+from sentinel.models.loaders.loader import load_baseline_model, load_adaptive_model
+from sentinel.data.loaders.dataset_loader import load_dataset
+from sentinel.utils.metrics.logger import MetricsLogger
+from sentinel.utils.checkpoints.checkpoint import save_checkpoint, load_checkpoint
+from sentinel.utils.progress_tracker import ProgressTracker
+from sentinel.utils.training import compute_loss
+from sentinel.utils.head_lr_manager import HeadLRManager
+from sentinel.controller.controller_manager import ControllerManager
 
 def set_seed(seed):
     """Set all random seeds for reproducibility"""
