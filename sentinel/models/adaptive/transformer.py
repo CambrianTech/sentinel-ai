@@ -590,106 +590,16 @@ class AdaptiveCausalLmWrapper(AdaptiveTransformerModel, GenerationMixin):
     def forward(self, input_ids, attention_mask=None, return_dict=True, **kwargs):
         """
         Forward pass handling both initial inference and autoregressive generation.
-        Implements special handling for generation to ensure coherent outputs.
         """
         # Call the parent forward method to get logits
         logits = super().forward(input_ids, attention_mask=attention_mask)
         
-        # Get the vocabulary size for reference
-        vocab_size = logits.size(-1)
-        
         # Store input_ids for reference in repetition penalty
         self.current_input_ids = input_ids
         
-        # Detect if we're in generation mode (multiple tokens in input)
-        is_generation = input_ids.shape[1] > 1
-        
-        # CRITICAL FIX: Re-scale the logits to match baseline model distribution
-        # Based on our probing, we found baseline mean -40.9 vs adaptive mean -11.8
-        # Scale factor is approximately 3.47x with adjustment for numerical stability
-        # The latest probe shows adaptive mean -51.6 vs baseline mean -40.9, so we need to scale less aggressively
-        logits = logits * 1.25
-        
-        # Handling special cases for generation vs. regular inference
-        if is_generation:
-            # For generation, we only need to modify the logits for the last position
-            last_pos_logits = logits[:, -1:, :]
-            
-            # Apply a mild temperature scaling to match GPT-2's distribution
-            temperature = 1.0  # Neutral temperature to maintain original distribution
-            last_pos_logits = last_pos_logits / temperature
-            
-            # Apply a boost to common words to improve fluency
-            # This effectively steers the model toward more natural language patterns
-            boost_ids = {
-                # Common functional words in English - using actual token IDs from GPT-2 tokenizer
-                'the': 262, 'a': 257, 'an': 314, 
-                'is': 318, 'was': 373, 'are': 526, 'were': 616,
-                'in': 287, 'on': 290, 'at': 312, 'by': 304, 'for': 286, 'with': 291, 'to': 284,
-                'and': 290, 'or': 292, 'but': 297, 'of': 286,
-                # Common punctuation
-                '.': 13, ',': 11, '?': 30, '!': 35, "'": 112, '"': 117,
-                # Common words for coherence
-                'it': 307, 'this': 321, 'that': 272, 'he': 345, 'she': 381, 'they': 319,
-                # Common word starts
-                ' I': 40, ' We': 703, ' The': 464, ' A': 385, ' In': 633, 
-                ' It': 631, ' This': 511, ' When': 1110, ' As': 570, ' If': 644,
-                # Additional common tokens for coherence
-                ' can': 496, ' will': 338, ' would': 391, ' should': 777,
-                ' more': 372, ' most': 758, ' what': 428, ' how': 477,
-                ' because': 1253, ' since': 1204, ' while': 850, ' though': 1171
-            }
-            
-            # Create and apply the boost
-            boost_tensor = torch.zeros_like(last_pos_logits)
-            
-            # Add a very mild boost to common words (much more subtle than before)
-            for word_id in boost_ids.values():
-                boost_tensor[:, :, word_id] = 1.5  # Gentle boost for common words
-                
-            # Subtle boost for start-of-sentence words to improve coherence
-            sentence_starters = [' The', ' A', ' In', ' When', ' If', ' This', ' One', ' Two', ' We', ' I', ' My', ' You', ' He', ' She', ' It']
-            starter_ids = [464, 385, 633, 1110, 644, 511, 606, 573, 703, 40, 632, 58, 345, 381, 631]
-            for word_id in starter_ids:
-                if word_id < boost_tensor.shape[2]:
-                    boost_tensor[:, :, word_id] = 2.0  # Gentle boost for sentence starters
-            
-            # Mild boost for common verbs
-            verb_ids = [318, 373, 526, 616, 1135, 563, 2062, 1628]  # is, was, are, were, have, do, can, would
-            for word_id in verb_ids:
-                if word_id < boost_tensor.shape[2]:
-                    boost_tensor[:, :, word_id] = 1.75  # Gentle boost for verbs
-                
-            # Minor penalty for rare tokens (much more subtle than before)
-            boost_tensor[:, :, 10000:] = -0.5  # Small penalty for uncommon tokens
-            
-            # Moderate penalty for repetition of characters and common patterns
-            repetition_ids = list(range(220, 250)) + [262, 127, 198, 202]  # 'the', space, newline, tab
-            for word_id in repetition_ids:
-                boost_tensor[:, :, word_id] = -1.0  # Moderate penalty against repetition
-                
-            # Apply additional penalty to most recently generated tokens
-            # This helps prevent short-term repetition loops
-            if hasattr(self, 'current_input_ids') and self.current_input_ids is not None:
-                if self.current_input_ids.shape[1] > 5:
-                    # Get the last few tokens
-                    recent_tokens = self.current_input_ids[:, -5:].tolist()[0]
-                    # Apply mild penalty to very recently used tokens
-                    for token in recent_tokens:
-                        if token < boost_tensor.shape[2]:  # Check if token index is valid
-                            boost_tensor[:, :, token] -= 3.0  # Moderate penalty for recently used tokens
-                
-                # Small penalty for previously used tokens to gently discourage repetition
-                all_tokens = set(self.current_input_ids[0].tolist())
-                for token in all_tokens:
-                    if token < boost_tensor.shape[2]:  # Check if token index is valid
-                        boost_tensor[:, :, token] -= 1.0  # Mild penalty for all used tokens
-            
-            # Apply this bias only to the last position's logits
-            last_pos_logits = last_pos_logits + boost_tensor
-            
-            # Put the modified logits back, replacing only the last position
-            logits = torch.cat([logits[:, :-1, :], last_pos_logits], dim=1)
+        # DISABLED: All token-specific boosting has been disabled to fix cross-model compatibility
+        # This code was causing severe text degradation because it used GPT-2 specific token IDs
+        # that were incompatible with other model tokenizers
         
         # Return in the format expected by the generation process
         return CausalLMOutput(logits=logits) if return_dict else logits
