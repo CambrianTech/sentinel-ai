@@ -87,6 +87,14 @@ from utils.pruning import (
 from utils.pruning.stability import patch_fine_tuner, optimize_fine_tuner
 from utils.colab.helpers import setup_colab_environment, optimize_for_colab
 
+# Import adaptive plasticity modules if available
+try:
+    from utils.adaptive.adaptive_plasticity import run_adaptive_system, AdaptivePlasticitySystem
+    HAS_ADAPTIVE_PLASTICITY = True
+except ImportError:
+    HAS_ADAPTIVE_PLASTICITY = False
+    print("Note: Adaptive plasticity modules not available in this version.")
+
 # Set up plotting
 plt.style.use('ggplot')
 sns.set_theme(style="whitegrid")
@@ -143,8 +151,14 @@ class ModularExperimentRunner:
             
             # Adaptive parameters
             "enable_adaptive_plasticity": False,
-            "plasticity_level": 0.5,
-            "growth_rate": 0.1,
+            "plasticity_level": 0.2,
+            "growth_ratio": 0.5,
+            "training_steps": 100,
+            "patience": 3,
+            "memory_capacity": 10,
+            "max_cycles": 5,
+            "max_degeneration": 3.0,
+            "max_perplexity_increase": 0.15,
             
             # Stability parameters
             "stability_level": 1,
@@ -156,7 +170,9 @@ class ModularExperimentRunner:
             # Experiment parameters
             "prompt": "Artificial intelligence will transform society by",
             "max_runtime": 3600,  # 1 hour default
-            "results_dir": "improvement_results"
+            "results_dir": "improvement_results",
+            "enable_visualization": True,
+            "save_results": True
         }
         
         # Experiment instance
@@ -262,34 +278,152 @@ class ModularExperimentRunner:
     
     def run_experiment(self):
         """Run the configured experiment."""
-        if self.experiment is None:
-            self.create_experiment()
-        
         print(f"Running experiment with configuration:")
         for key, value in self.config.items():
             print(f"  {key}: {value}")
+            
+        # Check if we should run adaptive plasticity experiment
+        if self.config["enable_adaptive_plasticity"] and HAS_ADAPTIVE_PLASTICITY:
+            return self._run_adaptive_experiment()
+        else:
+            # Run standard pruning/fine-tuning experiment
+            if self.experiment is None:
+                self.create_experiment()
+                
+            # Define experiment parameters
+            strategies = [self.config["pruning_strategy"]] if self.config["enable_pruning"] else []
+            pruning_levels = [self.config["pruning_level"]] if self.config["enable_pruning"] else [0.0]
+            fine_tuning_epochs = self.config["fine_tuning_epochs"] if self.config["enable_fine_tuning"] else 0
+            
+            # Run the experiment
+            start_time = time.time()
+            self.results = self.experiment.run_experiment(
+                strategies=strategies,
+                pruning_levels=pruning_levels,
+                prompt=self.config["prompt"],
+                fine_tuning_epochs=fine_tuning_epochs,
+                max_runtime=self.config["max_runtime"],
+                models=[self.config["model"]]
+            )
+            elapsed_time = time.time() - start_time
+            
+            print(f"Experiment completed in {elapsed_time/60:.2f} minutes")
+            
+            # Plot results if enabled
+            if self.config["enable_visualization"]:
+                self.experiment.plot_results(figsize=(16, 12))
+            
+            # Save results if enabled
+            if self.config["save_results"]:
+                results_file = os.path.join(self.config["results_dir"], f"experiment_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json")
+                with open(results_file, 'w') as f:
+                    # Handle non-serializable objects
+                    import json
+                    class NumpyEncoder(json.JSONEncoder):
+                        def default(self, obj):
+                            if isinstance(obj, np.integer):
+                                return int(obj)
+                            elif isinstance(obj, np.floating):
+                                return float(obj)
+                            elif isinstance(obj, np.ndarray):
+                                return obj.tolist()
+                            return super(NumpyEncoder, self).default(obj)
+                            
+                    json.dump({
+                        "config": self.config,
+                        "results": self.results if isinstance(self.results, (dict, list)) else str(self.results),
+                        "timestamp": datetime.now().isoformat()
+                    }, f, indent=2, cls=NumpyEncoder)
+                    
+                print(f"Results saved to {results_file}")
+            
+            return self.results
+            
+    def _run_adaptive_experiment(self):
+        """Run an adaptive plasticity experiment."""
+        print("Running adaptive plasticity experiment...")
         
-        # Define experiment parameters
-        strategies = [self.config["pruning_strategy"]] if self.config["enable_pruning"] else []
-        pruning_levels = [self.config["pruning_level"]] if self.config["enable_pruning"] else [0.0]
-        fine_tuning_epochs = self.config["fine_tuning_epochs"] if self.config["enable_fine_tuning"] else 0
+        # Create output directory
+        results_dir = self.config["results_dir"]
+        os.makedirs(results_dir, exist_ok=True)
         
-        # Run the experiment
+        # Prepare dataset
+        print("Loading dataset...")
+        try:
+            from transformers import AutoTokenizer
+            from sentinel_data.dataset_loader import load_dataset
+            
+            tokenizer = AutoTokenizer.from_pretrained(self.config["model"])
+            dataset = load_dataset(
+                dataset_name="tiny_shakespeare",  # Default dataset
+                tokenizer=tokenizer,
+                max_length=self.config["sequence_length"]
+            )
+        except Exception as e:
+            print(f"Error loading dataset: {e}")
+            print("Using dummy dataset for demonstration")
+            # Create a simple dataset-like object
+            class DummyDataset:
+                def __getitem__(self, idx):
+                    return {"input_ids": np.random.randint(0, 1000, size=self.config["sequence_length"])}
+                def __len__(self):
+                    return 1000
+            dataset = DummyDataset()
+        
+        # Start timing
         start_time = time.time()
-        self.results = self.experiment.run_experiment(
-            strategies=strategies,
-            pruning_levels=pruning_levels,
-            prompt=self.config["prompt"],
-            fine_tuning_epochs=fine_tuning_epochs,
-            max_runtime=self.config["max_runtime"],
-            models=[self.config["model"]]
-        )
-        elapsed_time = time.time() - start_time
         
+        # Run adaptive system
+        try:
+            system = run_adaptive_system(
+                model_name=self.config["model"],
+                dataset=dataset,
+                output_dir=results_dir,
+                max_cycles=self.config["max_cycles"],
+                device="cuda" if torch.cuda.is_available() else "cpu",
+                initial_pruning_level=self.config["plasticity_level"],
+                initial_growth_ratio=self.config["growth_ratio"],
+                initial_training_steps=self.config["training_steps"],
+                patience=self.config["patience"],
+                verbose=True
+            )
+            
+            # Store results
+            self.results = {
+                "success": True,
+                "output_dir": system.run_dir,
+                "cycles_completed": system.metrics_logger.get_data_count("phase", "cycle_complete"),
+                "final_head_count": len(system.current_active_heads) if hasattr(system, "current_active_heads") else None,
+                "final_perplexity": system.current_perplexity if hasattr(system, "current_perplexity") else None,
+            }
+            
+        except Exception as e:
+            print(f"Error running adaptive plasticity experiment: {e}")
+            import traceback
+            traceback.print_exc()
+            
+            self.results = {
+                "success": False,
+                "error": str(e),
+                "output_dir": results_dir
+            }
+        
+        # Calculate elapsed time
+        elapsed_time = time.time() - start_time
         print(f"Experiment completed in {elapsed_time/60:.2f} minutes")
         
-        # Plot results
-        self.experiment.plot_results(figsize=(16, 12))
+        # Save experiment configuration
+        if self.config["save_results"]:
+            config_file = os.path.join(results_dir, f"adaptive_config_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json")
+            with open(config_file, 'w') as f:
+                import json
+                json.dump({
+                    "config": self.config,
+                    "runtime_minutes": elapsed_time/60,
+                    "timestamp": datetime.now().isoformat()
+                }, f, indent=2)
+                
+            print(f"Configuration saved to {config_file}")
         
         return self.results
     
@@ -395,27 +529,75 @@ class ModularExperimentRunner:
             plasticity_level_slider = widgets.FloatSlider(
                 value=self.config["plasticity_level"],
                 min=0.1,
-                max=1.0,
+                max=0.9,
                 step=0.1,
-                description='Plasticity Level:',
+                description='Pruning Level:',
                 style={'description_width': 'initial'},
                 disabled=not self.config["enable_adaptive_plasticity"]
             )
             
-            growth_rate_slider = widgets.FloatSlider(
-                value=self.config["growth_rate"],
+            growth_ratio_slider = widgets.FloatSlider(
+                value=self.config["growth_ratio"],
                 min=0.0,
-                max=0.5,
+                max=0.9,
+                step=0.1,
+                description='Growth Ratio:',
+                style={'description_width': 'initial'},
+                disabled=not self.config["enable_adaptive_plasticity"]
+            )
+            
+            training_steps_slider = widgets.IntSlider(
+                value=self.config["training_steps"],
+                min=50,
+                max=500,
+                step=50,
+                description='Training Steps:',
+                style={'description_width': 'initial'},
+                disabled=not self.config["enable_adaptive_plasticity"]
+            )
+            
+            max_cycles_slider = widgets.IntSlider(
+                value=self.config["max_cycles"],
+                min=1,
+                max=20,
+                step=1,
+                description='Max Cycles:',
+                style={'description_width': 'initial'},
+                disabled=not self.config["enable_adaptive_plasticity"]
+            )
+            
+            patience_slider = widgets.IntSlider(
+                value=self.config["patience"],
+                min=1,
+                max=10,
+                step=1,
+                description='Patience:',
+                style={'description_width': 'initial'},
+                disabled=not self.config["enable_adaptive_plasticity"]
+            )
+            
+            max_perplexity_slider = widgets.FloatSlider(
+                value=self.config["max_perplexity_increase"],
+                min=0.05,
+                max=0.3,
                 step=0.05,
-                description='Growth Rate:',
+                description='Max Perplexity Increase:',
                 style={'description_width': 'initial'},
                 disabled=not self.config["enable_adaptive_plasticity"]
             )
             
             # Update adaptive widgets when checkbox changes
             def update_adaptive_widgets(*args):
-                plasticity_level_slider.disabled = not adaptive_checkbox.value
-                growth_rate_slider.disabled = not adaptive_checkbox.value
+                adaptive_widgets = [
+                    plasticity_level_slider,
+                    growth_ratio_slider,
+                    training_steps_slider,
+                    max_cycles_slider,
+                    patience_slider,
+                    max_perplexity_slider
+                ]
+                for widget in adaptive_widgets:
+                    widget.disabled = not adaptive_checkbox.value
             
             adaptive_checkbox.observe(update_adaptive_widgets, names='value')
             
@@ -543,7 +725,11 @@ class ModularExperimentRunner:
                     # Adaptive parameters
                     enable_adaptive_plasticity=adaptive_checkbox.value,
                     plasticity_level=plasticity_level_slider.value,
-                    growth_rate=growth_rate_slider.value,
+                    growth_ratio=growth_ratio_slider.value,
+                    training_steps=training_steps_slider.value,
+                    max_cycles=max_cycles_slider.value,
+                    patience=patience_slider.value,
+                    max_perplexity_increase=max_perplexity_slider.value,
                     
                     # Stability parameters
                     stability_level=stability_level_dropdown.value,
@@ -591,8 +777,15 @@ class ModularExperimentRunner:
             adaptive_tab = widgets.VBox([
                 widgets.HTML("<h3>Adaptive Plasticity Settings</h3>"),
                 adaptive_checkbox,
+                widgets.HTML("<h4>Pruning & Growth Parameters</h4>"),
                 plasticity_level_slider,
-                growth_rate_slider
+                growth_ratio_slider,
+                widgets.HTML("<h4>Training Parameters</h4>"),
+                training_steps_slider,
+                max_cycles_slider,
+                patience_slider,
+                widgets.HTML("<h4>Quality Control</h4>"),
+                max_perplexity_slider
             ])
             
             advanced_tab = widgets.VBox([
