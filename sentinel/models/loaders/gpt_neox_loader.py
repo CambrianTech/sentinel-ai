@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-from sentinel.models.adaptive_transformer import AdaptiveCausalLmWrapper
+from sentinel.models.adaptive.transformer import AdaptiveCausalLmWrapper
 
 def load_adaptive_model_gpt_neox(model_name, baseline_model, config, device, debug=False, quiet=False):
     """
