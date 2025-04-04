@@ -1,11 +1,13 @@
 """
-Adaptive Neural Plasticity System
-
-This module implements a self-improving neural network architecture
-that uses degeneration detection as a feedback mechanism to guide
-pruning, growth, and learning cycles.
+DEPRECATED: This module has moved to sentinel.plasticity.adaptive.__init__
+This import stub will be removed in a future version.
 """
+import warnings
+warnings.warn(
+    "Importing from utils.adaptive.__init__ is deprecated. "
+    "Use sentinel.plasticity.adaptive.__init__ instead.",
+    DeprecationWarning, 
+    stacklevel=2
+)
 
-from .adaptive_plasticity import AdaptivePlasticitySystem, run_adaptive_system
-
-__all__ = ["AdaptivePlasticitySystem", "run_adaptive_system"]
+from sentinel.plasticity.adaptive.__init__ import *

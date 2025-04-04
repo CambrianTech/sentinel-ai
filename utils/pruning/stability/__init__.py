@@ -1,21 +1,13 @@
 """
-Stability utilities for preventing training issues in fine-tuning.
+DEPRECATED: This module has moved to sentinel.pruning.stability.__init__
+This import stub will be removed in a future version.
 """
-
-from .nan_prevention import create_nan_safe_loss_fn, patch_fine_tuner, test_nan_safety
-from .memory_management import (
-    estimate_model_memory, recommend_batch_size, recommend_sequence_length,
-    optimize_training_parameters, optimize_fine_tuner, get_default_gpu_memory
+import warnings
+warnings.warn(
+    "Importing from utils.pruning.stability.__init__ is deprecated. "
+    "Use sentinel.pruning.stability.__init__ instead.",
+    DeprecationWarning, 
+    stacklevel=2
 )
 
-__all__ = [
-    'create_nan_safe_loss_fn',
-    'patch_fine_tuner',
-    'test_nan_safety',
-    'estimate_model_memory',
-    'recommend_batch_size',
-    'recommend_sequence_length',
-    'optimize_training_parameters',
-    'optimize_fine_tuner',
-    'get_default_gpu_memory',
-]
+from sentinel.pruning.stability.__init__ import *

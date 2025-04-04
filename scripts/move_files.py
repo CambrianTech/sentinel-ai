@@ -195,25 +195,154 @@ def move_files_from_plan(dry_run=False, verbose=False, module_filter=None):
     movement_plan = load_movement_plan()
     results = []
     
-    for source, target in movement_plan.items():
-        # Skip if we're filtering by module and this isn't in the module
-        if module_filter and module_filter not in source and module_filter not in target:
-            continue
+    if verbose:
+        logger.info(f"Loaded movement plan with {len(movement_plan)} entries")
+    
+    # For now, let's print what we loaded from the movement plan
+    if verbose:
+        for source, target in movement_plan.items():
+            logger.info(f"Plan entry: {source} -> {target}")
+    
+    # Handle specific modules based on the module_filter
+    if module_filter == 'models':
+        sources = [
+            '/models/adaptive_transformer.py',
+            '/models/agency_specialization.py',
+            '/models/bloom_adapter.py',
+            '/models/llama_adapter.py',
+            '/models/optimized_attention.py',
+            '/models/specialization_registry.py',
+            '/models/unet_transformer.py',
+            '/models/unet_transformer_optimized.py'
+        ]
+        targets = [
+            '/sentinel/models/adaptive/transformer.py',
+            '/sentinel/models/adaptive/agency_specialization.py',
+            '/sentinel/models/adaptive/bloom_adapter.py',
+            '/sentinel/models/adaptive/llama_adapter.py',
+            '/sentinel/models/utils/optimized_attention.py',
+            '/sentinel/models/utils/specialization_registry.py',
+            '/sentinel/models/adaptive/unet_transformer.py',
+            '/sentinel/models/adaptive/unet_transformer_optimized.py'
+        ]
         
-        # Handle glob patterns with preserve filenames note
-        if '*' in source or 'preserve filenames' in target:
-            # This is handled separately
-            continue
+        # Add loaders
+        loader_files = [f for f in os.listdir('models/loaders') if f.endswith('.py')]
+        for f in loader_files:
+            sources.append(f'/models/loaders/{f}')
+            targets.append(f'/sentinel/models/loaders/{f}')
+            
+        # Add optimized files
+        if os.path.exists('models/optimized'):
+            optimized_files = [f for f in os.listdir('models/optimized') if f.endswith('.py')]
+            for f in optimized_files:
+                sources.append(f'/models/optimized/{f}')
+                targets.append(f'/sentinel/models/optimized/{f}')
+                
+    elif module_filter == 'controller':
+        sources = [
+            '/controller/controller_ann.py',
+            '/controller/controller_manager.py'
+        ]
+        targets = [
+            '/sentinel/controller/controller_ann.py',
+            '/sentinel/controller/controller_manager.py'
+        ]
         
-        # Skip if source doesn't exist (might be a directory pattern)
-        if not os.path.exists(source):
+        # Add metrics and visualization files
+        if os.path.exists('controller/metrics'):
+            metrics_files = [f for f in os.listdir('controller/metrics') if f.endswith('.py')]
+            for f in metrics_files:
+                sources.append(f'/controller/metrics/{f}')
+                targets.append(f'/sentinel/controller/metrics/{f}')
+                
+        if os.path.exists('controller/visualizations'):
+            vis_files = [f for f in os.listdir('controller/visualizations') if f.endswith('.py')]
+            for f in vis_files:
+                sources.append(f'/controller/visualizations/{f}')
+                targets.append(f'/sentinel/controller/visualizations/{f}')
+                
+    elif module_filter == 'pruning':
+        sources = [
+            '/utils/pruning/pruning_module.py',
+            '/utils/pruning/strategies.py',
+            '/utils/pruning/fine_tuner.py',
+            '/utils/pruning/fine_tuner_improved.py',
+            '/utils/pruning/fine_tuner_consolidated.py',
+            '/utils/pruning/experiment.py',
+            '/utils/pruning/results_manager.py',
+            '/utils/pruning/benchmark.py',
+            '/utils/pruning/visualization.py',
+            '/utils/pruning/growth.py',
+            '/utils/pruning/head_lr_manager.py'
+        ]
+        targets = [
+            '/sentinel/pruning/pruning_module.py',
+            '/sentinel/pruning/strategies/base.py',
+            '/sentinel/pruning/fine_tuning/base.py',
+            '/sentinel/pruning/fine_tuning/improved.py',
+            '/sentinel/pruning/fine_tuning/consolidated.py',
+            '/sentinel/pruning/experiment.py',
+            '/sentinel/pruning/results_manager.py',
+            '/sentinel/pruning/benchmark.py',
+            '/sentinel/pruning/visualization.py',
+            '/sentinel/pruning/growth.py',
+            '/sentinel/pruning/head_lr_manager.py'
+        ]
+        
+        # Add stability files
+        if os.path.exists('utils/pruning/stability'):
+            stability_files = [f for f in os.listdir('utils/pruning/stability') if f.endswith('.py')]
+            for f in stability_files:
+                sources.append(f'/utils/pruning/stability/{f}')
+                targets.append(f'/sentinel/pruning/stability/{f}')
+                
+    elif module_filter == 'adaptive':
+        sources = [
+            '/utils/adaptive/adaptive_plasticity.py',
+            '/utils/adaptive/__init__.py'
+        ]
+        targets = [
+            '/sentinel/plasticity/adaptive/adaptive_plasticity.py',
+            '/sentinel/plasticity/adaptive/__init__.py'
+        ]
+                
+    elif module_filter == 'data':
+        sources = [
+            '/sentinel_data/__init__.py',
+            '/sentinel_data/dataset_loader.py',
+            '/sentinel_data/eval.py'
+        ]
+        targets = [
+            '/sentinel/data/__init__.py',
+            '/sentinel/data/loaders/dataset_loader.py',
+            '/sentinel/data/eval.py'
+        ]
+        
+        # Add custom data loaders
+        if os.path.exists('custdata/loaders'):
+            custom_files = [f for f in os.listdir('custdata/loaders') if f.endswith('.py')]
+            for f in custom_files:
+                sources.append(f'/custdata/loaders/{f}')
+                targets.append(f'/sentinel/data/loaders/custom/{f}')
+    
+    # Process files to move
+    for i, source in enumerate(sources):
+        target = targets[i]
+        
+        # Remove leading slash for file operations
+        source_path = source.lstrip('/')
+        target_path = target.lstrip('/')
+        
+        # Skip if source doesn't exist
+        if not os.path.exists(source_path):
             if verbose:
-                logger.warning(f"Source file does not exist: {source}")
+                logger.warning(f"Source file does not exist: {source_path}")
             continue
         
         # If source is a file, move it
-        if os.path.isfile(source):
-            result = move_file(source, target, dry_run, verbose)
+        if os.path.isfile(source_path):
+            result = move_file(source_path, target_path, dry_run, verbose)
             results.append(result)
         
     # Save movement log
