@@ -42,9 +42,21 @@
 - Documentation in `docs/` includes methodology, fine-tuning guides, and technical details
 
 ## Branch Management
-1. Always create feature or bug branches from main:
-   - Feature branches: `git checkout -b feature/what-i-did`
-   - Bug fix branches: `git checkout -b bugs/what-i-fixed`
+1. Always follow this workflow for new features/changes:
+   a. Ensure your current branch is tidy:
+      - Check status: `git status`
+      - Commit any needed changes: `git add . && git commit -m "message"`
+      - Or stash them if not ready: `git stash`
+      - Push any unpushed commits: `git push`
+      - Finish any PRs that are in progress
+
+   b. Switch to main branch: `git checkout main`
+   c. Fetch/pull latest changes: `git pull`
+   d. Create a new branch for your changes:
+      - Feature branches: `git checkout -b feature/what-i-did`
+      - Bug fix branches: `git checkout -b bugs/what-i-fixed`
+      - Hotfix branches: `git checkout -b hotfix/what-i-fixed`
+   e. Make all changes on that new branch
 
 2. Never commit directly to main except for small documentation changes.
 
@@ -55,12 +67,26 @@
    - Test plan with verification steps
    - Any notes on implementation details
 
-5. After merging, always switch back to main before creating a new branch:
+5. Focus on one PR at a time to avoid merge conflicts:
+   - Complete and merge one feature before starting another when possible
+   - If you must switch between branches, keep track of what's merged to main
+   - After a PR is merged, other branches will need to be rebased on main
+
+6. Handle merge conflicts properly:
+   - When a conflict occurs, understand both sides of the conflict
+   - Resolve conflicts in your branch before creating the PR when possible
+   - Test thoroughly after resolving conflicts to ensure functionality
+
+7. After merging, always switch back to main before creating a new branch:
    ```bash
    git checkout main
    git pull
    git checkout -b feature/new-feature
    ```
+
+8. Keep .gitignore updated:
+   - Add any new build artifacts, cache files, or environment-specific files
+   - Make gitignore changes in a separate commit for clarity
 
 ## Commit Guidelines
 1. Keep commits focused on single logical changes.
