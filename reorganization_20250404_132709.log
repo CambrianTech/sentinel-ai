@@ -1,0 +1,27 @@
+2025-04-04 13:27:09,307 - reorganize - INFO - Starting repository reorganization
+2025-04-04 13:27:09,307 - reorganize - INFO - Running phase: core
+2025-04-04 13:27:09,307 - reorganize - INFO - === PHASE: CORE ===
+2025-04-04 13:27:09,307 - reorganize - INFO - Moving models module files
+2025-04-04 13:27:09,307 - reorganize - INFO - Running command: python scripts/move_files.py --verbose models
+2025-04-04 13:27:09,356 - reorganize - INFO - Command output:
+
+2025-04-04 13:27:09,356 - reorganize - INFO - Moving controller module files
+2025-04-04 13:27:09,356 - reorganize - INFO - Running command: python scripts/move_files.py --verbose controller
+2025-04-04 13:27:09,403 - reorganize - INFO - Command output:
+
+2025-04-04 13:27:09,403 - reorganize - INFO - Moving pruning module files
+2025-04-04 13:27:09,403 - reorganize - INFO - Running command: python scripts/move_files.py --verbose pruning
+2025-04-04 13:27:09,447 - reorganize - INFO - Command output:
+
+2025-04-04 13:27:09,447 - reorganize - INFO - Moving adaptive module files
+2025-04-04 13:27:09,447 - reorganize - INFO - Running command: python scripts/move_files.py --verbose adaptive
+2025-04-04 13:27:09,490 - reorganize - INFO - Command output:
+
+2025-04-04 13:27:09,490 - reorganize - INFO - Moving data module files
+2025-04-04 13:27:09,490 - reorganize - INFO - Running command: python scripts/move_files.py --verbose data
+2025-04-04 13:27:09,532 - reorganize - INFO - Command output:
+
+2025-04-04 13:27:09,532 - reorganize - INFO - 
+=== Reorganization Summary ===
+2025-04-04 13:27:09,532 - reorganize - INFO - core: SUCCESS
+2025-04-04 13:27:09,532 - reorganize - INFO - All phases completed successfully

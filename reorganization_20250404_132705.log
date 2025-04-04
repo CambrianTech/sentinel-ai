@@ -1,0 +1,96 @@
+2025-04-04 13:27:05,228 - reorganize - INFO - Starting repository reorganization
+2025-04-04 13:27:05,228 - reorganize - INFO - Running phase: structure
+2025-04-04 13:27:05,228 - reorganize - INFO - === PHASE: STRUCTURE ===
+2025-04-04 13:27:05,228 - reorganize - INFO - Creating new directory structure
+2025-04-04 13:27:05,228 - reorganize - INFO - Running command: python scripts/create_new_structure.py
+2025-04-04 13:27:05,266 - reorganize - INFO - Command output:
+Created directory: sentinel
+Created directory: sentinel/models
+Created directory: sentinel/models/adaptive
+Created directory: sentinel/models/utils
+Created directory: sentinel/models/loaders
+Created directory: sentinel/controller
+Created directory: sentinel/controller/metrics
+Created directory: sentinel/controller/visualizations
+Created directory: sentinel/pruning
+Created directory: sentinel/pruning/strategies
+Created directory: sentinel/pruning/fine_tuning
+Created directory: sentinel/pruning/stability
+Created directory: sentinel/plasticity
+Created directory: sentinel/plasticity/adaptive
+Created directory: sentinel/plasticity/metrics
+Created directory: sentinel/data
+Created directory: sentinel/data/loaders
+Created directory: sentinel/data/processors
+Created directory: sentinel/utils
+Created directory: sentinel/utils/metrics
+Created directory: sentinel/utils/visualization
+Created directory: sentinel/utils/checkpoints
+Created directory: experiments/configs
+Created directory: experiments/scripts
+Created directory: experiments/notebooks
+Created directory: experiments/results
+Created directory: experiments/results/pruning
+Created directory: experiments/results/plasticity
+Created directory: experiments/results/profiling
+Created directory: experiments/results/validation
+Created directory: tests/unit
+Created directory: tests/unit/models
+Created directory: tests/unit/controller
+Created directory: tests/unit/pruning
+Created directory: tests/unit/plasticity
+Created directory: tests/unit/data
+Created directory: tests/unit/utils
+Created directory: tests/integration
+Created directory: tests/performance
+Created directory: tests/fixtures
+Created directory: scripts/entry_points
+Created directory: legacy
+Created directory: docs/api
+Created directory: docs/examples
+Created directory: docs/guides
+Created sentinel/__init__.py
+Created sentinel/models/__init__.py
+Created sentinel/models/adaptive/__init__.py
+Created sentinel/models/utils/__init__.py
+Created sentinel/models/loaders/__init__.py
+Created sentinel/controller/__init__.py
+Created sentinel/controller/metrics/__init__.py
+Created sentinel/controller/visualizations/__init__.py
+Created sentinel/pruning/__init__.py
+Created sentinel/pruning/strategies/__init__.py
+Created sentinel/pruning/fine_tuning/__init__.py
+Created sentinel/pruning/stability/__init__.py
+Created sentinel/plasticity/__init__.py
+Created sentinel/plasticity/adaptive/__init__.py
+Created sentinel/plasticity/metrics/__init__.py
+Created sentinel/data/__init__.py
+Created sentinel/data/loaders/__init__.py
+Created sentinel/data/processors/__init__.py
+Created sentinel/utils/__init__.py
+Created sentinel/utils/metrics/__init__.py
+Created sentinel/utils/visualization/__init__.py
+Created sentinel/utils/checkpoints/__init__.py
+Created experiments/results/.gitkeep
+Created experiments/results/pruning/.gitkeep
+Created experiments/results/plasticity/.gitkeep
+Created experiments/results/profiling/.gitkeep
+Created experiments/results/validation/.gitkeep
+Created scripts/entry_points/train.py
+Created scripts/entry_points/inference.py
+Created scripts/entry_points/prune.py
+Created scripts/entry_points/benchmark.py
+Created setup.py
+Created sentinel/__init__.py
+
+Directory structure created successfully!
+Next steps:
+1. Start moving files to their new locations
+2. Update import statements in moved files
+3. Create compatibility imports in old locations
+4. Test functionality after each move
+
+2025-04-04 13:27:05,266 - reorganize - INFO - 
+=== Reorganization Summary ===
+2025-04-04 13:27:05,266 - reorganize - INFO - structure: SUCCESS
+2025-04-04 13:27:05,266 - reorganize - INFO - All phases completed successfully

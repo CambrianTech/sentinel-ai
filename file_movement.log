@@ -1,0 +1,1115 @@
+2025-04-04 13:27:09,351 - move_files - INFO - Starting file movement
+2025-04-04 13:27:09,351 - move_files - INFO - Dry run: False
+2025-04-04 13:27:09,351 - move_files - INFO - Filtering by module: models
+2025-04-04 13:27:09,352 - move_files - WARNING - Source file does not exist: `/models/adaptive_transformer.py`
+2025-04-04 13:27:09,352 - move_files - WARNING - Source file does not exist: `/models/agency_specialization.py`
+2025-04-04 13:27:09,352 - move_files - WARNING - Source file does not exist: `/models/bloom_adapter.py`
+2025-04-04 13:27:09,352 - move_files - WARNING - Source file does not exist: `/models/llama_adapter.py`
+2025-04-04 13:27:09,352 - move_files - WARNING - Source file does not exist: `/models/optimized_attention.py`
+2025-04-04 13:27:09,352 - move_files - WARNING - Source file does not exist: `/models/specialization_registry.py`
+2025-04-04 13:27:09,352 - move_files - WARNING - Source file does not exist: `/models/unet_transformer.py`
+2025-04-04 13:27:09,352 - move_files - WARNING - Source file does not exist: `/models/unet_transformer_optimized.py`
+2025-04-04 13:27:09,352 - move_files - INFO - Processed 0 files
+2025-04-04 13:27:09,352 - move_files - INFO - File movement complete
+2025-04-04 13:27:09,398 - move_files - INFO - Starting file movement
+2025-04-04 13:27:09,398 - move_files - INFO - Dry run: False
+2025-04-04 13:27:09,398 - move_files - INFO - Filtering by module: controller
+2025-04-04 13:27:09,398 - move_files - WARNING - Source file does not exist: `/controller/controller_ann.py`
+2025-04-04 13:27:09,398 - move_files - WARNING - Source file does not exist: `/controller/controller_manager.py`
+2025-04-04 13:27:09,399 - move_files - WARNING - Source file does not exist: `/examples/controller_agency_demo.py`
+2025-04-04 13:27:09,399 - move_files - INFO - Processed 0 files
+2025-04-04 13:27:09,399 - move_files - INFO - File movement complete
+2025-04-04 13:27:09,442 - move_files - INFO - Starting file movement
+2025-04-04 13:27:09,442 - move_files - INFO - Dry run: False
+2025-04-04 13:27:09,442 - move_files - INFO - Filtering by module: pruning
+2025-04-04 13:27:09,442 - move_files - WARNING - Source file does not exist: `/utils/pruning/pruning_module.py`
+2025-04-04 13:27:09,443 - move_files - WARNING - Source file does not exist: `/utils/pruning/strategies.py`
+2025-04-04 13:27:09,443 - move_files - WARNING - Source file does not exist: `/utils/pruning/fine_tuner.py`
+2025-04-04 13:27:09,443 - move_files - WARNING - Source file does not exist: `/utils/pruning/fine_tuner_improved.py`
+2025-04-04 13:27:09,443 - move_files - WARNING - Source file does not exist: `/utils/pruning/fine_tuner_consolidated.py`
+2025-04-04 13:27:09,443 - move_files - WARNING - Source file does not exist: `/utils/pruning/experiment.py`
+2025-04-04 13:27:09,443 - move_files - WARNING - Source file does not exist: `/utils/pruning/results_manager.py`
+2025-04-04 13:27:09,443 - move_files - WARNING - Source file does not exist: `/utils/pruning/benchmark.py`
+2025-04-04 13:27:09,443 - move_files - WARNING - Source file does not exist: `/utils/pruning/visualization.py`
+2025-04-04 13:27:09,443 - move_files - WARNING - Source file does not exist: `/utils/pruning/growth.py`
+2025-04-04 13:27:09,443 - move_files - WARNING - Source file does not exist: `/utils/pruning/head_lr_manager.py`
+2025-04-04 13:27:09,443 - move_files - WARNING - Source file does not exist: `/scripts/analyze_pruning_results.py`
+2025-04-04 13:27:09,443 - move_files - WARNING - Source file does not exist: `/scripts/benchmark_pruning.py`
+2025-04-04 13:27:09,443 - move_files - WARNING - Source file does not exist: `/scripts/inference_with_pruning.py`
+2025-04-04 13:27:09,443 - move_files - WARNING - Source file does not exist: `/scripts/prune_heads.py`
+2025-04-04 13:27:09,443 - move_files - WARNING - Source file does not exist: `/scripts/pruning_and_finetuning.py`
+2025-04-04 13:27:09,443 - move_files - INFO - Processed 0 files
+2025-04-04 13:27:09,443 - move_files - INFO - File movement complete
+2025-04-04 13:27:09,486 - move_files - INFO - Starting file movement
+2025-04-04 13:27:09,486 - move_files - INFO - Dry run: False
+2025-04-04 13:27:09,486 - move_files - INFO - Filtering by module: adaptive
+2025-04-04 13:27:09,486 - move_files - WARNING - Source file does not exist: `/models/adaptive_transformer.py`
+2025-04-04 13:27:09,486 - move_files - WARNING - Source file does not exist: `/models/agency_specialization.py`
+2025-04-04 13:27:09,486 - move_files - WARNING - Source file does not exist: `/models/bloom_adapter.py`
+2025-04-04 13:27:09,486 - move_files - WARNING - Source file does not exist: `/models/llama_adapter.py`
+2025-04-04 13:27:09,486 - move_files - WARNING - Source file does not exist: `/models/unet_transformer.py`
+2025-04-04 13:27:09,487 - move_files - WARNING - Source file does not exist: `/models/unet_transformer_optimized.py`
+2025-04-04 13:27:09,487 - move_files - WARNING - Source file does not exist: `/utils/adaptive/adaptive_plasticity.py`
+2025-04-04 13:27:09,487 - move_files - WARNING - Source file does not exist: `/utils/adaptive/__init__.py`
+2025-04-04 13:27:09,487 - move_files - WARNING - Source file does not exist: `/scripts/run_adaptive_plasticity.py`
+2025-04-04 13:27:09,487 - move_files - INFO - Processed 0 files
+2025-04-04 13:27:09,487 - move_files - INFO - File movement complete
+2025-04-04 13:27:09,528 - move_files - INFO - Starting file movement
+2025-04-04 13:27:09,528 - move_files - INFO - Dry run: False
+2025-04-04 13:27:09,528 - move_files - INFO - Filtering by module: data
+2025-04-04 13:27:09,528 - move_files - WARNING - Source file does not exist: `/sentinel_data/__init__.py`
+2025-04-04 13:27:09,528 - move_files - WARNING - Source file does not exist: `/sentinel_data/dataset_loader.py`
+2025-04-04 13:27:09,528 - move_files - WARNING - Source file does not exist: `/sentinel_data/eval.py`
+2025-04-04 13:27:09,528 - move_files - INFO - Processed 0 files
+2025-04-04 13:27:09,528 - move_files - INFO - File movement complete
+2025-04-04 13:28:03,443 - move_files - INFO - Starting file movement
+2025-04-04 13:28:03,443 - move_files - INFO - Dry run: False
+2025-04-04 13:28:03,443 - move_files - INFO - Filtering by module: models
+2025-04-04 13:28:03,443 - move_files - INFO - Loaded movement plan with 81 entries
+2025-04-04 13:28:03,443 - move_files - INFO - Plan entry: `/main.py` -> `/scripts/entry_points/inference.py`
+2025-04-04 13:28:03,443 - move_files - INFO - Plan entry: `/train.py` -> `/scripts/entry_points/train.py`
+2025-04-04 13:28:03,443 - move_files - INFO - Plan entry: `/generate_samples.py` -> `/scripts/entry_points/generate.py`
+2025-04-04 13:28:03,443 - move_files - INFO - Plan entry: `/model_probe.py` -> `/scripts/entry_points/probe.py`
+2025-04-04 13:28:03,443 - move_files - INFO - Plan entry: `/models/adaptive_transformer.py` -> `/sentinel/models/adaptive/transformer.py`
+2025-04-04 13:28:03,443 - move_files - INFO - Plan entry: `/models/agency_specialization.py` -> `/sentinel/models/adaptive/agency_specialization.py`
+2025-04-04 13:28:03,443 - move_files - INFO - Plan entry: `/models/bloom_adapter.py` -> `/sentinel/models/adaptive/bloom_adapter.py`
+2025-04-04 13:28:03,443 - move_files - INFO - Plan entry: `/models/llama_adapter.py` -> `/sentinel/models/adaptive/llama_adapter.py`
+2025-04-04 13:28:03,443 - move_files - INFO - Plan entry: `/models/optimized_attention.py` -> `/sentinel/models/utils/optimized_attention.py`
+2025-04-04 13:28:03,443 - move_files - INFO - Plan entry: `/models/specialization_registry.py` -> `/sentinel/models/utils/specialization_registry.py`
+2025-04-04 13:28:03,443 - move_files - INFO - Plan entry: `/models/unet_transformer.py` -> `/sentinel/models/adaptive/unet_transformer.py`
+2025-04-04 13:28:03,443 - move_files - INFO - Plan entry: `/models/unet_transformer_optimized.py` -> `/sentinel/models/adaptive/unet_transformer_optimized.py`
+2025-04-04 13:28:03,443 - move_files - INFO - Plan entry: `/controller/controller_ann.py` -> `/sentinel/controller/controller_ann.py`
+2025-04-04 13:28:03,443 - move_files - INFO - Plan entry: `/controller/controller_manager.py` -> `/sentinel/controller/controller_manager.py`
+2025-04-04 13:28:03,443 - move_files - INFO - Plan entry: `/utils/pruning/pruning_module.py` -> `/sentinel/pruning/pruning_module.py`
+2025-04-04 13:28:03,443 - move_files - INFO - Plan entry: `/utils/pruning/strategies.py` -> `/sentinel/pruning/strategies/base.py`
+2025-04-04 13:28:03,443 - move_files - INFO - Plan entry: `/utils/pruning/fine_tuner.py` -> `/sentinel/pruning/fine_tuning/base.py`
+2025-04-04 13:28:03,443 - move_files - INFO - Plan entry: `/utils/pruning/fine_tuner_improved.py` -> `/sentinel/pruning/fine_tuning/improved.py`
+2025-04-04 13:28:03,443 - move_files - INFO - Plan entry: `/utils/pruning/fine_tuner_consolidated.py` -> `/sentinel/pruning/fine_tuning/consolidated.py`
+2025-04-04 13:28:03,443 - move_files - INFO - Plan entry: `/utils/pruning/experiment.py` -> `/sentinel/pruning/experiment.py`
+2025-04-04 13:28:03,443 - move_files - INFO - Plan entry: `/utils/pruning/results_manager.py` -> `/sentinel/pruning/results_manager.py`
+2025-04-04 13:28:03,443 - move_files - INFO - Plan entry: `/utils/pruning/benchmark.py` -> `/sentinel/pruning/benchmark.py`
+2025-04-04 13:28:03,443 - move_files - INFO - Plan entry: `/utils/pruning/visualization.py` -> `/sentinel/pruning/visualization.py`
+2025-04-04 13:28:03,443 - move_files - INFO - Plan entry: `/utils/pruning/growth.py` -> `/sentinel/pruning/growth.py`
+2025-04-04 13:28:03,443 - move_files - INFO - Plan entry: `/utils/pruning/head_lr_manager.py` -> `/sentinel/pruning/head_lr_manager.py`
+2025-04-04 13:28:03,443 - move_files - INFO - Plan entry: `/utils/adaptive/adaptive_plasticity.py` -> `/sentinel/plasticity/adaptive/adaptive_plasticity.py`
+2025-04-04 13:28:03,443 - move_files - INFO - Plan entry: `/utils/adaptive/__init__.py` -> `/sentinel/plasticity/adaptive/__init__.py`
+2025-04-04 13:28:03,444 - move_files - INFO - Plan entry: `/sentinel_data/__init__.py` -> `/sentinel/data/__init__.py`
+2025-04-04 13:28:03,444 - move_files - INFO - Plan entry: `/sentinel_data/dataset_loader.py` -> `/sentinel/data/loaders/dataset_loader.py`
+2025-04-04 13:28:03,444 - move_files - INFO - Plan entry: `/sentinel_data/eval.py` -> `/sentinel/data/eval.py`
+2025-04-04 13:28:03,444 - move_files - INFO - Plan entry: `/utils/metrics.py` -> `/sentinel/utils/metrics/base.py`
+2025-04-04 13:28:03,444 - move_files - INFO - Plan entry: `/utils/metrics_logger.py` -> `/sentinel/utils/metrics/logger.py`
+2025-04-04 13:28:03,444 - move_files - INFO - Plan entry: `/utils/head_metrics.py` -> `/sentinel/utils/metrics/head_metrics.py`
+2025-04-04 13:28:03,444 - move_files - INFO - Plan entry: `/utils/charting.py` -> `/sentinel/utils/visualization/charting.py`
+2025-04-04 13:28:03,444 - move_files - INFO - Plan entry: `/utils/checkpoint.py` -> `/sentinel/utils/checkpoints/checkpoint.py`
+2025-04-04 13:28:03,444 - move_files - INFO - Plan entry: `/utils/progress_tracker.py` -> `/sentinel/utils/progress_tracker.py`
+2025-04-04 13:28:03,444 - move_files - INFO - Plan entry: `/utils/head_lr_manager.py` -> `/sentinel/utils/head_lr_manager.py`
+2025-04-04 13:28:03,444 - move_files - INFO - Plan entry: `/utils/training.py` -> `/sentinel/utils/training.py`
+2025-04-04 13:28:03,444 - move_files - INFO - Plan entry: `/utils/training_stability.py` -> `/sentinel/utils/training_stability.py`
+2025-04-04 13:28:03,444 - move_files - INFO - Plan entry: `/utils/dynamic_architecture.py` -> `/sentinel/utils/dynamic_architecture.py`
+2025-04-04 13:28:03,444 - move_files - INFO - Plan entry: `/utils/generation_wrapper.py` -> `/sentinel/utils/generation_wrapper.py`
+2025-04-04 13:28:03,444 - move_files - INFO - Plan entry: `/utils/model_wrapper.py` -> `/sentinel/utils/model_wrapper.py`
+2025-04-04 13:28:03,444 - move_files - INFO - Plan entry: `/utils/train_utils.py` -> `/sentinel/utils/train_utils.py`
+2025-04-04 13:28:03,444 - move_files - INFO - Plan entry: `/utils/utils.py` -> `/sentinel/utils/utils.py`
+2025-04-04 13:28:03,444 - move_files - INFO - Plan entry: `/scripts/analyze_heads.py` -> `/scripts/analysis/analyze_heads.py`
+2025-04-04 13:28:03,444 - move_files - INFO - Plan entry: `/scripts/analyze_pruning_results.py` -> `/scripts/analysis/analyze_pruning_results.py`
+2025-04-04 13:28:03,444 - move_files - INFO - Plan entry: `/scripts/benchmark.py` -> `/scripts/benchmarks/benchmark.py`
+2025-04-04 13:28:03,444 - move_files - INFO - Plan entry: `/scripts/benchmark_agency.py` -> `/scripts/benchmarks/benchmark_agency.py`
+2025-04-04 13:28:03,444 - move_files - INFO - Plan entry: `/scripts/benchmark_optimization.py` -> `/scripts/benchmarks/benchmark_optimization.py`
+2025-04-04 13:28:03,444 - move_files - INFO - Plan entry: `/scripts/benchmark_pruning.py` -> `/scripts/benchmarks/benchmark_pruning.py`
+2025-04-04 13:28:03,444 - move_files - INFO - Plan entry: `/scripts/inference.py` -> `/scripts/inference/inference.py`
+2025-04-04 13:28:03,444 - move_files - INFO - Plan entry: `/scripts/inference_with_pruning.py` -> `/scripts/inference/inference_with_pruning.py`
+2025-04-04 13:28:03,444 - move_files - INFO - Plan entry: `/scripts/finetune_pruned_model.py` -> `/scripts/fine_tuning/finetune_pruned_model.py`
+2025-04-04 13:28:03,444 - move_files - INFO - Plan entry: `/scripts/prune_heads.py` -> `/scripts/pruning/prune_heads.py`
+2025-04-04 13:28:03,444 - move_files - INFO - Plan entry: `/scripts/pruning_and_finetuning.py` -> `/scripts/pruning/pruning_and_finetuning.py`
+2025-04-04 13:28:03,444 - move_files - INFO - Plan entry: `/scripts/run_adaptive_plasticity.py` -> `/scripts/plasticity/run_adaptive_plasticity.py`
+2025-04-04 13:28:03,444 - move_files - INFO - Plan entry: `/scripts/test_*.py` -> Either to `/tests/unit/` or `/tests/integration/` based on content
+2025-04-04 13:28:03,444 - move_files - INFO - Plan entry: `/tests/test_model_support.py` -> `/tests/integration/test_model_support.py`
+2025-04-04 13:28:03,444 - move_files - INFO - Plan entry: `/tests/test_neural_plasticity.py` -> `/tests/integration/test_neural_plasticity.py`
+2025-04-04 13:28:03,444 - move_files - INFO - Plan entry: `/tests/test_optimization_comparison.py` -> `/tests/performance/test_optimization_comparison.py`
+2025-04-04 13:28:03,444 - move_files - INFO - Plan entry: `/tests/utils/test_memory.py` -> `/tests/unit/utils/test_memory.py`
+2025-04-04 13:28:03,444 - move_files - INFO - Plan entry: `/tests/utils/test_nan_prevention.py` -> `/tests/unit/utils/test_nan_prevention.py`
+2025-04-04 13:28:03,444 - move_files - INFO - Plan entry: `/output/plasticity_experiments/*` -> `/experiments/results/plasticity/`
+2025-04-04 13:28:03,444 - move_files - INFO - Plan entry: `/profiling_results/*` -> `/experiments/results/profiling/`
+2025-04-04 13:28:03,444 - move_files - INFO - Plan entry: `/pruning_results/*` -> `/experiments/results/pruning/`
+2025-04-04 13:28:03,444 - move_files - INFO - Plan entry: `/validation_results/*` -> `/experiments/results/validation/`
+2025-04-04 13:28:03,444 - move_files - INFO - Plan entry: `/examples/pruning_experiments/scripts/*.py` -> `/experiments/scripts/pruning/`
+2025-04-04 13:28:03,444 - move_files - INFO - Plan entry: `/examples/pruning_experiments/notebooks/*.ipynb` -> `/experiments/notebooks/pruning/`
+2025-04-04 13:28:03,444 - move_files - INFO - Plan entry: `/examples/controller_agency_demo.py` -> `/experiments/scripts/controller/controller_agency_demo.py`
+2025-04-04 13:28:03,444 - move_files - INFO - Plan entry: `/examples/agency_specialization_demo.py` -> `/experiments/scripts/agency/agency_specialization_demo.py`
+2025-04-04 13:28:03,444 - move_files - INFO - Plan entry: `/colab_notebooks/*.ipynb` -> `/experiments/notebooks/colab/`
+2025-04-04 13:28:03,444 - move_files - INFO - Plan entry: `/colab_notebooks/*.py` -> `/experiments/scripts/colab/`
+2025-04-04 13:28:03,444 - move_files - INFO - Plan entry: `/docs/*.md` -> `/docs/guides/`
+2025-04-04 13:28:03,444 - move_files - INFO - Plan entry: `/docs/assets/figures/*.md` -> `/docs/assets/figures/`
+2025-04-04 13:28:03,444 - move_files - INFO - Plan entry: `/docs/improved_diagrams/*.md` -> `/docs/assets/diagrams/`
+2025-04-04 13:28:03,444 - move_files - INFO - Plan entry: `/docs/pruning/*.md` -> `/docs/guides/pruning/`
+2025-04-04 13:28:03,444 - move_files - INFO - Plan entry: `/README.md` -> Stay in place
+2025-04-04 13:28:03,444 - move_files - INFO - Plan entry: `/SUMMARY.md` -> `/docs/guides/SUMMARY.md`
+2025-04-04 13:28:03,444 - move_files - INFO - Plan entry: `/CHANGELOG.md` -> Stay in place
+2025-04-04 13:28:03,444 - move_files - INFO - Plan entry: `/CLAUDE.md` -> Stay in place
+2025-04-04 13:28:03,444 - move_files - INFO - Plan entry: `/LICENSE` -> Stay in place
+2025-04-04 13:28:03,445 - move_files - INFO - Moved file from models/adaptive_transformer.py to sentinel/models/adaptive/transformer.py
+2025-04-04 13:28:03,446 - move_files - INFO - Created stub file at models/adaptive_transformer.py
+2025-04-04 13:28:03,446 - move_files - INFO - Moved file from models/agency_specialization.py to sentinel/models/adaptive/agency_specialization.py
+2025-04-04 13:28:03,447 - move_files - INFO - Created stub file at models/agency_specialization.py
+2025-04-04 13:28:03,447 - move_files - INFO - Moved file from models/bloom_adapter.py to sentinel/models/adaptive/bloom_adapter.py
+2025-04-04 13:28:03,447 - move_files - INFO - Created stub file at models/bloom_adapter.py
+2025-04-04 13:28:03,447 - move_files - INFO - Moved file from models/llama_adapter.py to sentinel/models/adaptive/llama_adapter.py
+2025-04-04 13:28:03,447 - move_files - INFO - Created stub file at models/llama_adapter.py
+2025-04-04 13:28:03,447 - move_files - INFO - Moved file from models/optimized_attention.py to sentinel/models/utils/optimized_attention.py
+2025-04-04 13:28:03,448 - move_files - INFO - Created stub file at models/optimized_attention.py
+2025-04-04 13:28:03,448 - move_files - INFO - Moved file from models/specialization_registry.py to sentinel/models/utils/specialization_registry.py
+2025-04-04 13:28:03,448 - move_files - INFO - Created stub file at models/specialization_registry.py
+2025-04-04 13:28:03,448 - move_files - INFO - Moved file from models/unet_transformer.py to sentinel/models/adaptive/unet_transformer.py
+2025-04-04 13:28:03,449 - move_files - INFO - Created stub file at models/unet_transformer.py
+2025-04-04 13:28:03,449 - move_files - INFO - Moved file from models/unet_transformer_optimized.py to sentinel/models/adaptive/unet_transformer_optimized.py
+2025-04-04 13:28:03,449 - move_files - INFO - Created stub file at models/unet_transformer_optimized.py
+2025-04-04 13:28:03,449 - move_files - INFO - Moved file from models/loaders/bloom_loader.py to sentinel/models/loaders/bloom_loader.py
+2025-04-04 13:28:03,450 - move_files - INFO - Created stub file at models/loaders/bloom_loader.py
+2025-04-04 13:28:03,450 - move_files - INFO - Moved file from models/loaders/opt_loader.py to sentinel/models/loaders/opt_loader.py
+2025-04-04 13:28:03,450 - move_files - INFO - Created stub file at models/loaders/opt_loader.py
+2025-04-04 13:28:03,450 - move_files - INFO - Moved file from models/loaders/fix_gpt2_loader.py to sentinel/models/loaders/fix_gpt2_loader.py
+2025-04-04 13:28:03,450 - move_files - INFO - Created stub file at models/loaders/fix_gpt2_loader.py
+2025-04-04 13:28:03,450 - move_files - INFO - Moved file from models/loaders/loader_optimized.py to sentinel/models/loaders/loader_optimized.py
+2025-04-04 13:28:03,451 - move_files - INFO - Created stub file at models/loaders/loader_optimized.py
+2025-04-04 13:28:03,451 - move_files - INFO - Moved file from models/loaders/llama_loader.py to sentinel/models/loaders/llama_loader.py
+2025-04-04 13:28:03,451 - move_files - INFO - Created stub file at models/loaders/llama_loader.py
+2025-04-04 13:28:03,451 - move_files - INFO - Moved file from models/loaders/loader.py to sentinel/models/loaders/loader.py
+2025-04-04 13:28:03,451 - move_files - INFO - Created stub file at models/loaders/loader.py
+2025-04-04 13:28:03,451 - move_files - INFO - Moved file from models/loaders/bloom_loader_fixed.py to sentinel/models/loaders/bloom_loader_fixed.py
+2025-04-04 13:28:03,452 - move_files - INFO - Created stub file at models/loaders/bloom_loader_fixed.py
+2025-04-04 13:28:03,452 - move_files - INFO - Moved file from models/loaders/gpt_neox_loader.py to sentinel/models/loaders/gpt_neox_loader.py
+2025-04-04 13:28:03,452 - move_files - INFO - Created stub file at models/loaders/gpt_neox_loader.py
+2025-04-04 13:28:03,452 - move_files - INFO - Moved file from models/loaders/gpt2_loader.py to sentinel/models/loaders/gpt2_loader.py
+2025-04-04 13:28:03,453 - move_files - INFO - Created stub file at models/loaders/gpt2_loader.py
+2025-04-04 13:28:03,453 - move_files - INFO - Moved file from models/loaders/gpt2_loader_optimized.py to sentinel/models/loaders/gpt2_loader_optimized.py
+2025-04-04 13:28:03,453 - move_files - INFO - Created stub file at models/loaders/gpt2_loader_optimized.py
+2025-04-04 13:28:03,453 - move_files - INFO - Created directory: sentinel/models/optimized
+2025-04-04 13:28:03,453 - move_files - INFO - Moved file from models/optimized/integration_optimized.py to sentinel/models/optimized/integration_optimized.py
+2025-04-04 13:28:03,454 - move_files - INFO - Created stub file at models/optimized/integration_optimized.py
+2025-04-04 13:28:03,454 - move_files - INFO - Moved file from models/optimized/__init__.py to sentinel/models/optimized/__init__.py
+2025-04-04 13:28:03,454 - move_files - INFO - Created stub file at models/optimized/__init__.py
+2025-04-04 13:28:03,454 - move_files - INFO - Processed 20 files
+2025-04-04 13:28:03,454 - move_files - INFO - File movement complete
+2025-04-04 13:28:03,499 - move_files - INFO - Starting file movement
+2025-04-04 13:28:03,499 - move_files - INFO - Dry run: False
+2025-04-04 13:28:03,499 - move_files - INFO - Filtering by module: controller
+2025-04-04 13:28:03,499 - move_files - INFO - Loaded movement plan with 81 entries
+2025-04-04 13:28:03,499 - move_files - INFO - Plan entry: `/main.py` -> `/scripts/entry_points/inference.py`
+2025-04-04 13:28:03,499 - move_files - INFO - Plan entry: `/train.py` -> `/scripts/entry_points/train.py`
+2025-04-04 13:28:03,499 - move_files - INFO - Plan entry: `/generate_samples.py` -> `/scripts/entry_points/generate.py`
+2025-04-04 13:28:03,499 - move_files - INFO - Plan entry: `/model_probe.py` -> `/scripts/entry_points/probe.py`
+2025-04-04 13:28:03,499 - move_files - INFO - Plan entry: `/models/adaptive_transformer.py` -> `/sentinel/models/adaptive/transformer.py`
+2025-04-04 13:28:03,499 - move_files - INFO - Plan entry: `/models/agency_specialization.py` -> `/sentinel/models/adaptive/agency_specialization.py`
+2025-04-04 13:28:03,499 - move_files - INFO - Plan entry: `/models/bloom_adapter.py` -> `/sentinel/models/adaptive/bloom_adapter.py`
+2025-04-04 13:28:03,499 - move_files - INFO - Plan entry: `/models/llama_adapter.py` -> `/sentinel/models/adaptive/llama_adapter.py`
+2025-04-04 13:28:03,499 - move_files - INFO - Plan entry: `/models/optimized_attention.py` -> `/sentinel/models/utils/optimized_attention.py`
+2025-04-04 13:28:03,499 - move_files - INFO - Plan entry: `/models/specialization_registry.py` -> `/sentinel/models/utils/specialization_registry.py`
+2025-04-04 13:28:03,499 - move_files - INFO - Plan entry: `/models/unet_transformer.py` -> `/sentinel/models/adaptive/unet_transformer.py`
+2025-04-04 13:28:03,499 - move_files - INFO - Plan entry: `/models/unet_transformer_optimized.py` -> `/sentinel/models/adaptive/unet_transformer_optimized.py`
+2025-04-04 13:28:03,499 - move_files - INFO - Plan entry: `/controller/controller_ann.py` -> `/sentinel/controller/controller_ann.py`
+2025-04-04 13:28:03,499 - move_files - INFO - Plan entry: `/controller/controller_manager.py` -> `/sentinel/controller/controller_manager.py`
+2025-04-04 13:28:03,499 - move_files - INFO - Plan entry: `/utils/pruning/pruning_module.py` -> `/sentinel/pruning/pruning_module.py`
+2025-04-04 13:28:03,499 - move_files - INFO - Plan entry: `/utils/pruning/strategies.py` -> `/sentinel/pruning/strategies/base.py`
+2025-04-04 13:28:03,499 - move_files - INFO - Plan entry: `/utils/pruning/fine_tuner.py` -> `/sentinel/pruning/fine_tuning/base.py`
+2025-04-04 13:28:03,499 - move_files - INFO - Plan entry: `/utils/pruning/fine_tuner_improved.py` -> `/sentinel/pruning/fine_tuning/improved.py`
+2025-04-04 13:28:03,499 - move_files - INFO - Plan entry: `/utils/pruning/fine_tuner_consolidated.py` -> `/sentinel/pruning/fine_tuning/consolidated.py`
+2025-04-04 13:28:03,499 - move_files - INFO - Plan entry: `/utils/pruning/experiment.py` -> `/sentinel/pruning/experiment.py`
+2025-04-04 13:28:03,499 - move_files - INFO - Plan entry: `/utils/pruning/results_manager.py` -> `/sentinel/pruning/results_manager.py`
+2025-04-04 13:28:03,499 - move_files - INFO - Plan entry: `/utils/pruning/benchmark.py` -> `/sentinel/pruning/benchmark.py`
+2025-04-04 13:28:03,499 - move_files - INFO - Plan entry: `/utils/pruning/visualization.py` -> `/sentinel/pruning/visualization.py`
+2025-04-04 13:28:03,499 - move_files - INFO - Plan entry: `/utils/pruning/growth.py` -> `/sentinel/pruning/growth.py`
+2025-04-04 13:28:03,499 - move_files - INFO - Plan entry: `/utils/pruning/head_lr_manager.py` -> `/sentinel/pruning/head_lr_manager.py`
+2025-04-04 13:28:03,499 - move_files - INFO - Plan entry: `/utils/adaptive/adaptive_plasticity.py` -> `/sentinel/plasticity/adaptive/adaptive_plasticity.py`
+2025-04-04 13:28:03,499 - move_files - INFO - Plan entry: `/utils/adaptive/__init__.py` -> `/sentinel/plasticity/adaptive/__init__.py`
+2025-04-04 13:28:03,499 - move_files - INFO - Plan entry: `/sentinel_data/__init__.py` -> `/sentinel/data/__init__.py`
+2025-04-04 13:28:03,499 - move_files - INFO - Plan entry: `/sentinel_data/dataset_loader.py` -> `/sentinel/data/loaders/dataset_loader.py`
+2025-04-04 13:28:03,499 - move_files - INFO - Plan entry: `/sentinel_data/eval.py` -> `/sentinel/data/eval.py`
+2025-04-04 13:28:03,499 - move_files - INFO - Plan entry: `/utils/metrics.py` -> `/sentinel/utils/metrics/base.py`
+2025-04-04 13:28:03,500 - move_files - INFO - Plan entry: `/utils/metrics_logger.py` -> `/sentinel/utils/metrics/logger.py`
+2025-04-04 13:28:03,500 - move_files - INFO - Plan entry: `/utils/head_metrics.py` -> `/sentinel/utils/metrics/head_metrics.py`
+2025-04-04 13:28:03,500 - move_files - INFO - Plan entry: `/utils/charting.py` -> `/sentinel/utils/visualization/charting.py`
+2025-04-04 13:28:03,500 - move_files - INFO - Plan entry: `/utils/checkpoint.py` -> `/sentinel/utils/checkpoints/checkpoint.py`
+2025-04-04 13:28:03,500 - move_files - INFO - Plan entry: `/utils/progress_tracker.py` -> `/sentinel/utils/progress_tracker.py`
+2025-04-04 13:28:03,500 - move_files - INFO - Plan entry: `/utils/head_lr_manager.py` -> `/sentinel/utils/head_lr_manager.py`
+2025-04-04 13:28:03,500 - move_files - INFO - Plan entry: `/utils/training.py` -> `/sentinel/utils/training.py`
+2025-04-04 13:28:03,500 - move_files - INFO - Plan entry: `/utils/training_stability.py` -> `/sentinel/utils/training_stability.py`
+2025-04-04 13:28:03,500 - move_files - INFO - Plan entry: `/utils/dynamic_architecture.py` -> `/sentinel/utils/dynamic_architecture.py`
+2025-04-04 13:28:03,500 - move_files - INFO - Plan entry: `/utils/generation_wrapper.py` -> `/sentinel/utils/generation_wrapper.py`
+2025-04-04 13:28:03,500 - move_files - INFO - Plan entry: `/utils/model_wrapper.py` -> `/sentinel/utils/model_wrapper.py`
+2025-04-04 13:28:03,500 - move_files - INFO - Plan entry: `/utils/train_utils.py` -> `/sentinel/utils/train_utils.py`
+2025-04-04 13:28:03,500 - move_files - INFO - Plan entry: `/utils/utils.py` -> `/sentinel/utils/utils.py`
+2025-04-04 13:28:03,500 - move_files - INFO - Plan entry: `/scripts/analyze_heads.py` -> `/scripts/analysis/analyze_heads.py`
+2025-04-04 13:28:03,500 - move_files - INFO - Plan entry: `/scripts/analyze_pruning_results.py` -> `/scripts/analysis/analyze_pruning_results.py`
+2025-04-04 13:28:03,500 - move_files - INFO - Plan entry: `/scripts/benchmark.py` -> `/scripts/benchmarks/benchmark.py`
+2025-04-04 13:28:03,500 - move_files - INFO - Plan entry: `/scripts/benchmark_agency.py` -> `/scripts/benchmarks/benchmark_agency.py`
+2025-04-04 13:28:03,500 - move_files - INFO - Plan entry: `/scripts/benchmark_optimization.py` -> `/scripts/benchmarks/benchmark_optimization.py`
+2025-04-04 13:28:03,500 - move_files - INFO - Plan entry: `/scripts/benchmark_pruning.py` -> `/scripts/benchmarks/benchmark_pruning.py`
+2025-04-04 13:28:03,500 - move_files - INFO - Plan entry: `/scripts/inference.py` -> `/scripts/inference/inference.py`
+2025-04-04 13:28:03,500 - move_files - INFO - Plan entry: `/scripts/inference_with_pruning.py` -> `/scripts/inference/inference_with_pruning.py`
+2025-04-04 13:28:03,500 - move_files - INFO - Plan entry: `/scripts/finetune_pruned_model.py` -> `/scripts/fine_tuning/finetune_pruned_model.py`
+2025-04-04 13:28:03,500 - move_files - INFO - Plan entry: `/scripts/prune_heads.py` -> `/scripts/pruning/prune_heads.py`
+2025-04-04 13:28:03,500 - move_files - INFO - Plan entry: `/scripts/pruning_and_finetuning.py` -> `/scripts/pruning/pruning_and_finetuning.py`
+2025-04-04 13:28:03,500 - move_files - INFO - Plan entry: `/scripts/run_adaptive_plasticity.py` -> `/scripts/plasticity/run_adaptive_plasticity.py`
+2025-04-04 13:28:03,500 - move_files - INFO - Plan entry: `/scripts/test_*.py` -> Either to `/tests/unit/` or `/tests/integration/` based on content
+2025-04-04 13:28:03,500 - move_files - INFO - Plan entry: `/tests/test_model_support.py` -> `/tests/integration/test_model_support.py`
+2025-04-04 13:28:03,500 - move_files - INFO - Plan entry: `/tests/test_neural_plasticity.py` -> `/tests/integration/test_neural_plasticity.py`
+2025-04-04 13:28:03,500 - move_files - INFO - Plan entry: `/tests/test_optimization_comparison.py` -> `/tests/performance/test_optimization_comparison.py`
+2025-04-04 13:28:03,500 - move_files - INFO - Plan entry: `/tests/utils/test_memory.py` -> `/tests/unit/utils/test_memory.py`
+2025-04-04 13:28:03,500 - move_files - INFO - Plan entry: `/tests/utils/test_nan_prevention.py` -> `/tests/unit/utils/test_nan_prevention.py`
+2025-04-04 13:28:03,500 - move_files - INFO - Plan entry: `/output/plasticity_experiments/*` -> `/experiments/results/plasticity/`
+2025-04-04 13:28:03,500 - move_files - INFO - Plan entry: `/profiling_results/*` -> `/experiments/results/profiling/`
+2025-04-04 13:28:03,500 - move_files - INFO - Plan entry: `/pruning_results/*` -> `/experiments/results/pruning/`
+2025-04-04 13:28:03,500 - move_files - INFO - Plan entry: `/validation_results/*` -> `/experiments/results/validation/`
+2025-04-04 13:28:03,500 - move_files - INFO - Plan entry: `/examples/pruning_experiments/scripts/*.py` -> `/experiments/scripts/pruning/`
+2025-04-04 13:28:03,500 - move_files - INFO - Plan entry: `/examples/pruning_experiments/notebooks/*.ipynb` -> `/experiments/notebooks/pruning/`
+2025-04-04 13:28:03,500 - move_files - INFO - Plan entry: `/examples/controller_agency_demo.py` -> `/experiments/scripts/controller/controller_agency_demo.py`
+2025-04-04 13:28:03,500 - move_files - INFO - Plan entry: `/examples/agency_specialization_demo.py` -> `/experiments/scripts/agency/agency_specialization_demo.py`
+2025-04-04 13:28:03,500 - move_files - INFO - Plan entry: `/colab_notebooks/*.ipynb` -> `/experiments/notebooks/colab/`
+2025-04-04 13:28:03,500 - move_files - INFO - Plan entry: `/colab_notebooks/*.py` -> `/experiments/scripts/colab/`
+2025-04-04 13:28:03,500 - move_files - INFO - Plan entry: `/docs/*.md` -> `/docs/guides/`
+2025-04-04 13:28:03,500 - move_files - INFO - Plan entry: `/docs/assets/figures/*.md` -> `/docs/assets/figures/`
+2025-04-04 13:28:03,500 - move_files - INFO - Plan entry: `/docs/improved_diagrams/*.md` -> `/docs/assets/diagrams/`
+2025-04-04 13:28:03,500 - move_files - INFO - Plan entry: `/docs/pruning/*.md` -> `/docs/guides/pruning/`
+2025-04-04 13:28:03,500 - move_files - INFO - Plan entry: `/README.md` -> Stay in place
+2025-04-04 13:28:03,500 - move_files - INFO - Plan entry: `/SUMMARY.md` -> `/docs/guides/SUMMARY.md`
+2025-04-04 13:28:03,500 - move_files - INFO - Plan entry: `/CHANGELOG.md` -> Stay in place
+2025-04-04 13:28:03,500 - move_files - INFO - Plan entry: `/CLAUDE.md` -> Stay in place
+2025-04-04 13:28:03,500 - move_files - INFO - Plan entry: `/LICENSE` -> Stay in place
+2025-04-04 13:28:03,501 - move_files - INFO - Moved file from controller/controller_ann.py to sentinel/controller/controller_ann.py
+2025-04-04 13:28:03,501 - move_files - INFO - Created stub file at controller/controller_ann.py
+2025-04-04 13:28:03,501 - move_files - INFO - Moved file from controller/controller_manager.py to sentinel/controller/controller_manager.py
+2025-04-04 13:28:03,501 - move_files - INFO - Created stub file at controller/controller_manager.py
+2025-04-04 13:28:03,502 - move_files - INFO - Moved file from controller/metrics/head_metrics.py to sentinel/controller/metrics/head_metrics.py
+2025-04-04 13:28:03,502 - move_files - INFO - Created stub file at controller/metrics/head_metrics.py
+2025-04-04 13:28:03,502 - move_files - INFO - Moved file from controller/metrics/__init__.py to sentinel/controller/metrics/__init__.py
+2025-04-04 13:28:03,502 - move_files - INFO - Created stub file at controller/metrics/__init__.py
+2025-04-04 13:28:03,502 - move_files - INFO - Moved file from controller/visualizations/gate_visualizer.py to sentinel/controller/visualizations/gate_visualizer.py
+2025-04-04 13:28:03,502 - move_files - INFO - Created stub file at controller/visualizations/gate_visualizer.py
+2025-04-04 13:28:03,502 - move_files - INFO - Moved file from controller/visualizations/agency_visualizer.py to sentinel/controller/visualizations/agency_visualizer.py
+2025-04-04 13:28:03,503 - move_files - INFO - Created stub file at controller/visualizations/agency_visualizer.py
+2025-04-04 13:28:03,503 - move_files - INFO - Processed 6 files
+2025-04-04 13:28:03,503 - move_files - INFO - File movement complete
+2025-04-04 13:28:03,547 - move_files - INFO - Starting file movement
+2025-04-04 13:28:03,547 - move_files - INFO - Dry run: False
+2025-04-04 13:28:03,547 - move_files - INFO - Filtering by module: pruning
+2025-04-04 13:28:03,547 - move_files - INFO - Loaded movement plan with 81 entries
+2025-04-04 13:28:03,547 - move_files - INFO - Plan entry: `/main.py` -> `/scripts/entry_points/inference.py`
+2025-04-04 13:28:03,547 - move_files - INFO - Plan entry: `/train.py` -> `/scripts/entry_points/train.py`
+2025-04-04 13:28:03,547 - move_files - INFO - Plan entry: `/generate_samples.py` -> `/scripts/entry_points/generate.py`
+2025-04-04 13:28:03,547 - move_files - INFO - Plan entry: `/model_probe.py` -> `/scripts/entry_points/probe.py`
+2025-04-04 13:28:03,547 - move_files - INFO - Plan entry: `/models/adaptive_transformer.py` -> `/sentinel/models/adaptive/transformer.py`
+2025-04-04 13:28:03,547 - move_files - INFO - Plan entry: `/models/agency_specialization.py` -> `/sentinel/models/adaptive/agency_specialization.py`
+2025-04-04 13:28:03,547 - move_files - INFO - Plan entry: `/models/bloom_adapter.py` -> `/sentinel/models/adaptive/bloom_adapter.py`
+2025-04-04 13:28:03,547 - move_files - INFO - Plan entry: `/models/llama_adapter.py` -> `/sentinel/models/adaptive/llama_adapter.py`
+2025-04-04 13:28:03,547 - move_files - INFO - Plan entry: `/models/optimized_attention.py` -> `/sentinel/models/utils/optimized_attention.py`
+2025-04-04 13:28:03,547 - move_files - INFO - Plan entry: `/models/specialization_registry.py` -> `/sentinel/models/utils/specialization_registry.py`
+2025-04-04 13:28:03,547 - move_files - INFO - Plan entry: `/models/unet_transformer.py` -> `/sentinel/models/adaptive/unet_transformer.py`
+2025-04-04 13:28:03,547 - move_files - INFO - Plan entry: `/models/unet_transformer_optimized.py` -> `/sentinel/models/adaptive/unet_transformer_optimized.py`
+2025-04-04 13:28:03,547 - move_files - INFO - Plan entry: `/controller/controller_ann.py` -> `/sentinel/controller/controller_ann.py`
+2025-04-04 13:28:03,547 - move_files - INFO - Plan entry: `/controller/controller_manager.py` -> `/sentinel/controller/controller_manager.py`
+2025-04-04 13:28:03,547 - move_files - INFO - Plan entry: `/utils/pruning/pruning_module.py` -> `/sentinel/pruning/pruning_module.py`
+2025-04-04 13:28:03,547 - move_files - INFO - Plan entry: `/utils/pruning/strategies.py` -> `/sentinel/pruning/strategies/base.py`
+2025-04-04 13:28:03,547 - move_files - INFO - Plan entry: `/utils/pruning/fine_tuner.py` -> `/sentinel/pruning/fine_tuning/base.py`
+2025-04-04 13:28:03,547 - move_files - INFO - Plan entry: `/utils/pruning/fine_tuner_improved.py` -> `/sentinel/pruning/fine_tuning/improved.py`
+2025-04-04 13:28:03,547 - move_files - INFO - Plan entry: `/utils/pruning/fine_tuner_consolidated.py` -> `/sentinel/pruning/fine_tuning/consolidated.py`
+2025-04-04 13:28:03,547 - move_files - INFO - Plan entry: `/utils/pruning/experiment.py` -> `/sentinel/pruning/experiment.py`
+2025-04-04 13:28:03,547 - move_files - INFO - Plan entry: `/utils/pruning/results_manager.py` -> `/sentinel/pruning/results_manager.py`
+2025-04-04 13:28:03,547 - move_files - INFO - Plan entry: `/utils/pruning/benchmark.py` -> `/sentinel/pruning/benchmark.py`
+2025-04-04 13:28:03,547 - move_files - INFO - Plan entry: `/utils/pruning/visualization.py` -> `/sentinel/pruning/visualization.py`
+2025-04-04 13:28:03,547 - move_files - INFO - Plan entry: `/utils/pruning/growth.py` -> `/sentinel/pruning/growth.py`
+2025-04-04 13:28:03,547 - move_files - INFO - Plan entry: `/utils/pruning/head_lr_manager.py` -> `/sentinel/pruning/head_lr_manager.py`
+2025-04-04 13:28:03,547 - move_files - INFO - Plan entry: `/utils/adaptive/adaptive_plasticity.py` -> `/sentinel/plasticity/adaptive/adaptive_plasticity.py`
+2025-04-04 13:28:03,547 - move_files - INFO - Plan entry: `/utils/adaptive/__init__.py` -> `/sentinel/plasticity/adaptive/__init__.py`
+2025-04-04 13:28:03,547 - move_files - INFO - Plan entry: `/sentinel_data/__init__.py` -> `/sentinel/data/__init__.py`
+2025-04-04 13:28:03,547 - move_files - INFO - Plan entry: `/sentinel_data/dataset_loader.py` -> `/sentinel/data/loaders/dataset_loader.py`
+2025-04-04 13:28:03,547 - move_files - INFO - Plan entry: `/sentinel_data/eval.py` -> `/sentinel/data/eval.py`
+2025-04-04 13:28:03,547 - move_files - INFO - Plan entry: `/utils/metrics.py` -> `/sentinel/utils/metrics/base.py`
+2025-04-04 13:28:03,547 - move_files - INFO - Plan entry: `/utils/metrics_logger.py` -> `/sentinel/utils/metrics/logger.py`
+2025-04-04 13:28:03,547 - move_files - INFO - Plan entry: `/utils/head_metrics.py` -> `/sentinel/utils/metrics/head_metrics.py`
+2025-04-04 13:28:03,547 - move_files - INFO - Plan entry: `/utils/charting.py` -> `/sentinel/utils/visualization/charting.py`
+2025-04-04 13:28:03,547 - move_files - INFO - Plan entry: `/utils/checkpoint.py` -> `/sentinel/utils/checkpoints/checkpoint.py`
+2025-04-04 13:28:03,547 - move_files - INFO - Plan entry: `/utils/progress_tracker.py` -> `/sentinel/utils/progress_tracker.py`
+2025-04-04 13:28:03,548 - move_files - INFO - Plan entry: `/utils/head_lr_manager.py` -> `/sentinel/utils/head_lr_manager.py`
+2025-04-04 13:28:03,548 - move_files - INFO - Plan entry: `/utils/training.py` -> `/sentinel/utils/training.py`
+2025-04-04 13:28:03,548 - move_files - INFO - Plan entry: `/utils/training_stability.py` -> `/sentinel/utils/training_stability.py`
+2025-04-04 13:28:03,548 - move_files - INFO - Plan entry: `/utils/dynamic_architecture.py` -> `/sentinel/utils/dynamic_architecture.py`
+2025-04-04 13:28:03,548 - move_files - INFO - Plan entry: `/utils/generation_wrapper.py` -> `/sentinel/utils/generation_wrapper.py`
+2025-04-04 13:28:03,548 - move_files - INFO - Plan entry: `/utils/model_wrapper.py` -> `/sentinel/utils/model_wrapper.py`
+2025-04-04 13:28:03,548 - move_files - INFO - Plan entry: `/utils/train_utils.py` -> `/sentinel/utils/train_utils.py`
+2025-04-04 13:28:03,548 - move_files - INFO - Plan entry: `/utils/utils.py` -> `/sentinel/utils/utils.py`
+2025-04-04 13:28:03,548 - move_files - INFO - Plan entry: `/scripts/analyze_heads.py` -> `/scripts/analysis/analyze_heads.py`
+2025-04-04 13:28:03,548 - move_files - INFO - Plan entry: `/scripts/analyze_pruning_results.py` -> `/scripts/analysis/analyze_pruning_results.py`
+2025-04-04 13:28:03,548 - move_files - INFO - Plan entry: `/scripts/benchmark.py` -> `/scripts/benchmarks/benchmark.py`
+2025-04-04 13:28:03,548 - move_files - INFO - Plan entry: `/scripts/benchmark_agency.py` -> `/scripts/benchmarks/benchmark_agency.py`
+2025-04-04 13:28:03,548 - move_files - INFO - Plan entry: `/scripts/benchmark_optimization.py` -> `/scripts/benchmarks/benchmark_optimization.py`
+2025-04-04 13:28:03,548 - move_files - INFO - Plan entry: `/scripts/benchmark_pruning.py` -> `/scripts/benchmarks/benchmark_pruning.py`
+2025-04-04 13:28:03,548 - move_files - INFO - Plan entry: `/scripts/inference.py` -> `/scripts/inference/inference.py`
+2025-04-04 13:28:03,548 - move_files - INFO - Plan entry: `/scripts/inference_with_pruning.py` -> `/scripts/inference/inference_with_pruning.py`
+2025-04-04 13:28:03,548 - move_files - INFO - Plan entry: `/scripts/finetune_pruned_model.py` -> `/scripts/fine_tuning/finetune_pruned_model.py`
+2025-04-04 13:28:03,548 - move_files - INFO - Plan entry: `/scripts/prune_heads.py` -> `/scripts/pruning/prune_heads.py`
+2025-04-04 13:28:03,548 - move_files - INFO - Plan entry: `/scripts/pruning_and_finetuning.py` -> `/scripts/pruning/pruning_and_finetuning.py`
+2025-04-04 13:28:03,548 - move_files - INFO - Plan entry: `/scripts/run_adaptive_plasticity.py` -> `/scripts/plasticity/run_adaptive_plasticity.py`
+2025-04-04 13:28:03,548 - move_files - INFO - Plan entry: `/scripts/test_*.py` -> Either to `/tests/unit/` or `/tests/integration/` based on content
+2025-04-04 13:28:03,548 - move_files - INFO - Plan entry: `/tests/test_model_support.py` -> `/tests/integration/test_model_support.py`
+2025-04-04 13:28:03,548 - move_files - INFO - Plan entry: `/tests/test_neural_plasticity.py` -> `/tests/integration/test_neural_plasticity.py`
+2025-04-04 13:28:03,548 - move_files - INFO - Plan entry: `/tests/test_optimization_comparison.py` -> `/tests/performance/test_optimization_comparison.py`
+2025-04-04 13:28:03,548 - move_files - INFO - Plan entry: `/tests/utils/test_memory.py` -> `/tests/unit/utils/test_memory.py`
+2025-04-04 13:28:03,548 - move_files - INFO - Plan entry: `/tests/utils/test_nan_prevention.py` -> `/tests/unit/utils/test_nan_prevention.py`
+2025-04-04 13:28:03,548 - move_files - INFO - Plan entry: `/output/plasticity_experiments/*` -> `/experiments/results/plasticity/`
+2025-04-04 13:28:03,548 - move_files - INFO - Plan entry: `/profiling_results/*` -> `/experiments/results/profiling/`
+2025-04-04 13:28:03,548 - move_files - INFO - Plan entry: `/pruning_results/*` -> `/experiments/results/pruning/`
+2025-04-04 13:28:03,548 - move_files - INFO - Plan entry: `/validation_results/*` -> `/experiments/results/validation/`
+2025-04-04 13:28:03,548 - move_files - INFO - Plan entry: `/examples/pruning_experiments/scripts/*.py` -> `/experiments/scripts/pruning/`
+2025-04-04 13:28:03,548 - move_files - INFO - Plan entry: `/examples/pruning_experiments/notebooks/*.ipynb` -> `/experiments/notebooks/pruning/`
+2025-04-04 13:28:03,548 - move_files - INFO - Plan entry: `/examples/controller_agency_demo.py` -> `/experiments/scripts/controller/controller_agency_demo.py`
+2025-04-04 13:28:03,548 - move_files - INFO - Plan entry: `/examples/agency_specialization_demo.py` -> `/experiments/scripts/agency/agency_specialization_demo.py`
+2025-04-04 13:28:03,548 - move_files - INFO - Plan entry: `/colab_notebooks/*.ipynb` -> `/experiments/notebooks/colab/`
+2025-04-04 13:28:03,548 - move_files - INFO - Plan entry: `/colab_notebooks/*.py` -> `/experiments/scripts/colab/`
+2025-04-04 13:28:03,548 - move_files - INFO - Plan entry: `/docs/*.md` -> `/docs/guides/`
+2025-04-04 13:28:03,548 - move_files - INFO - Plan entry: `/docs/assets/figures/*.md` -> `/docs/assets/figures/`
+2025-04-04 13:28:03,548 - move_files - INFO - Plan entry: `/docs/improved_diagrams/*.md` -> `/docs/assets/diagrams/`
+2025-04-04 13:28:03,548 - move_files - INFO - Plan entry: `/docs/pruning/*.md` -> `/docs/guides/pruning/`
+2025-04-04 13:28:03,548 - move_files - INFO - Plan entry: `/README.md` -> Stay in place
+2025-04-04 13:28:03,548 - move_files - INFO - Plan entry: `/SUMMARY.md` -> `/docs/guides/SUMMARY.md`
+2025-04-04 13:28:03,548 - move_files - INFO - Plan entry: `/CHANGELOG.md` -> Stay in place
+2025-04-04 13:28:03,548 - move_files - INFO - Plan entry: `/CLAUDE.md` -> Stay in place
+2025-04-04 13:28:03,548 - move_files - INFO - Plan entry: `/LICENSE` -> Stay in place
+2025-04-04 13:28:03,549 - move_files - INFO - Moved file from utils/pruning/pruning_module.py to sentinel/pruning/pruning_module.py
+2025-04-04 13:28:03,549 - move_files - INFO - Created stub file at utils/pruning/pruning_module.py
+2025-04-04 13:28:03,550 - move_files - INFO - Moved file from utils/pruning/strategies.py to sentinel/pruning/strategies/base.py
+2025-04-04 13:28:03,550 - move_files - INFO - Created stub file at utils/pruning/strategies.py
+2025-04-04 13:28:03,550 - move_files - INFO - Moved file from utils/pruning/fine_tuner.py to sentinel/pruning/fine_tuning/base.py
+2025-04-04 13:28:03,550 - move_files - INFO - Created stub file at utils/pruning/fine_tuner.py
+2025-04-04 13:28:03,551 - move_files - INFO - Moved file from utils/pruning/fine_tuner_improved.py to sentinel/pruning/fine_tuning/improved.py
+2025-04-04 13:28:03,551 - move_files - INFO - Created stub file at utils/pruning/fine_tuner_improved.py
+2025-04-04 13:28:03,552 - move_files - INFO - Moved file from utils/pruning/fine_tuner_consolidated.py to sentinel/pruning/fine_tuning/consolidated.py
+2025-04-04 13:28:03,552 - move_files - INFO - Created stub file at utils/pruning/fine_tuner_consolidated.py
+2025-04-04 13:28:03,552 - move_files - INFO - Moved file from utils/pruning/experiment.py to sentinel/pruning/experiment.py
+2025-04-04 13:28:03,552 - move_files - INFO - Created stub file at utils/pruning/experiment.py
+2025-04-04 13:28:03,553 - move_files - INFO - Moved file from utils/pruning/results_manager.py to sentinel/pruning/results_manager.py
+2025-04-04 13:28:03,553 - move_files - INFO - Created stub file at utils/pruning/results_manager.py
+2025-04-04 13:28:03,553 - move_files - INFO - Moved file from utils/pruning/benchmark.py to sentinel/pruning/benchmark.py
+2025-04-04 13:28:03,553 - move_files - INFO - Created stub file at utils/pruning/benchmark.py
+2025-04-04 13:28:03,554 - move_files - INFO - Moved file from utils/pruning/visualization.py to sentinel/pruning/visualization.py
+2025-04-04 13:28:03,554 - move_files - INFO - Created stub file at utils/pruning/visualization.py
+2025-04-04 13:28:03,554 - move_files - INFO - Moved file from utils/pruning/growth.py to sentinel/pruning/growth.py
+2025-04-04 13:28:03,555 - move_files - INFO - Created stub file at utils/pruning/growth.py
+2025-04-04 13:28:03,555 - move_files - INFO - Moved file from utils/pruning/head_lr_manager.py to sentinel/pruning/head_lr_manager.py
+2025-04-04 13:28:03,555 - move_files - INFO - Created stub file at utils/pruning/head_lr_manager.py
+2025-04-04 13:28:03,555 - move_files - INFO - Moved file from utils/pruning/stability/memory_management.py to sentinel/pruning/stability/memory_management.py
+2025-04-04 13:28:03,555 - move_files - INFO - Created stub file at utils/pruning/stability/memory_management.py
+2025-04-04 13:28:03,555 - move_files - INFO - Moved file from utils/pruning/stability/nan_prevention.py to sentinel/pruning/stability/nan_prevention.py
+2025-04-04 13:28:03,556 - move_files - INFO - Created stub file at utils/pruning/stability/nan_prevention.py
+2025-04-04 13:28:03,556 - move_files - INFO - Moved file from utils/pruning/stability/__init__.py to sentinel/pruning/stability/__init__.py
+2025-04-04 13:28:03,556 - move_files - INFO - Created stub file at utils/pruning/stability/__init__.py
+2025-04-04 13:28:03,556 - move_files - INFO - Processed 14 files
+2025-04-04 13:28:03,556 - move_files - INFO - File movement complete
+2025-04-04 13:28:03,599 - move_files - INFO - Starting file movement
+2025-04-04 13:28:03,599 - move_files - INFO - Dry run: False
+2025-04-04 13:28:03,599 - move_files - INFO - Filtering by module: adaptive
+2025-04-04 13:28:03,600 - move_files - INFO - Loaded movement plan with 81 entries
+2025-04-04 13:28:03,600 - move_files - INFO - Plan entry: `/main.py` -> `/scripts/entry_points/inference.py`
+2025-04-04 13:28:03,600 - move_files - INFO - Plan entry: `/train.py` -> `/scripts/entry_points/train.py`
+2025-04-04 13:28:03,600 - move_files - INFO - Plan entry: `/generate_samples.py` -> `/scripts/entry_points/generate.py`
+2025-04-04 13:28:03,600 - move_files - INFO - Plan entry: `/model_probe.py` -> `/scripts/entry_points/probe.py`
+2025-04-04 13:28:03,600 - move_files - INFO - Plan entry: `/models/adaptive_transformer.py` -> `/sentinel/models/adaptive/transformer.py`
+2025-04-04 13:28:03,600 - move_files - INFO - Plan entry: `/models/agency_specialization.py` -> `/sentinel/models/adaptive/agency_specialization.py`
+2025-04-04 13:28:03,600 - move_files - INFO - Plan entry: `/models/bloom_adapter.py` -> `/sentinel/models/adaptive/bloom_adapter.py`
+2025-04-04 13:28:03,600 - move_files - INFO - Plan entry: `/models/llama_adapter.py` -> `/sentinel/models/adaptive/llama_adapter.py`
+2025-04-04 13:28:03,600 - move_files - INFO - Plan entry: `/models/optimized_attention.py` -> `/sentinel/models/utils/optimized_attention.py`
+2025-04-04 13:28:03,600 - move_files - INFO - Plan entry: `/models/specialization_registry.py` -> `/sentinel/models/utils/specialization_registry.py`
+2025-04-04 13:28:03,600 - move_files - INFO - Plan entry: `/models/unet_transformer.py` -> `/sentinel/models/adaptive/unet_transformer.py`
+2025-04-04 13:28:03,600 - move_files - INFO - Plan entry: `/models/unet_transformer_optimized.py` -> `/sentinel/models/adaptive/unet_transformer_optimized.py`
+2025-04-04 13:28:03,600 - move_files - INFO - Plan entry: `/controller/controller_ann.py` -> `/sentinel/controller/controller_ann.py`
+2025-04-04 13:28:03,600 - move_files - INFO - Plan entry: `/controller/controller_manager.py` -> `/sentinel/controller/controller_manager.py`
+2025-04-04 13:28:03,600 - move_files - INFO - Plan entry: `/utils/pruning/pruning_module.py` -> `/sentinel/pruning/pruning_module.py`
+2025-04-04 13:28:03,600 - move_files - INFO - Plan entry: `/utils/pruning/strategies.py` -> `/sentinel/pruning/strategies/base.py`
+2025-04-04 13:28:03,600 - move_files - INFO - Plan entry: `/utils/pruning/fine_tuner.py` -> `/sentinel/pruning/fine_tuning/base.py`
+2025-04-04 13:28:03,600 - move_files - INFO - Plan entry: `/utils/pruning/fine_tuner_improved.py` -> `/sentinel/pruning/fine_tuning/improved.py`
+2025-04-04 13:28:03,600 - move_files - INFO - Plan entry: `/utils/pruning/fine_tuner_consolidated.py` -> `/sentinel/pruning/fine_tuning/consolidated.py`
+2025-04-04 13:28:03,600 - move_files - INFO - Plan entry: `/utils/pruning/experiment.py` -> `/sentinel/pruning/experiment.py`
+2025-04-04 13:28:03,600 - move_files - INFO - Plan entry: `/utils/pruning/results_manager.py` -> `/sentinel/pruning/results_manager.py`
+2025-04-04 13:28:03,600 - move_files - INFO - Plan entry: `/utils/pruning/benchmark.py` -> `/sentinel/pruning/benchmark.py`
+2025-04-04 13:28:03,600 - move_files - INFO - Plan entry: `/utils/pruning/visualization.py` -> `/sentinel/pruning/visualization.py`
+2025-04-04 13:28:03,600 - move_files - INFO - Plan entry: `/utils/pruning/growth.py` -> `/sentinel/pruning/growth.py`
+2025-04-04 13:28:03,600 - move_files - INFO - Plan entry: `/utils/pruning/head_lr_manager.py` -> `/sentinel/pruning/head_lr_manager.py`
+2025-04-04 13:28:03,600 - move_files - INFO - Plan entry: `/utils/adaptive/adaptive_plasticity.py` -> `/sentinel/plasticity/adaptive/adaptive_plasticity.py`
+2025-04-04 13:28:03,600 - move_files - INFO - Plan entry: `/utils/adaptive/__init__.py` -> `/sentinel/plasticity/adaptive/__init__.py`
+2025-04-04 13:28:03,600 - move_files - INFO - Plan entry: `/sentinel_data/__init__.py` -> `/sentinel/data/__init__.py`
+2025-04-04 13:28:03,600 - move_files - INFO - Plan entry: `/sentinel_data/dataset_loader.py` -> `/sentinel/data/loaders/dataset_loader.py`
+2025-04-04 13:28:03,600 - move_files - INFO - Plan entry: `/sentinel_data/eval.py` -> `/sentinel/data/eval.py`
+2025-04-04 13:28:03,600 - move_files - INFO - Plan entry: `/utils/metrics.py` -> `/sentinel/utils/metrics/base.py`
+2025-04-04 13:28:03,600 - move_files - INFO - Plan entry: `/utils/metrics_logger.py` -> `/sentinel/utils/metrics/logger.py`
+2025-04-04 13:28:03,600 - move_files - INFO - Plan entry: `/utils/head_metrics.py` -> `/sentinel/utils/metrics/head_metrics.py`
+2025-04-04 13:28:03,600 - move_files - INFO - Plan entry: `/utils/charting.py` -> `/sentinel/utils/visualization/charting.py`
+2025-04-04 13:28:03,600 - move_files - INFO - Plan entry: `/utils/checkpoint.py` -> `/sentinel/utils/checkpoints/checkpoint.py`
+2025-04-04 13:28:03,600 - move_files - INFO - Plan entry: `/utils/progress_tracker.py` -> `/sentinel/utils/progress_tracker.py`
+2025-04-04 13:28:03,600 - move_files - INFO - Plan entry: `/utils/head_lr_manager.py` -> `/sentinel/utils/head_lr_manager.py`
+2025-04-04 13:28:03,600 - move_files - INFO - Plan entry: `/utils/training.py` -> `/sentinel/utils/training.py`
+2025-04-04 13:28:03,600 - move_files - INFO - Plan entry: `/utils/training_stability.py` -> `/sentinel/utils/training_stability.py`
+2025-04-04 13:28:03,600 - move_files - INFO - Plan entry: `/utils/dynamic_architecture.py` -> `/sentinel/utils/dynamic_architecture.py`
+2025-04-04 13:28:03,600 - move_files - INFO - Plan entry: `/utils/generation_wrapper.py` -> `/sentinel/utils/generation_wrapper.py`
+2025-04-04 13:28:03,600 - move_files - INFO - Plan entry: `/utils/model_wrapper.py` -> `/sentinel/utils/model_wrapper.py`
+2025-04-04 13:28:03,600 - move_files - INFO - Plan entry: `/utils/train_utils.py` -> `/sentinel/utils/train_utils.py`
+2025-04-04 13:28:03,600 - move_files - INFO - Plan entry: `/utils/utils.py` -> `/sentinel/utils/utils.py`
+2025-04-04 13:28:03,600 - move_files - INFO - Plan entry: `/scripts/analyze_heads.py` -> `/scripts/analysis/analyze_heads.py`
+2025-04-04 13:28:03,600 - move_files - INFO - Plan entry: `/scripts/analyze_pruning_results.py` -> `/scripts/analysis/analyze_pruning_results.py`
+2025-04-04 13:28:03,600 - move_files - INFO - Plan entry: `/scripts/benchmark.py` -> `/scripts/benchmarks/benchmark.py`
+2025-04-04 13:28:03,600 - move_files - INFO - Plan entry: `/scripts/benchmark_agency.py` -> `/scripts/benchmarks/benchmark_agency.py`
+2025-04-04 13:28:03,600 - move_files - INFO - Plan entry: `/scripts/benchmark_optimization.py` -> `/scripts/benchmarks/benchmark_optimization.py`
+2025-04-04 13:28:03,600 - move_files - INFO - Plan entry: `/scripts/benchmark_pruning.py` -> `/scripts/benchmarks/benchmark_pruning.py`
+2025-04-04 13:28:03,600 - move_files - INFO - Plan entry: `/scripts/inference.py` -> `/scripts/inference/inference.py`
+2025-04-04 13:28:03,600 - move_files - INFO - Plan entry: `/scripts/inference_with_pruning.py` -> `/scripts/inference/inference_with_pruning.py`
+2025-04-04 13:28:03,600 - move_files - INFO - Plan entry: `/scripts/finetune_pruned_model.py` -> `/scripts/fine_tuning/finetune_pruned_model.py`
+2025-04-04 13:28:03,600 - move_files - INFO - Plan entry: `/scripts/prune_heads.py` -> `/scripts/pruning/prune_heads.py`
+2025-04-04 13:28:03,600 - move_files - INFO - Plan entry: `/scripts/pruning_and_finetuning.py` -> `/scripts/pruning/pruning_and_finetuning.py`
+2025-04-04 13:28:03,600 - move_files - INFO - Plan entry: `/scripts/run_adaptive_plasticity.py` -> `/scripts/plasticity/run_adaptive_plasticity.py`
+2025-04-04 13:28:03,600 - move_files - INFO - Plan entry: `/scripts/test_*.py` -> Either to `/tests/unit/` or `/tests/integration/` based on content
+2025-04-04 13:28:03,600 - move_files - INFO - Plan entry: `/tests/test_model_support.py` -> `/tests/integration/test_model_support.py`
+2025-04-04 13:28:03,600 - move_files - INFO - Plan entry: `/tests/test_neural_plasticity.py` -> `/tests/integration/test_neural_plasticity.py`
+2025-04-04 13:28:03,600 - move_files - INFO - Plan entry: `/tests/test_optimization_comparison.py` -> `/tests/performance/test_optimization_comparison.py`
+2025-04-04 13:28:03,600 - move_files - INFO - Plan entry: `/tests/utils/test_memory.py` -> `/tests/unit/utils/test_memory.py`
+2025-04-04 13:28:03,600 - move_files - INFO - Plan entry: `/tests/utils/test_nan_prevention.py` -> `/tests/unit/utils/test_nan_prevention.py`
+2025-04-04 13:28:03,600 - move_files - INFO - Plan entry: `/output/plasticity_experiments/*` -> `/experiments/results/plasticity/`
+2025-04-04 13:28:03,601 - move_files - INFO - Plan entry: `/profiling_results/*` -> `/experiments/results/profiling/`
+2025-04-04 13:28:03,601 - move_files - INFO - Plan entry: `/pruning_results/*` -> `/experiments/results/pruning/`
+2025-04-04 13:28:03,601 - move_files - INFO - Plan entry: `/validation_results/*` -> `/experiments/results/validation/`
+2025-04-04 13:28:03,601 - move_files - INFO - Plan entry: `/examples/pruning_experiments/scripts/*.py` -> `/experiments/scripts/pruning/`
+2025-04-04 13:28:03,601 - move_files - INFO - Plan entry: `/examples/pruning_experiments/notebooks/*.ipynb` -> `/experiments/notebooks/pruning/`
+2025-04-04 13:28:03,601 - move_files - INFO - Plan entry: `/examples/controller_agency_demo.py` -> `/experiments/scripts/controller/controller_agency_demo.py`
+2025-04-04 13:28:03,601 - move_files - INFO - Plan entry: `/examples/agency_specialization_demo.py` -> `/experiments/scripts/agency/agency_specialization_demo.py`
+2025-04-04 13:28:03,601 - move_files - INFO - Plan entry: `/colab_notebooks/*.ipynb` -> `/experiments/notebooks/colab/`
+2025-04-04 13:28:03,601 - move_files - INFO - Plan entry: `/colab_notebooks/*.py` -> `/experiments/scripts/colab/`
+2025-04-04 13:28:03,601 - move_files - INFO - Plan entry: `/docs/*.md` -> `/docs/guides/`
+2025-04-04 13:28:03,601 - move_files - INFO - Plan entry: `/docs/assets/figures/*.md` -> `/docs/assets/figures/`
+2025-04-04 13:28:03,601 - move_files - INFO - Plan entry: `/docs/improved_diagrams/*.md` -> `/docs/assets/diagrams/`
+2025-04-04 13:28:03,601 - move_files - INFO - Plan entry: `/docs/pruning/*.md` -> `/docs/guides/pruning/`
+2025-04-04 13:28:03,601 - move_files - INFO - Plan entry: `/README.md` -> Stay in place
+2025-04-04 13:28:03,601 - move_files - INFO - Plan entry: `/SUMMARY.md` -> `/docs/guides/SUMMARY.md`
+2025-04-04 13:28:03,601 - move_files - INFO - Plan entry: `/CHANGELOG.md` -> Stay in place
+2025-04-04 13:28:03,601 - move_files - INFO - Plan entry: `/CLAUDE.md` -> Stay in place
+2025-04-04 13:28:03,601 - move_files - INFO - Plan entry: `/LICENSE` -> Stay in place
+2025-04-04 13:28:03,602 - move_files - INFO - Moved file from utils/adaptive/adaptive_plasticity.py to sentinel/plasticity/adaptive/adaptive_plasticity.py
+2025-04-04 13:28:03,602 - move_files - INFO - Created stub file at utils/adaptive/adaptive_plasticity.py
+2025-04-04 13:28:03,603 - move_files - INFO - Moved file from utils/adaptive/__init__.py to sentinel/plasticity/adaptive/__init__.py
+2025-04-04 13:28:03,603 - move_files - INFO - Created stub file at utils/adaptive/__init__.py
+2025-04-04 13:28:03,603 - move_files - INFO - Processed 2 files
+2025-04-04 13:28:03,603 - move_files - INFO - File movement complete
+2025-04-04 13:28:03,652 - move_files - INFO - Starting file movement
+2025-04-04 13:28:03,652 - move_files - INFO - Dry run: False
+2025-04-04 13:28:03,652 - move_files - INFO - Filtering by module: data
+2025-04-04 13:28:03,652 - move_files - INFO - Loaded movement plan with 81 entries
+2025-04-04 13:28:03,652 - move_files - INFO - Plan entry: `/main.py` -> `/scripts/entry_points/inference.py`
+2025-04-04 13:28:03,652 - move_files - INFO - Plan entry: `/train.py` -> `/scripts/entry_points/train.py`
+2025-04-04 13:28:03,652 - move_files - INFO - Plan entry: `/generate_samples.py` -> `/scripts/entry_points/generate.py`
+2025-04-04 13:28:03,652 - move_files - INFO - Plan entry: `/model_probe.py` -> `/scripts/entry_points/probe.py`
+2025-04-04 13:28:03,652 - move_files - INFO - Plan entry: `/models/adaptive_transformer.py` -> `/sentinel/models/adaptive/transformer.py`
+2025-04-04 13:28:03,652 - move_files - INFO - Plan entry: `/models/agency_specialization.py` -> `/sentinel/models/adaptive/agency_specialization.py`
+2025-04-04 13:28:03,652 - move_files - INFO - Plan entry: `/models/bloom_adapter.py` -> `/sentinel/models/adaptive/bloom_adapter.py`
+2025-04-04 13:28:03,652 - move_files - INFO - Plan entry: `/models/llama_adapter.py` -> `/sentinel/models/adaptive/llama_adapter.py`
+2025-04-04 13:28:03,652 - move_files - INFO - Plan entry: `/models/optimized_attention.py` -> `/sentinel/models/utils/optimized_attention.py`
+2025-04-04 13:28:03,652 - move_files - INFO - Plan entry: `/models/specialization_registry.py` -> `/sentinel/models/utils/specialization_registry.py`
+2025-04-04 13:28:03,652 - move_files - INFO - Plan entry: `/models/unet_transformer.py` -> `/sentinel/models/adaptive/unet_transformer.py`
+2025-04-04 13:28:03,652 - move_files - INFO - Plan entry: `/models/unet_transformer_optimized.py` -> `/sentinel/models/adaptive/unet_transformer_optimized.py`
+2025-04-04 13:28:03,653 - move_files - INFO - Plan entry: `/controller/controller_ann.py` -> `/sentinel/controller/controller_ann.py`
+2025-04-04 13:28:03,653 - move_files - INFO - Plan entry: `/controller/controller_manager.py` -> `/sentinel/controller/controller_manager.py`
+2025-04-04 13:28:03,653 - move_files - INFO - Plan entry: `/utils/pruning/pruning_module.py` -> `/sentinel/pruning/pruning_module.py`
+2025-04-04 13:28:03,653 - move_files - INFO - Plan entry: `/utils/pruning/strategies.py` -> `/sentinel/pruning/strategies/base.py`
+2025-04-04 13:28:03,653 - move_files - INFO - Plan entry: `/utils/pruning/fine_tuner.py` -> `/sentinel/pruning/fine_tuning/base.py`
+2025-04-04 13:28:03,653 - move_files - INFO - Plan entry: `/utils/pruning/fine_tuner_improved.py` -> `/sentinel/pruning/fine_tuning/improved.py`
+2025-04-04 13:28:03,653 - move_files - INFO - Plan entry: `/utils/pruning/fine_tuner_consolidated.py` -> `/sentinel/pruning/fine_tuning/consolidated.py`
+2025-04-04 13:28:03,653 - move_files - INFO - Plan entry: `/utils/pruning/experiment.py` -> `/sentinel/pruning/experiment.py`
+2025-04-04 13:28:03,653 - move_files - INFO - Plan entry: `/utils/pruning/results_manager.py` -> `/sentinel/pruning/results_manager.py`
+2025-04-04 13:28:03,653 - move_files - INFO - Plan entry: `/utils/pruning/benchmark.py` -> `/sentinel/pruning/benchmark.py`
+2025-04-04 13:28:03,653 - move_files - INFO - Plan entry: `/utils/pruning/visualization.py` -> `/sentinel/pruning/visualization.py`
+2025-04-04 13:28:03,653 - move_files - INFO - Plan entry: `/utils/pruning/growth.py` -> `/sentinel/pruning/growth.py`
+2025-04-04 13:28:03,653 - move_files - INFO - Plan entry: `/utils/pruning/head_lr_manager.py` -> `/sentinel/pruning/head_lr_manager.py`
+2025-04-04 13:28:03,653 - move_files - INFO - Plan entry: `/utils/adaptive/adaptive_plasticity.py` -> `/sentinel/plasticity/adaptive/adaptive_plasticity.py`
+2025-04-04 13:28:03,653 - move_files - INFO - Plan entry: `/utils/adaptive/__init__.py` -> `/sentinel/plasticity/adaptive/__init__.py`
+2025-04-04 13:28:03,653 - move_files - INFO - Plan entry: `/sentinel_data/__init__.py` -> `/sentinel/data/__init__.py`
+2025-04-04 13:28:03,653 - move_files - INFO - Plan entry: `/sentinel_data/dataset_loader.py` -> `/sentinel/data/loaders/dataset_loader.py`
+2025-04-04 13:28:03,653 - move_files - INFO - Plan entry: `/sentinel_data/eval.py` -> `/sentinel/data/eval.py`
+2025-04-04 13:28:03,653 - move_files - INFO - Plan entry: `/utils/metrics.py` -> `/sentinel/utils/metrics/base.py`
+2025-04-04 13:28:03,653 - move_files - INFO - Plan entry: `/utils/metrics_logger.py` -> `/sentinel/utils/metrics/logger.py`
+2025-04-04 13:28:03,653 - move_files - INFO - Plan entry: `/utils/head_metrics.py` -> `/sentinel/utils/metrics/head_metrics.py`
+2025-04-04 13:28:03,653 - move_files - INFO - Plan entry: `/utils/charting.py` -> `/sentinel/utils/visualization/charting.py`
+2025-04-04 13:28:03,653 - move_files - INFO - Plan entry: `/utils/checkpoint.py` -> `/sentinel/utils/checkpoints/checkpoint.py`
+2025-04-04 13:28:03,653 - move_files - INFO - Plan entry: `/utils/progress_tracker.py` -> `/sentinel/utils/progress_tracker.py`
+2025-04-04 13:28:03,653 - move_files - INFO - Plan entry: `/utils/head_lr_manager.py` -> `/sentinel/utils/head_lr_manager.py`
+2025-04-04 13:28:03,653 - move_files - INFO - Plan entry: `/utils/training.py` -> `/sentinel/utils/training.py`
+2025-04-04 13:28:03,653 - move_files - INFO - Plan entry: `/utils/training_stability.py` -> `/sentinel/utils/training_stability.py`
+2025-04-04 13:28:03,653 - move_files - INFO - Plan entry: `/utils/dynamic_architecture.py` -> `/sentinel/utils/dynamic_architecture.py`
+2025-04-04 13:28:03,653 - move_files - INFO - Plan entry: `/utils/generation_wrapper.py` -> `/sentinel/utils/generation_wrapper.py`
+2025-04-04 13:28:03,653 - move_files - INFO - Plan entry: `/utils/model_wrapper.py` -> `/sentinel/utils/model_wrapper.py`
+2025-04-04 13:28:03,653 - move_files - INFO - Plan entry: `/utils/train_utils.py` -> `/sentinel/utils/train_utils.py`
+2025-04-04 13:28:03,653 - move_files - INFO - Plan entry: `/utils/utils.py` -> `/sentinel/utils/utils.py`
+2025-04-04 13:28:03,653 - move_files - INFO - Plan entry: `/scripts/analyze_heads.py` -> `/scripts/analysis/analyze_heads.py`
+2025-04-04 13:28:03,653 - move_files - INFO - Plan entry: `/scripts/analyze_pruning_results.py` -> `/scripts/analysis/analyze_pruning_results.py`
+2025-04-04 13:28:03,653 - move_files - INFO - Plan entry: `/scripts/benchmark.py` -> `/scripts/benchmarks/benchmark.py`
+2025-04-04 13:28:03,653 - move_files - INFO - Plan entry: `/scripts/benchmark_agency.py` -> `/scripts/benchmarks/benchmark_agency.py`
+2025-04-04 13:28:03,653 - move_files - INFO - Plan entry: `/scripts/benchmark_optimization.py` -> `/scripts/benchmarks/benchmark_optimization.py`
+2025-04-04 13:28:03,653 - move_files - INFO - Plan entry: `/scripts/benchmark_pruning.py` -> `/scripts/benchmarks/benchmark_pruning.py`
+2025-04-04 13:28:03,653 - move_files - INFO - Plan entry: `/scripts/inference.py` -> `/scripts/inference/inference.py`
+2025-04-04 13:28:03,653 - move_files - INFO - Plan entry: `/scripts/inference_with_pruning.py` -> `/scripts/inference/inference_with_pruning.py`
+2025-04-04 13:28:03,653 - move_files - INFO - Plan entry: `/scripts/finetune_pruned_model.py` -> `/scripts/fine_tuning/finetune_pruned_model.py`
+2025-04-04 13:28:03,653 - move_files - INFO - Plan entry: `/scripts/prune_heads.py` -> `/scripts/pruning/prune_heads.py`
+2025-04-04 13:28:03,653 - move_files - INFO - Plan entry: `/scripts/pruning_and_finetuning.py` -> `/scripts/pruning/pruning_and_finetuning.py`
+2025-04-04 13:28:03,653 - move_files - INFO - Plan entry: `/scripts/run_adaptive_plasticity.py` -> `/scripts/plasticity/run_adaptive_plasticity.py`
+2025-04-04 13:28:03,653 - move_files - INFO - Plan entry: `/scripts/test_*.py` -> Either to `/tests/unit/` or `/tests/integration/` based on content
+2025-04-04 13:28:03,653 - move_files - INFO - Plan entry: `/tests/test_model_support.py` -> `/tests/integration/test_model_support.py`
+2025-04-04 13:28:03,653 - move_files - INFO - Plan entry: `/tests/test_neural_plasticity.py` -> `/tests/integration/test_neural_plasticity.py`
+2025-04-04 13:28:03,653 - move_files - INFO - Plan entry: `/tests/test_optimization_comparison.py` -> `/tests/performance/test_optimization_comparison.py`
+2025-04-04 13:28:03,653 - move_files - INFO - Plan entry: `/tests/utils/test_memory.py` -> `/tests/unit/utils/test_memory.py`
+2025-04-04 13:28:03,653 - move_files - INFO - Plan entry: `/tests/utils/test_nan_prevention.py` -> `/tests/unit/utils/test_nan_prevention.py`
+2025-04-04 13:28:03,653 - move_files - INFO - Plan entry: `/output/plasticity_experiments/*` -> `/experiments/results/plasticity/`
+2025-04-04 13:28:03,653 - move_files - INFO - Plan entry: `/profiling_results/*` -> `/experiments/results/profiling/`
+2025-04-04 13:28:03,653 - move_files - INFO - Plan entry: `/pruning_results/*` -> `/experiments/results/pruning/`
+2025-04-04 13:28:03,653 - move_files - INFO - Plan entry: `/validation_results/*` -> `/experiments/results/validation/`
+2025-04-04 13:28:03,653 - move_files - INFO - Plan entry: `/examples/pruning_experiments/scripts/*.py` -> `/experiments/scripts/pruning/`
+2025-04-04 13:28:03,653 - move_files - INFO - Plan entry: `/examples/pruning_experiments/notebooks/*.ipynb` -> `/experiments/notebooks/pruning/`
+2025-04-04 13:28:03,653 - move_files - INFO - Plan entry: `/examples/controller_agency_demo.py` -> `/experiments/scripts/controller/controller_agency_demo.py`
+2025-04-04 13:28:03,653 - move_files - INFO - Plan entry: `/examples/agency_specialization_demo.py` -> `/experiments/scripts/agency/agency_specialization_demo.py`
+2025-04-04 13:28:03,653 - move_files - INFO - Plan entry: `/colab_notebooks/*.ipynb` -> `/experiments/notebooks/colab/`
+2025-04-04 13:28:03,653 - move_files - INFO - Plan entry: `/colab_notebooks/*.py` -> `/experiments/scripts/colab/`
+2025-04-04 13:28:03,653 - move_files - INFO - Plan entry: `/docs/*.md` -> `/docs/guides/`
+2025-04-04 13:28:03,653 - move_files - INFO - Plan entry: `/docs/assets/figures/*.md` -> `/docs/assets/figures/`
+2025-04-04 13:28:03,653 - move_files - INFO - Plan entry: `/docs/improved_diagrams/*.md` -> `/docs/assets/diagrams/`
+2025-04-04 13:28:03,653 - move_files - INFO - Plan entry: `/docs/pruning/*.md` -> `/docs/guides/pruning/`
+2025-04-04 13:28:03,653 - move_files - INFO - Plan entry: `/README.md` -> Stay in place
+2025-04-04 13:28:03,653 - move_files - INFO - Plan entry: `/SUMMARY.md` -> `/docs/guides/SUMMARY.md`
+2025-04-04 13:28:03,653 - move_files - INFO - Plan entry: `/CHANGELOG.md` -> Stay in place
+2025-04-04 13:28:03,653 - move_files - INFO - Plan entry: `/CLAUDE.md` -> Stay in place
+2025-04-04 13:28:03,653 - move_files - INFO - Plan entry: `/LICENSE` -> Stay in place
+2025-04-04 13:28:03,654 - move_files - INFO - Moved file from sentinel_data/__init__.py to sentinel/data/__init__.py
+2025-04-04 13:28:03,654 - move_files - INFO - Created stub file at sentinel_data/__init__.py
+2025-04-04 13:28:03,655 - move_files - INFO - Moved file from sentinel_data/dataset_loader.py to sentinel/data/loaders/dataset_loader.py
+2025-04-04 13:28:03,655 - move_files - INFO - Created stub file at sentinel_data/dataset_loader.py
+2025-04-04 13:28:03,655 - move_files - INFO - Moved file from sentinel_data/eval.py to sentinel/data/eval.py
+2025-04-04 13:28:03,655 - move_files - INFO - Created stub file at sentinel_data/eval.py
+2025-04-04 13:28:03,655 - move_files - INFO - Processed 3 files
+2025-04-04 13:28:03,655 - move_files - INFO - File movement complete
+2025-04-04 13:28:07,620 - move_files - INFO - Starting file movement
+2025-04-04 13:28:07,620 - move_files - INFO - Dry run: False
+2025-04-04 13:28:07,620 - move_files - INFO - Filtering by module: models
+2025-04-04 13:28:07,621 - move_files - INFO - Loaded movement plan with 81 entries
+2025-04-04 13:28:07,621 - move_files - INFO - Plan entry: `/main.py` -> `/scripts/entry_points/inference.py`
+2025-04-04 13:28:07,621 - move_files - INFO - Plan entry: `/train.py` -> `/scripts/entry_points/train.py`
+2025-04-04 13:28:07,621 - move_files - INFO - Plan entry: `/generate_samples.py` -> `/scripts/entry_points/generate.py`
+2025-04-04 13:28:07,621 - move_files - INFO - Plan entry: `/model_probe.py` -> `/scripts/entry_points/probe.py`
+2025-04-04 13:28:07,621 - move_files - INFO - Plan entry: `/models/adaptive_transformer.py` -> `/sentinel/models/adaptive/transformer.py`
+2025-04-04 13:28:07,621 - move_files - INFO - Plan entry: `/models/agency_specialization.py` -> `/sentinel/models/adaptive/agency_specialization.py`
+2025-04-04 13:28:07,621 - move_files - INFO - Plan entry: `/models/bloom_adapter.py` -> `/sentinel/models/adaptive/bloom_adapter.py`
+2025-04-04 13:28:07,621 - move_files - INFO - Plan entry: `/models/llama_adapter.py` -> `/sentinel/models/adaptive/llama_adapter.py`
+2025-04-04 13:28:07,621 - move_files - INFO - Plan entry: `/models/optimized_attention.py` -> `/sentinel/models/utils/optimized_attention.py`
+2025-04-04 13:28:07,621 - move_files - INFO - Plan entry: `/models/specialization_registry.py` -> `/sentinel/models/utils/specialization_registry.py`
+2025-04-04 13:28:07,621 - move_files - INFO - Plan entry: `/models/unet_transformer.py` -> `/sentinel/models/adaptive/unet_transformer.py`
+2025-04-04 13:28:07,621 - move_files - INFO - Plan entry: `/models/unet_transformer_optimized.py` -> `/sentinel/models/adaptive/unet_transformer_optimized.py`
+2025-04-04 13:28:07,621 - move_files - INFO - Plan entry: `/controller/controller_ann.py` -> `/sentinel/controller/controller_ann.py`
+2025-04-04 13:28:07,621 - move_files - INFO - Plan entry: `/controller/controller_manager.py` -> `/sentinel/controller/controller_manager.py`
+2025-04-04 13:28:07,621 - move_files - INFO - Plan entry: `/utils/pruning/pruning_module.py` -> `/sentinel/pruning/pruning_module.py`
+2025-04-04 13:28:07,621 - move_files - INFO - Plan entry: `/utils/pruning/strategies.py` -> `/sentinel/pruning/strategies/base.py`
+2025-04-04 13:28:07,621 - move_files - INFO - Plan entry: `/utils/pruning/fine_tuner.py` -> `/sentinel/pruning/fine_tuning/base.py`
+2025-04-04 13:28:07,621 - move_files - INFO - Plan entry: `/utils/pruning/fine_tuner_improved.py` -> `/sentinel/pruning/fine_tuning/improved.py`
+2025-04-04 13:28:07,621 - move_files - INFO - Plan entry: `/utils/pruning/fine_tuner_consolidated.py` -> `/sentinel/pruning/fine_tuning/consolidated.py`
+2025-04-04 13:28:07,621 - move_files - INFO - Plan entry: `/utils/pruning/experiment.py` -> `/sentinel/pruning/experiment.py`
+2025-04-04 13:28:07,621 - move_files - INFO - Plan entry: `/utils/pruning/results_manager.py` -> `/sentinel/pruning/results_manager.py`
+2025-04-04 13:28:07,621 - move_files - INFO - Plan entry: `/utils/pruning/benchmark.py` -> `/sentinel/pruning/benchmark.py`
+2025-04-04 13:28:07,621 - move_files - INFO - Plan entry: `/utils/pruning/visualization.py` -> `/sentinel/pruning/visualization.py`
+2025-04-04 13:28:07,621 - move_files - INFO - Plan entry: `/utils/pruning/growth.py` -> `/sentinel/pruning/growth.py`
+2025-04-04 13:28:07,621 - move_files - INFO - Plan entry: `/utils/pruning/head_lr_manager.py` -> `/sentinel/pruning/head_lr_manager.py`
+2025-04-04 13:28:07,621 - move_files - INFO - Plan entry: `/utils/adaptive/adaptive_plasticity.py` -> `/sentinel/plasticity/adaptive/adaptive_plasticity.py`
+2025-04-04 13:28:07,621 - move_files - INFO - Plan entry: `/utils/adaptive/__init__.py` -> `/sentinel/plasticity/adaptive/__init__.py`
+2025-04-04 13:28:07,621 - move_files - INFO - Plan entry: `/sentinel_data/__init__.py` -> `/sentinel/data/__init__.py`
+2025-04-04 13:28:07,621 - move_files - INFO - Plan entry: `/sentinel_data/dataset_loader.py` -> `/sentinel/data/loaders/dataset_loader.py`
+2025-04-04 13:28:07,621 - move_files - INFO - Plan entry: `/sentinel_data/eval.py` -> `/sentinel/data/eval.py`
+2025-04-04 13:28:07,621 - move_files - INFO - Plan entry: `/utils/metrics.py` -> `/sentinel/utils/metrics/base.py`
+2025-04-04 13:28:07,621 - move_files - INFO - Plan entry: `/utils/metrics_logger.py` -> `/sentinel/utils/metrics/logger.py`
+2025-04-04 13:28:07,621 - move_files - INFO - Plan entry: `/utils/head_metrics.py` -> `/sentinel/utils/metrics/head_metrics.py`
+2025-04-04 13:28:07,621 - move_files - INFO - Plan entry: `/utils/charting.py` -> `/sentinel/utils/visualization/charting.py`
+2025-04-04 13:28:07,621 - move_files - INFO - Plan entry: `/utils/checkpoint.py` -> `/sentinel/utils/checkpoints/checkpoint.py`
+2025-04-04 13:28:07,621 - move_files - INFO - Plan entry: `/utils/progress_tracker.py` -> `/sentinel/utils/progress_tracker.py`
+2025-04-04 13:28:07,621 - move_files - INFO - Plan entry: `/utils/head_lr_manager.py` -> `/sentinel/utils/head_lr_manager.py`
+2025-04-04 13:28:07,621 - move_files - INFO - Plan entry: `/utils/training.py` -> `/sentinel/utils/training.py`
+2025-04-04 13:28:07,621 - move_files - INFO - Plan entry: `/utils/training_stability.py` -> `/sentinel/utils/training_stability.py`
+2025-04-04 13:28:07,621 - move_files - INFO - Plan entry: `/utils/dynamic_architecture.py` -> `/sentinel/utils/dynamic_architecture.py`
+2025-04-04 13:28:07,621 - move_files - INFO - Plan entry: `/utils/generation_wrapper.py` -> `/sentinel/utils/generation_wrapper.py`
+2025-04-04 13:28:07,621 - move_files - INFO - Plan entry: `/utils/model_wrapper.py` -> `/sentinel/utils/model_wrapper.py`
+2025-04-04 13:28:07,621 - move_files - INFO - Plan entry: `/utils/train_utils.py` -> `/sentinel/utils/train_utils.py`
+2025-04-04 13:28:07,621 - move_files - INFO - Plan entry: `/utils/utils.py` -> `/sentinel/utils/utils.py`
+2025-04-04 13:28:07,621 - move_files - INFO - Plan entry: `/scripts/analyze_heads.py` -> `/scripts/analysis/analyze_heads.py`
+2025-04-04 13:28:07,621 - move_files - INFO - Plan entry: `/scripts/analyze_pruning_results.py` -> `/scripts/analysis/analyze_pruning_results.py`
+2025-04-04 13:28:07,621 - move_files - INFO - Plan entry: `/scripts/benchmark.py` -> `/scripts/benchmarks/benchmark.py`
+2025-04-04 13:28:07,621 - move_files - INFO - Plan entry: `/scripts/benchmark_agency.py` -> `/scripts/benchmarks/benchmark_agency.py`
+2025-04-04 13:28:07,621 - move_files - INFO - Plan entry: `/scripts/benchmark_optimization.py` -> `/scripts/benchmarks/benchmark_optimization.py`
+2025-04-04 13:28:07,621 - move_files - INFO - Plan entry: `/scripts/benchmark_pruning.py` -> `/scripts/benchmarks/benchmark_pruning.py`
+2025-04-04 13:28:07,621 - move_files - INFO - Plan entry: `/scripts/inference.py` -> `/scripts/inference/inference.py`
+2025-04-04 13:28:07,621 - move_files - INFO - Plan entry: `/scripts/inference_with_pruning.py` -> `/scripts/inference/inference_with_pruning.py`
+2025-04-04 13:28:07,621 - move_files - INFO - Plan entry: `/scripts/finetune_pruned_model.py` -> `/scripts/fine_tuning/finetune_pruned_model.py`
+2025-04-04 13:28:07,621 - move_files - INFO - Plan entry: `/scripts/prune_heads.py` -> `/scripts/pruning/prune_heads.py`
+2025-04-04 13:28:07,621 - move_files - INFO - Plan entry: `/scripts/pruning_and_finetuning.py` -> `/scripts/pruning/pruning_and_finetuning.py`
+2025-04-04 13:28:07,622 - move_files - INFO - Plan entry: `/scripts/run_adaptive_plasticity.py` -> `/scripts/plasticity/run_adaptive_plasticity.py`
+2025-04-04 13:28:07,622 - move_files - INFO - Plan entry: `/scripts/test_*.py` -> Either to `/tests/unit/` or `/tests/integration/` based on content
+2025-04-04 13:28:07,622 - move_files - INFO - Plan entry: `/tests/test_model_support.py` -> `/tests/integration/test_model_support.py`
+2025-04-04 13:28:07,622 - move_files - INFO - Plan entry: `/tests/test_neural_plasticity.py` -> `/tests/integration/test_neural_plasticity.py`
+2025-04-04 13:28:07,622 - move_files - INFO - Plan entry: `/tests/test_optimization_comparison.py` -> `/tests/performance/test_optimization_comparison.py`
+2025-04-04 13:28:07,622 - move_files - INFO - Plan entry: `/tests/utils/test_memory.py` -> `/tests/unit/utils/test_memory.py`
+2025-04-04 13:28:07,622 - move_files - INFO - Plan entry: `/tests/utils/test_nan_prevention.py` -> `/tests/unit/utils/test_nan_prevention.py`
+2025-04-04 13:28:07,622 - move_files - INFO - Plan entry: `/output/plasticity_experiments/*` -> `/experiments/results/plasticity/`
+2025-04-04 13:28:07,622 - move_files - INFO - Plan entry: `/profiling_results/*` -> `/experiments/results/profiling/`
+2025-04-04 13:28:07,622 - move_files - INFO - Plan entry: `/pruning_results/*` -> `/experiments/results/pruning/`
+2025-04-04 13:28:07,622 - move_files - INFO - Plan entry: `/validation_results/*` -> `/experiments/results/validation/`
+2025-04-04 13:28:07,622 - move_files - INFO - Plan entry: `/examples/pruning_experiments/scripts/*.py` -> `/experiments/scripts/pruning/`
+2025-04-04 13:28:07,622 - move_files - INFO - Plan entry: `/examples/pruning_experiments/notebooks/*.ipynb` -> `/experiments/notebooks/pruning/`
+2025-04-04 13:28:07,622 - move_files - INFO - Plan entry: `/examples/controller_agency_demo.py` -> `/experiments/scripts/controller/controller_agency_demo.py`
+2025-04-04 13:28:07,622 - move_files - INFO - Plan entry: `/examples/agency_specialization_demo.py` -> `/experiments/scripts/agency/agency_specialization_demo.py`
+2025-04-04 13:28:07,622 - move_files - INFO - Plan entry: `/colab_notebooks/*.ipynb` -> `/experiments/notebooks/colab/`
+2025-04-04 13:28:07,622 - move_files - INFO - Plan entry: `/colab_notebooks/*.py` -> `/experiments/scripts/colab/`
+2025-04-04 13:28:07,622 - move_files - INFO - Plan entry: `/docs/*.md` -> `/docs/guides/`
+2025-04-04 13:28:07,622 - move_files - INFO - Plan entry: `/docs/assets/figures/*.md` -> `/docs/assets/figures/`
+2025-04-04 13:28:07,622 - move_files - INFO - Plan entry: `/docs/improved_diagrams/*.md` -> `/docs/assets/diagrams/`
+2025-04-04 13:28:07,622 - move_files - INFO - Plan entry: `/docs/pruning/*.md` -> `/docs/guides/pruning/`
+2025-04-04 13:28:07,622 - move_files - INFO - Plan entry: `/README.md` -> Stay in place
+2025-04-04 13:28:07,622 - move_files - INFO - Plan entry: `/SUMMARY.md` -> `/docs/guides/SUMMARY.md`
+2025-04-04 13:28:07,622 - move_files - INFO - Plan entry: `/CHANGELOG.md` -> Stay in place
+2025-04-04 13:28:07,622 - move_files - INFO - Plan entry: `/CLAUDE.md` -> Stay in place
+2025-04-04 13:28:07,622 - move_files - INFO - Plan entry: `/LICENSE` -> Stay in place
+2025-04-04 13:28:07,623 - move_files - INFO - Moved file from models/adaptive_transformer.py to sentinel/models/adaptive/transformer.py
+2025-04-04 13:28:07,623 - move_files - INFO - Created stub file at models/adaptive_transformer.py
+2025-04-04 13:28:07,623 - move_files - INFO - Moved file from models/agency_specialization.py to sentinel/models/adaptive/agency_specialization.py
+2025-04-04 13:28:07,623 - move_files - INFO - Created stub file at models/agency_specialization.py
+2025-04-04 13:28:07,624 - move_files - INFO - Moved file from models/bloom_adapter.py to sentinel/models/adaptive/bloom_adapter.py
+2025-04-04 13:28:07,624 - move_files - INFO - Created stub file at models/bloom_adapter.py
+2025-04-04 13:28:07,624 - move_files - INFO - Moved file from models/llama_adapter.py to sentinel/models/adaptive/llama_adapter.py
+2025-04-04 13:28:07,624 - move_files - INFO - Created stub file at models/llama_adapter.py
+2025-04-04 13:28:07,624 - move_files - INFO - Moved file from models/optimized_attention.py to sentinel/models/utils/optimized_attention.py
+2025-04-04 13:28:07,625 - move_files - INFO - Created stub file at models/optimized_attention.py
+2025-04-04 13:28:07,625 - move_files - INFO - Moved file from models/specialization_registry.py to sentinel/models/utils/specialization_registry.py
+2025-04-04 13:28:07,625 - move_files - INFO - Created stub file at models/specialization_registry.py
+2025-04-04 13:28:07,625 - move_files - INFO - Moved file from models/unet_transformer.py to sentinel/models/adaptive/unet_transformer.py
+2025-04-04 13:28:07,625 - move_files - INFO - Created stub file at models/unet_transformer.py
+2025-04-04 13:28:07,625 - move_files - INFO - Moved file from models/unet_transformer_optimized.py to sentinel/models/adaptive/unet_transformer_optimized.py
+2025-04-04 13:28:07,626 - move_files - INFO - Created stub file at models/unet_transformer_optimized.py
+2025-04-04 13:28:07,626 - move_files - INFO - Moved file from models/loaders/bloom_loader.py to sentinel/models/loaders/bloom_loader.py
+2025-04-04 13:28:07,626 - move_files - INFO - Created stub file at models/loaders/bloom_loader.py
+2025-04-04 13:28:07,626 - move_files - INFO - Moved file from models/loaders/opt_loader.py to sentinel/models/loaders/opt_loader.py
+2025-04-04 13:28:07,626 - move_files - INFO - Created stub file at models/loaders/opt_loader.py
+2025-04-04 13:28:07,626 - move_files - INFO - Moved file from models/loaders/fix_gpt2_loader.py to sentinel/models/loaders/fix_gpt2_loader.py
+2025-04-04 13:28:07,627 - move_files - INFO - Created stub file at models/loaders/fix_gpt2_loader.py
+2025-04-04 13:28:07,627 - move_files - INFO - Moved file from models/loaders/loader_optimized.py to sentinel/models/loaders/loader_optimized.py
+2025-04-04 13:28:07,627 - move_files - INFO - Created stub file at models/loaders/loader_optimized.py
+2025-04-04 13:28:07,627 - move_files - INFO - Moved file from models/loaders/llama_loader.py to sentinel/models/loaders/llama_loader.py
+2025-04-04 13:28:07,627 - move_files - INFO - Created stub file at models/loaders/llama_loader.py
+2025-04-04 13:28:07,627 - move_files - INFO - Moved file from models/loaders/loader.py to sentinel/models/loaders/loader.py
+2025-04-04 13:28:07,628 - move_files - INFO - Created stub file at models/loaders/loader.py
+2025-04-04 13:28:07,628 - move_files - INFO - Moved file from models/loaders/bloom_loader_fixed.py to sentinel/models/loaders/bloom_loader_fixed.py
+2025-04-04 13:28:07,628 - move_files - INFO - Created stub file at models/loaders/bloom_loader_fixed.py
+2025-04-04 13:28:07,628 - move_files - INFO - Moved file from models/loaders/gpt_neox_loader.py to sentinel/models/loaders/gpt_neox_loader.py
+2025-04-04 13:28:07,628 - move_files - INFO - Created stub file at models/loaders/gpt_neox_loader.py
+2025-04-04 13:28:07,629 - move_files - INFO - Moved file from models/loaders/gpt2_loader.py to sentinel/models/loaders/gpt2_loader.py
+2025-04-04 13:28:07,629 - move_files - INFO - Created stub file at models/loaders/gpt2_loader.py
+2025-04-04 13:28:07,629 - move_files - INFO - Moved file from models/loaders/gpt2_loader_optimized.py to sentinel/models/loaders/gpt2_loader_optimized.py
+2025-04-04 13:28:07,629 - move_files - INFO - Created stub file at models/loaders/gpt2_loader_optimized.py
+2025-04-04 13:28:07,629 - move_files - INFO - Moved file from models/optimized/integration_optimized.py to sentinel/models/optimized/integration_optimized.py
+2025-04-04 13:28:07,629 - move_files - INFO - Created stub file at models/optimized/integration_optimized.py
+2025-04-04 13:28:07,630 - move_files - INFO - Moved file from models/optimized/__init__.py to sentinel/models/optimized/__init__.py
+2025-04-04 13:28:07,630 - move_files - INFO - Created stub file at models/optimized/__init__.py
+2025-04-04 13:28:07,630 - move_files - INFO - Processed 20 files
+2025-04-04 13:28:07,630 - move_files - INFO - File movement complete
+2025-04-04 13:28:33,009 - move_files - INFO - Starting file movement
+2025-04-04 13:28:33,009 - move_files - INFO - Dry run: False
+2025-04-04 13:28:33,009 - move_files - INFO - Filtering by module: controller
+2025-04-04 13:28:33,009 - move_files - INFO - Loaded movement plan with 81 entries
+2025-04-04 13:28:33,009 - move_files - INFO - Plan entry: `/main.py` -> `/scripts/entry_points/inference.py`
+2025-04-04 13:28:33,009 - move_files - INFO - Plan entry: `/train.py` -> `/scripts/entry_points/train.py`
+2025-04-04 13:28:33,010 - move_files - INFO - Plan entry: `/generate_samples.py` -> `/scripts/entry_points/generate.py`
+2025-04-04 13:28:33,010 - move_files - INFO - Plan entry: `/model_probe.py` -> `/scripts/entry_points/probe.py`
+2025-04-04 13:28:33,010 - move_files - INFO - Plan entry: `/models/adaptive_transformer.py` -> `/sentinel/models/adaptive/transformer.py`
+2025-04-04 13:28:33,010 - move_files - INFO - Plan entry: `/models/agency_specialization.py` -> `/sentinel/models/adaptive/agency_specialization.py`
+2025-04-04 13:28:33,010 - move_files - INFO - Plan entry: `/models/bloom_adapter.py` -> `/sentinel/models/adaptive/bloom_adapter.py`
+2025-04-04 13:28:33,010 - move_files - INFO - Plan entry: `/models/llama_adapter.py` -> `/sentinel/models/adaptive/llama_adapter.py`
+2025-04-04 13:28:33,010 - move_files - INFO - Plan entry: `/models/optimized_attention.py` -> `/sentinel/models/utils/optimized_attention.py`
+2025-04-04 13:28:33,010 - move_files - INFO - Plan entry: `/models/specialization_registry.py` -> `/sentinel/models/utils/specialization_registry.py`
+2025-04-04 13:28:33,010 - move_files - INFO - Plan entry: `/models/unet_transformer.py` -> `/sentinel/models/adaptive/unet_transformer.py`
+2025-04-04 13:28:33,010 - move_files - INFO - Plan entry: `/models/unet_transformer_optimized.py` -> `/sentinel/models/adaptive/unet_transformer_optimized.py`
+2025-04-04 13:28:33,010 - move_files - INFO - Plan entry: `/controller/controller_ann.py` -> `/sentinel/controller/controller_ann.py`
+2025-04-04 13:28:33,010 - move_files - INFO - Plan entry: `/controller/controller_manager.py` -> `/sentinel/controller/controller_manager.py`
+2025-04-04 13:28:33,010 - move_files - INFO - Plan entry: `/utils/pruning/pruning_module.py` -> `/sentinel/pruning/pruning_module.py`
+2025-04-04 13:28:33,010 - move_files - INFO - Plan entry: `/utils/pruning/strategies.py` -> `/sentinel/pruning/strategies/base.py`
+2025-04-04 13:28:33,010 - move_files - INFO - Plan entry: `/utils/pruning/fine_tuner.py` -> `/sentinel/pruning/fine_tuning/base.py`
+2025-04-04 13:28:33,010 - move_files - INFO - Plan entry: `/utils/pruning/fine_tuner_improved.py` -> `/sentinel/pruning/fine_tuning/improved.py`
+2025-04-04 13:28:33,010 - move_files - INFO - Plan entry: `/utils/pruning/fine_tuner_consolidated.py` -> `/sentinel/pruning/fine_tuning/consolidated.py`
+2025-04-04 13:28:33,010 - move_files - INFO - Plan entry: `/utils/pruning/experiment.py` -> `/sentinel/pruning/experiment.py`
+2025-04-04 13:28:33,010 - move_files - INFO - Plan entry: `/utils/pruning/results_manager.py` -> `/sentinel/pruning/results_manager.py`
+2025-04-04 13:28:33,010 - move_files - INFO - Plan entry: `/utils/pruning/benchmark.py` -> `/sentinel/pruning/benchmark.py`
+2025-04-04 13:28:33,010 - move_files - INFO - Plan entry: `/utils/pruning/visualization.py` -> `/sentinel/pruning/visualization.py`
+2025-04-04 13:28:33,010 - move_files - INFO - Plan entry: `/utils/pruning/growth.py` -> `/sentinel/pruning/growth.py`
+2025-04-04 13:28:33,010 - move_files - INFO - Plan entry: `/utils/pruning/head_lr_manager.py` -> `/sentinel/pruning/head_lr_manager.py`
+2025-04-04 13:28:33,010 - move_files - INFO - Plan entry: `/utils/adaptive/adaptive_plasticity.py` -> `/sentinel/plasticity/adaptive/adaptive_plasticity.py`
+2025-04-04 13:28:33,010 - move_files - INFO - Plan entry: `/utils/adaptive/__init__.py` -> `/sentinel/plasticity/adaptive/__init__.py`
+2025-04-04 13:28:33,010 - move_files - INFO - Plan entry: `/sentinel_data/__init__.py` -> `/sentinel/data/__init__.py`
+2025-04-04 13:28:33,010 - move_files - INFO - Plan entry: `/sentinel_data/dataset_loader.py` -> `/sentinel/data/loaders/dataset_loader.py`
+2025-04-04 13:28:33,010 - move_files - INFO - Plan entry: `/sentinel_data/eval.py` -> `/sentinel/data/eval.py`
+2025-04-04 13:28:33,010 - move_files - INFO - Plan entry: `/utils/metrics.py` -> `/sentinel/utils/metrics/base.py`
+2025-04-04 13:28:33,010 - move_files - INFO - Plan entry: `/utils/metrics_logger.py` -> `/sentinel/utils/metrics/logger.py`
+2025-04-04 13:28:33,010 - move_files - INFO - Plan entry: `/utils/head_metrics.py` -> `/sentinel/utils/metrics/head_metrics.py`
+2025-04-04 13:28:33,010 - move_files - INFO - Plan entry: `/utils/charting.py` -> `/sentinel/utils/visualization/charting.py`
+2025-04-04 13:28:33,010 - move_files - INFO - Plan entry: `/utils/checkpoint.py` -> `/sentinel/utils/checkpoints/checkpoint.py`
+2025-04-04 13:28:33,010 - move_files - INFO - Plan entry: `/utils/progress_tracker.py` -> `/sentinel/utils/progress_tracker.py`
+2025-04-04 13:28:33,010 - move_files - INFO - Plan entry: `/utils/head_lr_manager.py` -> `/sentinel/utils/head_lr_manager.py`
+2025-04-04 13:28:33,010 - move_files - INFO - Plan entry: `/utils/training.py` -> `/sentinel/utils/training.py`
+2025-04-04 13:28:33,010 - move_files - INFO - Plan entry: `/utils/training_stability.py` -> `/sentinel/utils/training_stability.py`
+2025-04-04 13:28:33,010 - move_files - INFO - Plan entry: `/utils/dynamic_architecture.py` -> `/sentinel/utils/dynamic_architecture.py`
+2025-04-04 13:28:33,010 - move_files - INFO - Plan entry: `/utils/generation_wrapper.py` -> `/sentinel/utils/generation_wrapper.py`
+2025-04-04 13:28:33,010 - move_files - INFO - Plan entry: `/utils/model_wrapper.py` -> `/sentinel/utils/model_wrapper.py`
+2025-04-04 13:28:33,010 - move_files - INFO - Plan entry: `/utils/train_utils.py` -> `/sentinel/utils/train_utils.py`
+2025-04-04 13:28:33,010 - move_files - INFO - Plan entry: `/utils/utils.py` -> `/sentinel/utils/utils.py`
+2025-04-04 13:28:33,010 - move_files - INFO - Plan entry: `/scripts/analyze_heads.py` -> `/scripts/analysis/analyze_heads.py`
+2025-04-04 13:28:33,010 - move_files - INFO - Plan entry: `/scripts/analyze_pruning_results.py` -> `/scripts/analysis/analyze_pruning_results.py`
+2025-04-04 13:28:33,010 - move_files - INFO - Plan entry: `/scripts/benchmark.py` -> `/scripts/benchmarks/benchmark.py`
+2025-04-04 13:28:33,010 - move_files - INFO - Plan entry: `/scripts/benchmark_agency.py` -> `/scripts/benchmarks/benchmark_agency.py`
+2025-04-04 13:28:33,010 - move_files - INFO - Plan entry: `/scripts/benchmark_optimization.py` -> `/scripts/benchmarks/benchmark_optimization.py`
+2025-04-04 13:28:33,010 - move_files - INFO - Plan entry: `/scripts/benchmark_pruning.py` -> `/scripts/benchmarks/benchmark_pruning.py`
+2025-04-04 13:28:33,010 - move_files - INFO - Plan entry: `/scripts/inference.py` -> `/scripts/inference/inference.py`
+2025-04-04 13:28:33,010 - move_files - INFO - Plan entry: `/scripts/inference_with_pruning.py` -> `/scripts/inference/inference_with_pruning.py`
+2025-04-04 13:28:33,010 - move_files - INFO - Plan entry: `/scripts/finetune_pruned_model.py` -> `/scripts/fine_tuning/finetune_pruned_model.py`
+2025-04-04 13:28:33,010 - move_files - INFO - Plan entry: `/scripts/prune_heads.py` -> `/scripts/pruning/prune_heads.py`
+2025-04-04 13:28:33,010 - move_files - INFO - Plan entry: `/scripts/pruning_and_finetuning.py` -> `/scripts/pruning/pruning_and_finetuning.py`
+2025-04-04 13:28:33,010 - move_files - INFO - Plan entry: `/scripts/run_adaptive_plasticity.py` -> `/scripts/plasticity/run_adaptive_plasticity.py`
+2025-04-04 13:28:33,010 - move_files - INFO - Plan entry: `/scripts/test_*.py` -> Either to `/tests/unit/` or `/tests/integration/` based on content
+2025-04-04 13:28:33,010 - move_files - INFO - Plan entry: `/tests/test_model_support.py` -> `/tests/integration/test_model_support.py`
+2025-04-04 13:28:33,010 - move_files - INFO - Plan entry: `/tests/test_neural_plasticity.py` -> `/tests/integration/test_neural_plasticity.py`
+2025-04-04 13:28:33,010 - move_files - INFO - Plan entry: `/tests/test_optimization_comparison.py` -> `/tests/performance/test_optimization_comparison.py`
+2025-04-04 13:28:33,011 - move_files - INFO - Plan entry: `/tests/utils/test_memory.py` -> `/tests/unit/utils/test_memory.py`
+2025-04-04 13:28:33,011 - move_files - INFO - Plan entry: `/tests/utils/test_nan_prevention.py` -> `/tests/unit/utils/test_nan_prevention.py`
+2025-04-04 13:28:33,011 - move_files - INFO - Plan entry: `/output/plasticity_experiments/*` -> `/experiments/results/plasticity/`
+2025-04-04 13:28:33,011 - move_files - INFO - Plan entry: `/profiling_results/*` -> `/experiments/results/profiling/`
+2025-04-04 13:28:33,011 - move_files - INFO - Plan entry: `/pruning_results/*` -> `/experiments/results/pruning/`
+2025-04-04 13:28:33,011 - move_files - INFO - Plan entry: `/validation_results/*` -> `/experiments/results/validation/`
+2025-04-04 13:28:33,011 - move_files - INFO - Plan entry: `/examples/pruning_experiments/scripts/*.py` -> `/experiments/scripts/pruning/`
+2025-04-04 13:28:33,011 - move_files - INFO - Plan entry: `/examples/pruning_experiments/notebooks/*.ipynb` -> `/experiments/notebooks/pruning/`
+2025-04-04 13:28:33,011 - move_files - INFO - Plan entry: `/examples/controller_agency_demo.py` -> `/experiments/scripts/controller/controller_agency_demo.py`
+2025-04-04 13:28:33,011 - move_files - INFO - Plan entry: `/examples/agency_specialization_demo.py` -> `/experiments/scripts/agency/agency_specialization_demo.py`
+2025-04-04 13:28:33,011 - move_files - INFO - Plan entry: `/colab_notebooks/*.ipynb` -> `/experiments/notebooks/colab/`
+2025-04-04 13:28:33,011 - move_files - INFO - Plan entry: `/colab_notebooks/*.py` -> `/experiments/scripts/colab/`
+2025-04-04 13:28:33,011 - move_files - INFO - Plan entry: `/docs/*.md` -> `/docs/guides/`
+2025-04-04 13:28:33,011 - move_files - INFO - Plan entry: `/docs/assets/figures/*.md` -> `/docs/assets/figures/`
+2025-04-04 13:28:33,011 - move_files - INFO - Plan entry: `/docs/improved_diagrams/*.md` -> `/docs/assets/diagrams/`
+2025-04-04 13:28:33,011 - move_files - INFO - Plan entry: `/docs/pruning/*.md` -> `/docs/guides/pruning/`
+2025-04-04 13:28:33,011 - move_files - INFO - Plan entry: `/README.md` -> Stay in place
+2025-04-04 13:28:33,011 - move_files - INFO - Plan entry: `/SUMMARY.md` -> `/docs/guides/SUMMARY.md`
+2025-04-04 13:28:33,011 - move_files - INFO - Plan entry: `/CHANGELOG.md` -> Stay in place
+2025-04-04 13:28:33,011 - move_files - INFO - Plan entry: `/CLAUDE.md` -> Stay in place
+2025-04-04 13:28:33,011 - move_files - INFO - Plan entry: `/LICENSE` -> Stay in place
+2025-04-04 13:28:33,012 - move_files - INFO - Moved file from controller/controller_ann.py to sentinel/controller/controller_ann.py
+2025-04-04 13:28:33,012 - move_files - INFO - Created stub file at controller/controller_ann.py
+2025-04-04 13:28:33,012 - move_files - INFO - Moved file from controller/controller_manager.py to sentinel/controller/controller_manager.py
+2025-04-04 13:28:33,012 - move_files - INFO - Created stub file at controller/controller_manager.py
+2025-04-04 13:28:33,013 - move_files - INFO - Moved file from controller/metrics/head_metrics.py to sentinel/controller/metrics/head_metrics.py
+2025-04-04 13:28:33,013 - move_files - INFO - Created stub file at controller/metrics/head_metrics.py
+2025-04-04 13:28:33,013 - move_files - INFO - Moved file from controller/metrics/__init__.py to sentinel/controller/metrics/__init__.py
+2025-04-04 13:28:33,013 - move_files - INFO - Created stub file at controller/metrics/__init__.py
+2025-04-04 13:28:33,013 - move_files - INFO - Moved file from controller/visualizations/gate_visualizer.py to sentinel/controller/visualizations/gate_visualizer.py
+2025-04-04 13:28:33,013 - move_files - INFO - Created stub file at controller/visualizations/gate_visualizer.py
+2025-04-04 13:28:33,014 - move_files - INFO - Moved file from controller/visualizations/agency_visualizer.py to sentinel/controller/visualizations/agency_visualizer.py
+2025-04-04 13:28:33,014 - move_files - INFO - Created stub file at controller/visualizations/agency_visualizer.py
+2025-04-04 13:28:33,014 - move_files - INFO - Processed 6 files
+2025-04-04 13:28:33,014 - move_files - INFO - File movement complete
+2025-04-04 13:28:36,694 - move_files - INFO - Starting file movement
+2025-04-04 13:28:36,695 - move_files - INFO - Dry run: False
+2025-04-04 13:28:36,695 - move_files - INFO - Filtering by module: pruning
+2025-04-04 13:28:36,695 - move_files - INFO - Loaded movement plan with 81 entries
+2025-04-04 13:28:36,695 - move_files - INFO - Plan entry: `/main.py` -> `/scripts/entry_points/inference.py`
+2025-04-04 13:28:36,695 - move_files - INFO - Plan entry: `/train.py` -> `/scripts/entry_points/train.py`
+2025-04-04 13:28:36,695 - move_files - INFO - Plan entry: `/generate_samples.py` -> `/scripts/entry_points/generate.py`
+2025-04-04 13:28:36,695 - move_files - INFO - Plan entry: `/model_probe.py` -> `/scripts/entry_points/probe.py`
+2025-04-04 13:28:36,695 - move_files - INFO - Plan entry: `/models/adaptive_transformer.py` -> `/sentinel/models/adaptive/transformer.py`
+2025-04-04 13:28:36,695 - move_files - INFO - Plan entry: `/models/agency_specialization.py` -> `/sentinel/models/adaptive/agency_specialization.py`
+2025-04-04 13:28:36,695 - move_files - INFO - Plan entry: `/models/bloom_adapter.py` -> `/sentinel/models/adaptive/bloom_adapter.py`
+2025-04-04 13:28:36,695 - move_files - INFO - Plan entry: `/models/llama_adapter.py` -> `/sentinel/models/adaptive/llama_adapter.py`
+2025-04-04 13:28:36,695 - move_files - INFO - Plan entry: `/models/optimized_attention.py` -> `/sentinel/models/utils/optimized_attention.py`
+2025-04-04 13:28:36,695 - move_files - INFO - Plan entry: `/models/specialization_registry.py` -> `/sentinel/models/utils/specialization_registry.py`
+2025-04-04 13:28:36,695 - move_files - INFO - Plan entry: `/models/unet_transformer.py` -> `/sentinel/models/adaptive/unet_transformer.py`
+2025-04-04 13:28:36,695 - move_files - INFO - Plan entry: `/models/unet_transformer_optimized.py` -> `/sentinel/models/adaptive/unet_transformer_optimized.py`
+2025-04-04 13:28:36,695 - move_files - INFO - Plan entry: `/controller/controller_ann.py` -> `/sentinel/controller/controller_ann.py`
+2025-04-04 13:28:36,695 - move_files - INFO - Plan entry: `/controller/controller_manager.py` -> `/sentinel/controller/controller_manager.py`
+2025-04-04 13:28:36,695 - move_files - INFO - Plan entry: `/utils/pruning/pruning_module.py` -> `/sentinel/pruning/pruning_module.py`
+2025-04-04 13:28:36,695 - move_files - INFO - Plan entry: `/utils/pruning/strategies.py` -> `/sentinel/pruning/strategies/base.py`
+2025-04-04 13:28:36,695 - move_files - INFO - Plan entry: `/utils/pruning/fine_tuner.py` -> `/sentinel/pruning/fine_tuning/base.py`
+2025-04-04 13:28:36,695 - move_files - INFO - Plan entry: `/utils/pruning/fine_tuner_improved.py` -> `/sentinel/pruning/fine_tuning/improved.py`
+2025-04-04 13:28:36,695 - move_files - INFO - Plan entry: `/utils/pruning/fine_tuner_consolidated.py` -> `/sentinel/pruning/fine_tuning/consolidated.py`
+2025-04-04 13:28:36,695 - move_files - INFO - Plan entry: `/utils/pruning/experiment.py` -> `/sentinel/pruning/experiment.py`
+2025-04-04 13:28:36,695 - move_files - INFO - Plan entry: `/utils/pruning/results_manager.py` -> `/sentinel/pruning/results_manager.py`
+2025-04-04 13:28:36,695 - move_files - INFO - Plan entry: `/utils/pruning/benchmark.py` -> `/sentinel/pruning/benchmark.py`
+2025-04-04 13:28:36,695 - move_files - INFO - Plan entry: `/utils/pruning/visualization.py` -> `/sentinel/pruning/visualization.py`
+2025-04-04 13:28:36,695 - move_files - INFO - Plan entry: `/utils/pruning/growth.py` -> `/sentinel/pruning/growth.py`
+2025-04-04 13:28:36,695 - move_files - INFO - Plan entry: `/utils/pruning/head_lr_manager.py` -> `/sentinel/pruning/head_lr_manager.py`
+2025-04-04 13:28:36,695 - move_files - INFO - Plan entry: `/utils/adaptive/adaptive_plasticity.py` -> `/sentinel/plasticity/adaptive/adaptive_plasticity.py`
+2025-04-04 13:28:36,695 - move_files - INFO - Plan entry: `/utils/adaptive/__init__.py` -> `/sentinel/plasticity/adaptive/__init__.py`
+2025-04-04 13:28:36,695 - move_files - INFO - Plan entry: `/sentinel_data/__init__.py` -> `/sentinel/data/__init__.py`
+2025-04-04 13:28:36,695 - move_files - INFO - Plan entry: `/sentinel_data/dataset_loader.py` -> `/sentinel/data/loaders/dataset_loader.py`
+2025-04-04 13:28:36,695 - move_files - INFO - Plan entry: `/sentinel_data/eval.py` -> `/sentinel/data/eval.py`
+2025-04-04 13:28:36,695 - move_files - INFO - Plan entry: `/utils/metrics.py` -> `/sentinel/utils/metrics/base.py`
+2025-04-04 13:28:36,695 - move_files - INFO - Plan entry: `/utils/metrics_logger.py` -> `/sentinel/utils/metrics/logger.py`
+2025-04-04 13:28:36,695 - move_files - INFO - Plan entry: `/utils/head_metrics.py` -> `/sentinel/utils/metrics/head_metrics.py`
+2025-04-04 13:28:36,695 - move_files - INFO - Plan entry: `/utils/charting.py` -> `/sentinel/utils/visualization/charting.py`
+2025-04-04 13:28:36,695 - move_files - INFO - Plan entry: `/utils/checkpoint.py` -> `/sentinel/utils/checkpoints/checkpoint.py`
+2025-04-04 13:28:36,695 - move_files - INFO - Plan entry: `/utils/progress_tracker.py` -> `/sentinel/utils/progress_tracker.py`
+2025-04-04 13:28:36,696 - move_files - INFO - Plan entry: `/utils/head_lr_manager.py` -> `/sentinel/utils/head_lr_manager.py`
+2025-04-04 13:28:36,696 - move_files - INFO - Plan entry: `/utils/training.py` -> `/sentinel/utils/training.py`
+2025-04-04 13:28:36,696 - move_files - INFO - Plan entry: `/utils/training_stability.py` -> `/sentinel/utils/training_stability.py`
+2025-04-04 13:28:36,696 - move_files - INFO - Plan entry: `/utils/dynamic_architecture.py` -> `/sentinel/utils/dynamic_architecture.py`
+2025-04-04 13:28:36,696 - move_files - INFO - Plan entry: `/utils/generation_wrapper.py` -> `/sentinel/utils/generation_wrapper.py`
+2025-04-04 13:28:36,696 - move_files - INFO - Plan entry: `/utils/model_wrapper.py` -> `/sentinel/utils/model_wrapper.py`
+2025-04-04 13:28:36,696 - move_files - INFO - Plan entry: `/utils/train_utils.py` -> `/sentinel/utils/train_utils.py`
+2025-04-04 13:28:36,696 - move_files - INFO - Plan entry: `/utils/utils.py` -> `/sentinel/utils/utils.py`
+2025-04-04 13:28:36,696 - move_files - INFO - Plan entry: `/scripts/analyze_heads.py` -> `/scripts/analysis/analyze_heads.py`
+2025-04-04 13:28:36,696 - move_files - INFO - Plan entry: `/scripts/analyze_pruning_results.py` -> `/scripts/analysis/analyze_pruning_results.py`
+2025-04-04 13:28:36,696 - move_files - INFO - Plan entry: `/scripts/benchmark.py` -> `/scripts/benchmarks/benchmark.py`
+2025-04-04 13:28:36,696 - move_files - INFO - Plan entry: `/scripts/benchmark_agency.py` -> `/scripts/benchmarks/benchmark_agency.py`
+2025-04-04 13:28:36,696 - move_files - INFO - Plan entry: `/scripts/benchmark_optimization.py` -> `/scripts/benchmarks/benchmark_optimization.py`
+2025-04-04 13:28:36,696 - move_files - INFO - Plan entry: `/scripts/benchmark_pruning.py` -> `/scripts/benchmarks/benchmark_pruning.py`
+2025-04-04 13:28:36,696 - move_files - INFO - Plan entry: `/scripts/inference.py` -> `/scripts/inference/inference.py`
+2025-04-04 13:28:36,696 - move_files - INFO - Plan entry: `/scripts/inference_with_pruning.py` -> `/scripts/inference/inference_with_pruning.py`
+2025-04-04 13:28:36,696 - move_files - INFO - Plan entry: `/scripts/finetune_pruned_model.py` -> `/scripts/fine_tuning/finetune_pruned_model.py`
+2025-04-04 13:28:36,696 - move_files - INFO - Plan entry: `/scripts/prune_heads.py` -> `/scripts/pruning/prune_heads.py`
+2025-04-04 13:28:36,696 - move_files - INFO - Plan entry: `/scripts/pruning_and_finetuning.py` -> `/scripts/pruning/pruning_and_finetuning.py`
+2025-04-04 13:28:36,696 - move_files - INFO - Plan entry: `/scripts/run_adaptive_plasticity.py` -> `/scripts/plasticity/run_adaptive_plasticity.py`
+2025-04-04 13:28:36,696 - move_files - INFO - Plan entry: `/scripts/test_*.py` -> Either to `/tests/unit/` or `/tests/integration/` based on content
+2025-04-04 13:28:36,696 - move_files - INFO - Plan entry: `/tests/test_model_support.py` -> `/tests/integration/test_model_support.py`
+2025-04-04 13:28:36,696 - move_files - INFO - Plan entry: `/tests/test_neural_plasticity.py` -> `/tests/integration/test_neural_plasticity.py`
+2025-04-04 13:28:36,696 - move_files - INFO - Plan entry: `/tests/test_optimization_comparison.py` -> `/tests/performance/test_optimization_comparison.py`
+2025-04-04 13:28:36,696 - move_files - INFO - Plan entry: `/tests/utils/test_memory.py` -> `/tests/unit/utils/test_memory.py`
+2025-04-04 13:28:36,696 - move_files - INFO - Plan entry: `/tests/utils/test_nan_prevention.py` -> `/tests/unit/utils/test_nan_prevention.py`
+2025-04-04 13:28:36,696 - move_files - INFO - Plan entry: `/output/plasticity_experiments/*` -> `/experiments/results/plasticity/`
+2025-04-04 13:28:36,696 - move_files - INFO - Plan entry: `/profiling_results/*` -> `/experiments/results/profiling/`
+2025-04-04 13:28:36,696 - move_files - INFO - Plan entry: `/pruning_results/*` -> `/experiments/results/pruning/`
+2025-04-04 13:28:36,696 - move_files - INFO - Plan entry: `/validation_results/*` -> `/experiments/results/validation/`
+2025-04-04 13:28:36,696 - move_files - INFO - Plan entry: `/examples/pruning_experiments/scripts/*.py` -> `/experiments/scripts/pruning/`
+2025-04-04 13:28:36,696 - move_files - INFO - Plan entry: `/examples/pruning_experiments/notebooks/*.ipynb` -> `/experiments/notebooks/pruning/`
+2025-04-04 13:28:36,696 - move_files - INFO - Plan entry: `/examples/controller_agency_demo.py` -> `/experiments/scripts/controller/controller_agency_demo.py`
+2025-04-04 13:28:36,696 - move_files - INFO - Plan entry: `/examples/agency_specialization_demo.py` -> `/experiments/scripts/agency/agency_specialization_demo.py`
+2025-04-04 13:28:36,696 - move_files - INFO - Plan entry: `/colab_notebooks/*.ipynb` -> `/experiments/notebooks/colab/`
+2025-04-04 13:28:36,696 - move_files - INFO - Plan entry: `/colab_notebooks/*.py` -> `/experiments/scripts/colab/`
+2025-04-04 13:28:36,696 - move_files - INFO - Plan entry: `/docs/*.md` -> `/docs/guides/`
+2025-04-04 13:28:36,696 - move_files - INFO - Plan entry: `/docs/assets/figures/*.md` -> `/docs/assets/figures/`
+2025-04-04 13:28:36,696 - move_files - INFO - Plan entry: `/docs/improved_diagrams/*.md` -> `/docs/assets/diagrams/`
+2025-04-04 13:28:36,696 - move_files - INFO - Plan entry: `/docs/pruning/*.md` -> `/docs/guides/pruning/`
+2025-04-04 13:28:36,696 - move_files - INFO - Plan entry: `/README.md` -> Stay in place
+2025-04-04 13:28:36,696 - move_files - INFO - Plan entry: `/SUMMARY.md` -> `/docs/guides/SUMMARY.md`
+2025-04-04 13:28:36,696 - move_files - INFO - Plan entry: `/CHANGELOG.md` -> Stay in place
+2025-04-04 13:28:36,696 - move_files - INFO - Plan entry: `/CLAUDE.md` -> Stay in place
+2025-04-04 13:28:36,696 - move_files - INFO - Plan entry: `/LICENSE` -> Stay in place
+2025-04-04 13:28:36,697 - move_files - INFO - Moved file from utils/pruning/pruning_module.py to sentinel/pruning/pruning_module.py
+2025-04-04 13:28:36,697 - move_files - INFO - Created stub file at utils/pruning/pruning_module.py
+2025-04-04 13:28:36,697 - move_files - INFO - Moved file from utils/pruning/strategies.py to sentinel/pruning/strategies/base.py
+2025-04-04 13:28:36,698 - move_files - INFO - Created stub file at utils/pruning/strategies.py
+2025-04-04 13:28:36,698 - move_files - INFO - Moved file from utils/pruning/fine_tuner.py to sentinel/pruning/fine_tuning/base.py
+2025-04-04 13:28:36,698 - move_files - INFO - Created stub file at utils/pruning/fine_tuner.py
+2025-04-04 13:28:36,698 - move_files - INFO - Moved file from utils/pruning/fine_tuner_improved.py to sentinel/pruning/fine_tuning/improved.py
+2025-04-04 13:28:36,698 - move_files - INFO - Created stub file at utils/pruning/fine_tuner_improved.py
+2025-04-04 13:28:36,698 - move_files - INFO - Moved file from utils/pruning/fine_tuner_consolidated.py to sentinel/pruning/fine_tuning/consolidated.py
+2025-04-04 13:28:36,699 - move_files - INFO - Created stub file at utils/pruning/fine_tuner_consolidated.py
+2025-04-04 13:28:36,699 - move_files - INFO - Moved file from utils/pruning/experiment.py to sentinel/pruning/experiment.py
+2025-04-04 13:28:36,699 - move_files - INFO - Created stub file at utils/pruning/experiment.py
+2025-04-04 13:28:36,699 - move_files - INFO - Moved file from utils/pruning/results_manager.py to sentinel/pruning/results_manager.py
+2025-04-04 13:28:36,699 - move_files - INFO - Created stub file at utils/pruning/results_manager.py
+2025-04-04 13:28:36,699 - move_files - INFO - Moved file from utils/pruning/benchmark.py to sentinel/pruning/benchmark.py
+2025-04-04 13:28:36,700 - move_files - INFO - Created stub file at utils/pruning/benchmark.py
+2025-04-04 13:28:36,700 - move_files - INFO - Moved file from utils/pruning/visualization.py to sentinel/pruning/visualization.py
+2025-04-04 13:28:36,700 - move_files - INFO - Created stub file at utils/pruning/visualization.py
+2025-04-04 13:28:36,700 - move_files - INFO - Moved file from utils/pruning/growth.py to sentinel/pruning/growth.py
+2025-04-04 13:28:36,700 - move_files - INFO - Created stub file at utils/pruning/growth.py
+2025-04-04 13:28:36,700 - move_files - INFO - Moved file from utils/pruning/head_lr_manager.py to sentinel/pruning/head_lr_manager.py
+2025-04-04 13:28:36,700 - move_files - INFO - Created stub file at utils/pruning/head_lr_manager.py
+2025-04-04 13:28:36,701 - move_files - INFO - Moved file from utils/pruning/stability/memory_management.py to sentinel/pruning/stability/memory_management.py
+2025-04-04 13:28:36,701 - move_files - INFO - Created stub file at utils/pruning/stability/memory_management.py
+2025-04-04 13:28:36,701 - move_files - INFO - Moved file from utils/pruning/stability/nan_prevention.py to sentinel/pruning/stability/nan_prevention.py
+2025-04-04 13:28:36,701 - move_files - INFO - Created stub file at utils/pruning/stability/nan_prevention.py
+2025-04-04 13:28:36,701 - move_files - INFO - Moved file from utils/pruning/stability/__init__.py to sentinel/pruning/stability/__init__.py
+2025-04-04 13:28:36,701 - move_files - INFO - Created stub file at utils/pruning/stability/__init__.py
+2025-04-04 13:28:36,702 - move_files - INFO - Processed 14 files
+2025-04-04 13:28:36,702 - move_files - INFO - File movement complete
+2025-04-04 13:28:40,524 - move_files - INFO - Starting file movement
+2025-04-04 13:28:40,525 - move_files - INFO - Dry run: False
+2025-04-04 13:28:40,525 - move_files - INFO - Filtering by module: adaptive
+2025-04-04 13:28:40,525 - move_files - INFO - Loaded movement plan with 81 entries
+2025-04-04 13:28:40,525 - move_files - INFO - Plan entry: `/main.py` -> `/scripts/entry_points/inference.py`
+2025-04-04 13:28:40,525 - move_files - INFO - Plan entry: `/train.py` -> `/scripts/entry_points/train.py`
+2025-04-04 13:28:40,525 - move_files - INFO - Plan entry: `/generate_samples.py` -> `/scripts/entry_points/generate.py`
+2025-04-04 13:28:40,525 - move_files - INFO - Plan entry: `/model_probe.py` -> `/scripts/entry_points/probe.py`
+2025-04-04 13:28:40,525 - move_files - INFO - Plan entry: `/models/adaptive_transformer.py` -> `/sentinel/models/adaptive/transformer.py`
+2025-04-04 13:28:40,525 - move_files - INFO - Plan entry: `/models/agency_specialization.py` -> `/sentinel/models/adaptive/agency_specialization.py`
+2025-04-04 13:28:40,525 - move_files - INFO - Plan entry: `/models/bloom_adapter.py` -> `/sentinel/models/adaptive/bloom_adapter.py`
+2025-04-04 13:28:40,525 - move_files - INFO - Plan entry: `/models/llama_adapter.py` -> `/sentinel/models/adaptive/llama_adapter.py`
+2025-04-04 13:28:40,525 - move_files - INFO - Plan entry: `/models/optimized_attention.py` -> `/sentinel/models/utils/optimized_attention.py`
+2025-04-04 13:28:40,525 - move_files - INFO - Plan entry: `/models/specialization_registry.py` -> `/sentinel/models/utils/specialization_registry.py`
+2025-04-04 13:28:40,525 - move_files - INFO - Plan entry: `/models/unet_transformer.py` -> `/sentinel/models/adaptive/unet_transformer.py`
+2025-04-04 13:28:40,525 - move_files - INFO - Plan entry: `/models/unet_transformer_optimized.py` -> `/sentinel/models/adaptive/unet_transformer_optimized.py`
+2025-04-04 13:28:40,525 - move_files - INFO - Plan entry: `/controller/controller_ann.py` -> `/sentinel/controller/controller_ann.py`
+2025-04-04 13:28:40,525 - move_files - INFO - Plan entry: `/controller/controller_manager.py` -> `/sentinel/controller/controller_manager.py`
+2025-04-04 13:28:40,525 - move_files - INFO - Plan entry: `/utils/pruning/pruning_module.py` -> `/sentinel/pruning/pruning_module.py`
+2025-04-04 13:28:40,525 - move_files - INFO - Plan entry: `/utils/pruning/strategies.py` -> `/sentinel/pruning/strategies/base.py`
+2025-04-04 13:28:40,525 - move_files - INFO - Plan entry: `/utils/pruning/fine_tuner.py` -> `/sentinel/pruning/fine_tuning/base.py`
+2025-04-04 13:28:40,525 - move_files - INFO - Plan entry: `/utils/pruning/fine_tuner_improved.py` -> `/sentinel/pruning/fine_tuning/improved.py`
+2025-04-04 13:28:40,525 - move_files - INFO - Plan entry: `/utils/pruning/fine_tuner_consolidated.py` -> `/sentinel/pruning/fine_tuning/consolidated.py`
+2025-04-04 13:28:40,525 - move_files - INFO - Plan entry: `/utils/pruning/experiment.py` -> `/sentinel/pruning/experiment.py`
+2025-04-04 13:28:40,525 - move_files - INFO - Plan entry: `/utils/pruning/results_manager.py` -> `/sentinel/pruning/results_manager.py`
+2025-04-04 13:28:40,525 - move_files - INFO - Plan entry: `/utils/pruning/benchmark.py` -> `/sentinel/pruning/benchmark.py`
+2025-04-04 13:28:40,525 - move_files - INFO - Plan entry: `/utils/pruning/visualization.py` -> `/sentinel/pruning/visualization.py`
+2025-04-04 13:28:40,525 - move_files - INFO - Plan entry: `/utils/pruning/growth.py` -> `/sentinel/pruning/growth.py`
+2025-04-04 13:28:40,525 - move_files - INFO - Plan entry: `/utils/pruning/head_lr_manager.py` -> `/sentinel/pruning/head_lr_manager.py`
+2025-04-04 13:28:40,525 - move_files - INFO - Plan entry: `/utils/adaptive/adaptive_plasticity.py` -> `/sentinel/plasticity/adaptive/adaptive_plasticity.py`
+2025-04-04 13:28:40,525 - move_files - INFO - Plan entry: `/utils/adaptive/__init__.py` -> `/sentinel/plasticity/adaptive/__init__.py`
+2025-04-04 13:28:40,525 - move_files - INFO - Plan entry: `/sentinel_data/__init__.py` -> `/sentinel/data/__init__.py`
+2025-04-04 13:28:40,525 - move_files - INFO - Plan entry: `/sentinel_data/dataset_loader.py` -> `/sentinel/data/loaders/dataset_loader.py`
+2025-04-04 13:28:40,525 - move_files - INFO - Plan entry: `/sentinel_data/eval.py` -> `/sentinel/data/eval.py`
+2025-04-04 13:28:40,525 - move_files - INFO - Plan entry: `/utils/metrics.py` -> `/sentinel/utils/metrics/base.py`
+2025-04-04 13:28:40,525 - move_files - INFO - Plan entry: `/utils/metrics_logger.py` -> `/sentinel/utils/metrics/logger.py`
+2025-04-04 13:28:40,525 - move_files - INFO - Plan entry: `/utils/head_metrics.py` -> `/sentinel/utils/metrics/head_metrics.py`
+2025-04-04 13:28:40,525 - move_files - INFO - Plan entry: `/utils/charting.py` -> `/sentinel/utils/visualization/charting.py`
+2025-04-04 13:28:40,525 - move_files - INFO - Plan entry: `/utils/checkpoint.py` -> `/sentinel/utils/checkpoints/checkpoint.py`
+2025-04-04 13:28:40,525 - move_files - INFO - Plan entry: `/utils/progress_tracker.py` -> `/sentinel/utils/progress_tracker.py`
+2025-04-04 13:28:40,525 - move_files - INFO - Plan entry: `/utils/head_lr_manager.py` -> `/sentinel/utils/head_lr_manager.py`
+2025-04-04 13:28:40,525 - move_files - INFO - Plan entry: `/utils/training.py` -> `/sentinel/utils/training.py`
+2025-04-04 13:28:40,525 - move_files - INFO - Plan entry: `/utils/training_stability.py` -> `/sentinel/utils/training_stability.py`
+2025-04-04 13:28:40,525 - move_files - INFO - Plan entry: `/utils/dynamic_architecture.py` -> `/sentinel/utils/dynamic_architecture.py`
+2025-04-04 13:28:40,525 - move_files - INFO - Plan entry: `/utils/generation_wrapper.py` -> `/sentinel/utils/generation_wrapper.py`
+2025-04-04 13:28:40,526 - move_files - INFO - Plan entry: `/utils/model_wrapper.py` -> `/sentinel/utils/model_wrapper.py`
+2025-04-04 13:28:40,526 - move_files - INFO - Plan entry: `/utils/train_utils.py` -> `/sentinel/utils/train_utils.py`
+2025-04-04 13:28:40,526 - move_files - INFO - Plan entry: `/utils/utils.py` -> `/sentinel/utils/utils.py`
+2025-04-04 13:28:40,526 - move_files - INFO - Plan entry: `/scripts/analyze_heads.py` -> `/scripts/analysis/analyze_heads.py`
+2025-04-04 13:28:40,526 - move_files - INFO - Plan entry: `/scripts/analyze_pruning_results.py` -> `/scripts/analysis/analyze_pruning_results.py`
+2025-04-04 13:28:40,526 - move_files - INFO - Plan entry: `/scripts/benchmark.py` -> `/scripts/benchmarks/benchmark.py`
+2025-04-04 13:28:40,526 - move_files - INFO - Plan entry: `/scripts/benchmark_agency.py` -> `/scripts/benchmarks/benchmark_agency.py`
+2025-04-04 13:28:40,526 - move_files - INFO - Plan entry: `/scripts/benchmark_optimization.py` -> `/scripts/benchmarks/benchmark_optimization.py`
+2025-04-04 13:28:40,526 - move_files - INFO - Plan entry: `/scripts/benchmark_pruning.py` -> `/scripts/benchmarks/benchmark_pruning.py`
+2025-04-04 13:28:40,526 - move_files - INFO - Plan entry: `/scripts/inference.py` -> `/scripts/inference/inference.py`
+2025-04-04 13:28:40,526 - move_files - INFO - Plan entry: `/scripts/inference_with_pruning.py` -> `/scripts/inference/inference_with_pruning.py`
+2025-04-04 13:28:40,526 - move_files - INFO - Plan entry: `/scripts/finetune_pruned_model.py` -> `/scripts/fine_tuning/finetune_pruned_model.py`
+2025-04-04 13:28:40,526 - move_files - INFO - Plan entry: `/scripts/prune_heads.py` -> `/scripts/pruning/prune_heads.py`
+2025-04-04 13:28:40,526 - move_files - INFO - Plan entry: `/scripts/pruning_and_finetuning.py` -> `/scripts/pruning/pruning_and_finetuning.py`
+2025-04-04 13:28:40,526 - move_files - INFO - Plan entry: `/scripts/run_adaptive_plasticity.py` -> `/scripts/plasticity/run_adaptive_plasticity.py`
+2025-04-04 13:28:40,526 - move_files - INFO - Plan entry: `/scripts/test_*.py` -> Either to `/tests/unit/` or `/tests/integration/` based on content
+2025-04-04 13:28:40,526 - move_files - INFO - Plan entry: `/tests/test_model_support.py` -> `/tests/integration/test_model_support.py`
+2025-04-04 13:28:40,526 - move_files - INFO - Plan entry: `/tests/test_neural_plasticity.py` -> `/tests/integration/test_neural_plasticity.py`
+2025-04-04 13:28:40,526 - move_files - INFO - Plan entry: `/tests/test_optimization_comparison.py` -> `/tests/performance/test_optimization_comparison.py`
+2025-04-04 13:28:40,526 - move_files - INFO - Plan entry: `/tests/utils/test_memory.py` -> `/tests/unit/utils/test_memory.py`
+2025-04-04 13:28:40,526 - move_files - INFO - Plan entry: `/tests/utils/test_nan_prevention.py` -> `/tests/unit/utils/test_nan_prevention.py`
+2025-04-04 13:28:40,526 - move_files - INFO - Plan entry: `/output/plasticity_experiments/*` -> `/experiments/results/plasticity/`
+2025-04-04 13:28:40,526 - move_files - INFO - Plan entry: `/profiling_results/*` -> `/experiments/results/profiling/`
+2025-04-04 13:28:40,526 - move_files - INFO - Plan entry: `/pruning_results/*` -> `/experiments/results/pruning/`
+2025-04-04 13:28:40,526 - move_files - INFO - Plan entry: `/validation_results/*` -> `/experiments/results/validation/`
+2025-04-04 13:28:40,526 - move_files - INFO - Plan entry: `/examples/pruning_experiments/scripts/*.py` -> `/experiments/scripts/pruning/`
+2025-04-04 13:28:40,526 - move_files - INFO - Plan entry: `/examples/pruning_experiments/notebooks/*.ipynb` -> `/experiments/notebooks/pruning/`
+2025-04-04 13:28:40,526 - move_files - INFO - Plan entry: `/examples/controller_agency_demo.py` -> `/experiments/scripts/controller/controller_agency_demo.py`
+2025-04-04 13:28:40,526 - move_files - INFO - Plan entry: `/examples/agency_specialization_demo.py` -> `/experiments/scripts/agency/agency_specialization_demo.py`
+2025-04-04 13:28:40,526 - move_files - INFO - Plan entry: `/colab_notebooks/*.ipynb` -> `/experiments/notebooks/colab/`
+2025-04-04 13:28:40,526 - move_files - INFO - Plan entry: `/colab_notebooks/*.py` -> `/experiments/scripts/colab/`
+2025-04-04 13:28:40,526 - move_files - INFO - Plan entry: `/docs/*.md` -> `/docs/guides/`
+2025-04-04 13:28:40,526 - move_files - INFO - Plan entry: `/docs/assets/figures/*.md` -> `/docs/assets/figures/`
+2025-04-04 13:28:40,526 - move_files - INFO - Plan entry: `/docs/improved_diagrams/*.md` -> `/docs/assets/diagrams/`
+2025-04-04 13:28:40,526 - move_files - INFO - Plan entry: `/docs/pruning/*.md` -> `/docs/guides/pruning/`
+2025-04-04 13:28:40,526 - move_files - INFO - Plan entry: `/README.md` -> Stay in place
+2025-04-04 13:28:40,526 - move_files - INFO - Plan entry: `/SUMMARY.md` -> `/docs/guides/SUMMARY.md`
+2025-04-04 13:28:40,526 - move_files - INFO - Plan entry: `/CHANGELOG.md` -> Stay in place
+2025-04-04 13:28:40,526 - move_files - INFO - Plan entry: `/CLAUDE.md` -> Stay in place
+2025-04-04 13:28:40,526 - move_files - INFO - Plan entry: `/LICENSE` -> Stay in place
+2025-04-04 13:28:40,527 - move_files - INFO - Moved file from utils/adaptive/adaptive_plasticity.py to sentinel/plasticity/adaptive/adaptive_plasticity.py
+2025-04-04 13:28:40,527 - move_files - INFO - Created stub file at utils/adaptive/adaptive_plasticity.py
+2025-04-04 13:28:40,527 - move_files - INFO - Moved file from utils/adaptive/__init__.py to sentinel/plasticity/adaptive/__init__.py
+2025-04-04 13:28:40,528 - move_files - INFO - Created stub file at utils/adaptive/__init__.py
+2025-04-04 13:28:40,528 - move_files - INFO - Processed 2 files
+2025-04-04 13:28:40,528 - move_files - INFO - File movement complete
+2025-04-04 13:28:44,375 - move_files - INFO - Starting file movement
+2025-04-04 13:28:44,375 - move_files - INFO - Dry run: False
+2025-04-04 13:28:44,375 - move_files - INFO - Filtering by module: data
+2025-04-04 13:28:44,376 - move_files - INFO - Loaded movement plan with 81 entries
+2025-04-04 13:28:44,376 - move_files - INFO - Plan entry: `/main.py` -> `/scripts/entry_points/inference.py`
+2025-04-04 13:28:44,376 - move_files - INFO - Plan entry: `/train.py` -> `/scripts/entry_points/train.py`
+2025-04-04 13:28:44,376 - move_files - INFO - Plan entry: `/generate_samples.py` -> `/scripts/entry_points/generate.py`
+2025-04-04 13:28:44,376 - move_files - INFO - Plan entry: `/model_probe.py` -> `/scripts/entry_points/probe.py`
+2025-04-04 13:28:44,376 - move_files - INFO - Plan entry: `/models/adaptive_transformer.py` -> `/sentinel/models/adaptive/transformer.py`
+2025-04-04 13:28:44,376 - move_files - INFO - Plan entry: `/models/agency_specialization.py` -> `/sentinel/models/adaptive/agency_specialization.py`
+2025-04-04 13:28:44,376 - move_files - INFO - Plan entry: `/models/bloom_adapter.py` -> `/sentinel/models/adaptive/bloom_adapter.py`
+2025-04-04 13:28:44,376 - move_files - INFO - Plan entry: `/models/llama_adapter.py` -> `/sentinel/models/adaptive/llama_adapter.py`
+2025-04-04 13:28:44,376 - move_files - INFO - Plan entry: `/models/optimized_attention.py` -> `/sentinel/models/utils/optimized_attention.py`
+2025-04-04 13:28:44,376 - move_files - INFO - Plan entry: `/models/specialization_registry.py` -> `/sentinel/models/utils/specialization_registry.py`
+2025-04-04 13:28:44,376 - move_files - INFO - Plan entry: `/models/unet_transformer.py` -> `/sentinel/models/adaptive/unet_transformer.py`
+2025-04-04 13:28:44,376 - move_files - INFO - Plan entry: `/models/unet_transformer_optimized.py` -> `/sentinel/models/adaptive/unet_transformer_optimized.py`
+2025-04-04 13:28:44,376 - move_files - INFO - Plan entry: `/controller/controller_ann.py` -> `/sentinel/controller/controller_ann.py`
+2025-04-04 13:28:44,376 - move_files - INFO - Plan entry: `/controller/controller_manager.py` -> `/sentinel/controller/controller_manager.py`
+2025-04-04 13:28:44,376 - move_files - INFO - Plan entry: `/utils/pruning/pruning_module.py` -> `/sentinel/pruning/pruning_module.py`
+2025-04-04 13:28:44,376 - move_files - INFO - Plan entry: `/utils/pruning/strategies.py` -> `/sentinel/pruning/strategies/base.py`
+2025-04-04 13:28:44,376 - move_files - INFO - Plan entry: `/utils/pruning/fine_tuner.py` -> `/sentinel/pruning/fine_tuning/base.py`
+2025-04-04 13:28:44,376 - move_files - INFO - Plan entry: `/utils/pruning/fine_tuner_improved.py` -> `/sentinel/pruning/fine_tuning/improved.py`
+2025-04-04 13:28:44,376 - move_files - INFO - Plan entry: `/utils/pruning/fine_tuner_consolidated.py` -> `/sentinel/pruning/fine_tuning/consolidated.py`
+2025-04-04 13:28:44,376 - move_files - INFO - Plan entry: `/utils/pruning/experiment.py` -> `/sentinel/pruning/experiment.py`
+2025-04-04 13:28:44,376 - move_files - INFO - Plan entry: `/utils/pruning/results_manager.py` -> `/sentinel/pruning/results_manager.py`
+2025-04-04 13:28:44,376 - move_files - INFO - Plan entry: `/utils/pruning/benchmark.py` -> `/sentinel/pruning/benchmark.py`
+2025-04-04 13:28:44,376 - move_files - INFO - Plan entry: `/utils/pruning/visualization.py` -> `/sentinel/pruning/visualization.py`
+2025-04-04 13:28:44,376 - move_files - INFO - Plan entry: `/utils/pruning/growth.py` -> `/sentinel/pruning/growth.py`
+2025-04-04 13:28:44,376 - move_files - INFO - Plan entry: `/utils/pruning/head_lr_manager.py` -> `/sentinel/pruning/head_lr_manager.py`
+2025-04-04 13:28:44,376 - move_files - INFO - Plan entry: `/utils/adaptive/adaptive_plasticity.py` -> `/sentinel/plasticity/adaptive/adaptive_plasticity.py`
+2025-04-04 13:28:44,376 - move_files - INFO - Plan entry: `/utils/adaptive/__init__.py` -> `/sentinel/plasticity/adaptive/__init__.py`
+2025-04-04 13:28:44,376 - move_files - INFO - Plan entry: `/sentinel_data/__init__.py` -> `/sentinel/data/__init__.py`
+2025-04-04 13:28:44,376 - move_files - INFO - Plan entry: `/sentinel_data/dataset_loader.py` -> `/sentinel/data/loaders/dataset_loader.py`
+2025-04-04 13:28:44,376 - move_files - INFO - Plan entry: `/sentinel_data/eval.py` -> `/sentinel/data/eval.py`
+2025-04-04 13:28:44,376 - move_files - INFO - Plan entry: `/utils/metrics.py` -> `/sentinel/utils/metrics/base.py`
+2025-04-04 13:28:44,376 - move_files - INFO - Plan entry: `/utils/metrics_logger.py` -> `/sentinel/utils/metrics/logger.py`
+2025-04-04 13:28:44,376 - move_files - INFO - Plan entry: `/utils/head_metrics.py` -> `/sentinel/utils/metrics/head_metrics.py`
+2025-04-04 13:28:44,376 - move_files - INFO - Plan entry: `/utils/charting.py` -> `/sentinel/utils/visualization/charting.py`
+2025-04-04 13:28:44,376 - move_files - INFO - Plan entry: `/utils/checkpoint.py` -> `/sentinel/utils/checkpoints/checkpoint.py`
+2025-04-04 13:28:44,376 - move_files - INFO - Plan entry: `/utils/progress_tracker.py` -> `/sentinel/utils/progress_tracker.py`
+2025-04-04 13:28:44,376 - move_files - INFO - Plan entry: `/utils/head_lr_manager.py` -> `/sentinel/utils/head_lr_manager.py`
+2025-04-04 13:28:44,376 - move_files - INFO - Plan entry: `/utils/training.py` -> `/sentinel/utils/training.py`
+2025-04-04 13:28:44,376 - move_files - INFO - Plan entry: `/utils/training_stability.py` -> `/sentinel/utils/training_stability.py`
+2025-04-04 13:28:44,376 - move_files - INFO - Plan entry: `/utils/dynamic_architecture.py` -> `/sentinel/utils/dynamic_architecture.py`
+2025-04-04 13:28:44,376 - move_files - INFO - Plan entry: `/utils/generation_wrapper.py` -> `/sentinel/utils/generation_wrapper.py`
+2025-04-04 13:28:44,376 - move_files - INFO - Plan entry: `/utils/model_wrapper.py` -> `/sentinel/utils/model_wrapper.py`
+2025-04-04 13:28:44,376 - move_files - INFO - Plan entry: `/utils/train_utils.py` -> `/sentinel/utils/train_utils.py`
+2025-04-04 13:28:44,376 - move_files - INFO - Plan entry: `/utils/utils.py` -> `/sentinel/utils/utils.py`
+2025-04-04 13:28:44,376 - move_files - INFO - Plan entry: `/scripts/analyze_heads.py` -> `/scripts/analysis/analyze_heads.py`
+2025-04-04 13:28:44,376 - move_files - INFO - Plan entry: `/scripts/analyze_pruning_results.py` -> `/scripts/analysis/analyze_pruning_results.py`
+2025-04-04 13:28:44,376 - move_files - INFO - Plan entry: `/scripts/benchmark.py` -> `/scripts/benchmarks/benchmark.py`
+2025-04-04 13:28:44,376 - move_files - INFO - Plan entry: `/scripts/benchmark_agency.py` -> `/scripts/benchmarks/benchmark_agency.py`
+2025-04-04 13:28:44,376 - move_files - INFO - Plan entry: `/scripts/benchmark_optimization.py` -> `/scripts/benchmarks/benchmark_optimization.py`
+2025-04-04 13:28:44,376 - move_files - INFO - Plan entry: `/scripts/benchmark_pruning.py` -> `/scripts/benchmarks/benchmark_pruning.py`
+2025-04-04 13:28:44,376 - move_files - INFO - Plan entry: `/scripts/inference.py` -> `/scripts/inference/inference.py`
+2025-04-04 13:28:44,376 - move_files - INFO - Plan entry: `/scripts/inference_with_pruning.py` -> `/scripts/inference/inference_with_pruning.py`
+2025-04-04 13:28:44,376 - move_files - INFO - Plan entry: `/scripts/finetune_pruned_model.py` -> `/scripts/fine_tuning/finetune_pruned_model.py`
+2025-04-04 13:28:44,376 - move_files - INFO - Plan entry: `/scripts/prune_heads.py` -> `/scripts/pruning/prune_heads.py`
+2025-04-04 13:28:44,376 - move_files - INFO - Plan entry: `/scripts/pruning_and_finetuning.py` -> `/scripts/pruning/pruning_and_finetuning.py`
+2025-04-04 13:28:44,377 - move_files - INFO - Plan entry: `/scripts/run_adaptive_plasticity.py` -> `/scripts/plasticity/run_adaptive_plasticity.py`
+2025-04-04 13:28:44,377 - move_files - INFO - Plan entry: `/scripts/test_*.py` -> Either to `/tests/unit/` or `/tests/integration/` based on content
+2025-04-04 13:28:44,377 - move_files - INFO - Plan entry: `/tests/test_model_support.py` -> `/tests/integration/test_model_support.py`
+2025-04-04 13:28:44,377 - move_files - INFO - Plan entry: `/tests/test_neural_plasticity.py` -> `/tests/integration/test_neural_plasticity.py`
+2025-04-04 13:28:44,377 - move_files - INFO - Plan entry: `/tests/test_optimization_comparison.py` -> `/tests/performance/test_optimization_comparison.py`
+2025-04-04 13:28:44,377 - move_files - INFO - Plan entry: `/tests/utils/test_memory.py` -> `/tests/unit/utils/test_memory.py`
+2025-04-04 13:28:44,377 - move_files - INFO - Plan entry: `/tests/utils/test_nan_prevention.py` -> `/tests/unit/utils/test_nan_prevention.py`
+2025-04-04 13:28:44,377 - move_files - INFO - Plan entry: `/output/plasticity_experiments/*` -> `/experiments/results/plasticity/`
+2025-04-04 13:28:44,377 - move_files - INFO - Plan entry: `/profiling_results/*` -> `/experiments/results/profiling/`
+2025-04-04 13:28:44,377 - move_files - INFO - Plan entry: `/pruning_results/*` -> `/experiments/results/pruning/`
+2025-04-04 13:28:44,377 - move_files - INFO - Plan entry: `/validation_results/*` -> `/experiments/results/validation/`
+2025-04-04 13:28:44,377 - move_files - INFO - Plan entry: `/examples/pruning_experiments/scripts/*.py` -> `/experiments/scripts/pruning/`
+2025-04-04 13:28:44,377 - move_files - INFO - Plan entry: `/examples/pruning_experiments/notebooks/*.ipynb` -> `/experiments/notebooks/pruning/`
+2025-04-04 13:28:44,377 - move_files - INFO - Plan entry: `/examples/controller_agency_demo.py` -> `/experiments/scripts/controller/controller_agency_demo.py`
+2025-04-04 13:28:44,377 - move_files - INFO - Plan entry: `/examples/agency_specialization_demo.py` -> `/experiments/scripts/agency/agency_specialization_demo.py`
+2025-04-04 13:28:44,377 - move_files - INFO - Plan entry: `/colab_notebooks/*.ipynb` -> `/experiments/notebooks/colab/`
+2025-04-04 13:28:44,377 - move_files - INFO - Plan entry: `/colab_notebooks/*.py` -> `/experiments/scripts/colab/`
+2025-04-04 13:28:44,377 - move_files - INFO - Plan entry: `/docs/*.md` -> `/docs/guides/`
+2025-04-04 13:28:44,377 - move_files - INFO - Plan entry: `/docs/assets/figures/*.md` -> `/docs/assets/figures/`
+2025-04-04 13:28:44,377 - move_files - INFO - Plan entry: `/docs/improved_diagrams/*.md` -> `/docs/assets/diagrams/`
+2025-04-04 13:28:44,377 - move_files - INFO - Plan entry: `/docs/pruning/*.md` -> `/docs/guides/pruning/`
+2025-04-04 13:28:44,377 - move_files - INFO - Plan entry: `/README.md` -> Stay in place
+2025-04-04 13:28:44,377 - move_files - INFO - Plan entry: `/SUMMARY.md` -> `/docs/guides/SUMMARY.md`
+2025-04-04 13:28:44,377 - move_files - INFO - Plan entry: `/CHANGELOG.md` -> Stay in place
+2025-04-04 13:28:44,377 - move_files - INFO - Plan entry: `/CLAUDE.md` -> Stay in place
+2025-04-04 13:28:44,377 - move_files - INFO - Plan entry: `/LICENSE` -> Stay in place
+2025-04-04 13:28:44,381 - move_files - INFO - Moved file from sentinel_data/__init__.py to sentinel/data/__init__.py
+2025-04-04 13:28:44,381 - move_files - INFO - Created stub file at sentinel_data/__init__.py
+2025-04-04 13:28:44,381 - move_files - INFO - Moved file from sentinel_data/dataset_loader.py to sentinel/data/loaders/dataset_loader.py
+2025-04-04 13:28:44,381 - move_files - INFO - Created stub file at sentinel_data/dataset_loader.py
+2025-04-04 13:28:44,381 - move_files - INFO - Moved file from sentinel_data/eval.py to sentinel/data/eval.py
+2025-04-04 13:28:44,382 - move_files - INFO - Created stub file at sentinel_data/eval.py
+2025-04-04 13:28:44,382 - move_files - INFO - Processed 3 files
+2025-04-04 13:28:44,382 - move_files - INFO - File movement complete
