@@ -16,9 +16,9 @@ import torch
 import random
 import numpy as np
 from transformers import AutoTokenizer, AutoModelForCausalLM
-from models.loaders.loader import load_baseline_model, load_adaptive_model
-from models.loaders.loader_optimized import load_optimized_adaptive_model
-from controller.controller_manager import ControllerManager
+from sentinel.models.loaders.loader import load_baseline_model, load_adaptive_model
+from sentinel.models.loaders.loader_optimized import load_optimized_adaptive_model
+from sentinel.controller.controller_manager import ControllerManager
 import os
 
 def set_seed(seed):
@@ -431,7 +431,7 @@ def main():
         
         # Load checkpoint if provided
         if args.model_path and os.path.exists(args.model_path):
-            from utils.checkpoint import load_checkpoint
+            from sentinel.utils.checkpoints.checkpoint import load_checkpoint
             optimizer = torch.optim.AdamW(model.parameters())
             head_lr_multipliers = {}
             model, _, _, _, _ = load_checkpoint(
