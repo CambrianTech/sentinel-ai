@@ -88,7 +88,7 @@ class ModularExperimentRunner:
             # Experiment parameters
             "prompt": "Artificial intelligence will transform society by",
             "max_runtime": 3600,  # 1 hour default
-            "results_dir": "improvement_results",
+            "results_dir": "experiments/results/modular_experiment",
             "enable_visualization": True,
             "save_results": True
         }

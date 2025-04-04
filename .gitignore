@@ -41,6 +41,25 @@ legacy_datasets/
 /output/*
 !/output/.gitkeep
 
+# Experiment results directories - we only keep the structure but not the results
+/experiments/results/*
+!/experiments/results/.gitkeep
+/experiments/configs/*
+!/experiments/configs/.gitkeep
+/experiments/examples/*
+!/experiments/examples/.gitkeep
+/experiments/notebooks/*
+!/experiments/notebooks/.gitkeep
+
+# Keep empty results directory structure with .gitkeep files
+!/experiments/results/modular_experiment/
+/experiments/results/modular_experiment/*
+!/experiments/results/modular_experiment/.gitkeep
+
+!/experiments/results/adaptive_plasticity/
+/experiments/results/adaptive_plasticity/*
+!/experiments/results/adaptive_plasticity/.gitkeep
+
 # Hugging Face transformers/datasets
 ~/.cache/huggingface/
 ~/.huggingface/
@@ -82,3 +101,6 @@ model_compatibility_results.json
 message.txt
 docs/MANIFESTO.md
 MANIFESTO.md
+
+# Private content - not for repository
+/.private/

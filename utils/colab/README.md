@@ -1,90 +1,70 @@
-# Colab Utilities for Sentinel-AI
+# Colab Integration Utilities
 
-This module provides helper functions and utilities to enhance the usage of Sentinel-AI in Google Colab notebooks. The utilities help with environment setup, hardware detection, and memory optimization.
+This directory contains utilities for integrating SentinelAI with Google Colab.
 
-## Features
+## Modules
 
-### Environment Setup
+- `helpers.py` - Helper functions for setting up the Colab environment
+- `experiment_ui.py` - Modular experiment UI framework
 
-- Auto-detection of Google Colab environment
-- Automatic selection of GPU acceleration (when available)
-- Hardware detection and status reporting
+## ModularExperimentRunner
 
-### Memory Management
+The `ModularExperimentRunner` class in `experiment_ui.py` provides a unified interface for
+configuring and running experiments with a graphical UI in Colab environments.
 
-- GPU memory monitoring and reporting
-- Memory optimization recommendations based on model size
-- Adaptive parameters for different hardware configurations
+Key features:
+- Interactive UI with dropdowns, sliders, and checkboxes
+- Integration with pruning and fine-tuning experiments
+- Support for adaptive plasticity experiments
+- Auto-optimization of parameters based on environment
+- Result visualization and serialization
 
-### Optimization Utilities
-
-- Batch size recommendations based on available memory
-- Sequence length adjustments for memory efficiency
-- Gradient accumulation configuration
-- Mixed precision enablement when appropriate
-
-## Usage Example
+## Usage in Notebooks
 
 ```python
-from utils.colab import setup_colab_environment, check_gpu_status, optimize_for_colab
+from utils.colab.experiment_ui import launch_experiment_ui
 
-# Set up the Colab environment with GPU preference
-env_info = setup_colab_environment(prefer_gpu=True)
+# Launch the UI
+launch_experiment_ui()
+```
 
-# Check the current GPU status
-gpu_info = check_gpu_status()
+For programmatic usage:
 
-# Get optimized parameters for a specific model size
-params = optimize_for_colab(
-    model_size="large",      # Options: tiny, small, medium, large, xl
-    prefer_stability=True    # Prefer stability over speed
+```python
+from utils.colab.experiment_ui import ModularExperimentRunner
+
+# Create a runner
+runner = ModularExperimentRunner()
+
+# Configure
+runner.update_config(
+    model="distilgpt2",
+    pruning_strategy="entropy",
+    pruning_level=0.3
 )
 
-# Use the optimized parameters
-batch_size = params["batch_size"]
-sequence_length = params["sequence_length"]
-stability_level = params["stability_level"]
+# Run
+runner.create_experiment()
+runner.run_experiment()
 ```
 
-## Notebook Integration
+## Environment Detection and Optimization
 
-These utilities are designed to be integrated into all Sentinel-AI notebooks. To add them to a notebook, include the following at the beginning:
+The `setup_colab_environment` function in `helpers.py` detects and configures the Colab
+environment, including:
 
-```python
-# Set up Colab environment
-try:
-    from utils.colab import setup_colab_environment, optimize_for_colab
-    env_info = setup_colab_environment(prefer_gpu=True)
-    
-    # Get optimized parameters for experiment
-    params = optimize_for_colab(model_size="medium")  # Adjust size as needed
-    
-    # Extract parameters for use
-    batch_size = params["batch_size"]
-    sequence_length = params["sequence_length"]
-    stability_level = params["stability_level"]
-except ImportError:
-    print("Colab utilities not available, using default parameters")
-    batch_size = 4
-    sequence_length = 128
-    stability_level = 1
-```
+- GPU availability
+- Memory constraints
+- Optimal batch sizes and sequence lengths
+- JAX/PyTorch configuration
 
-## Notes on Parameter Optimization
+## Extending the UI
 
-The `optimize_for_colab` function provides recommendations based on:
+To add new parameters to the UI:
+1. Add defaults to the `config` dictionary in `ModularExperimentRunner.__init__`
+2. Add UI widgets in `create_ui` method
+3. Update parameter mapping in the run button handler
+4. Ensure the new parameters are passed to the experiment setup
 
-1. **Model Size**: Different parameters for varying model sizes:
-   - tiny: DistilGPT2, smallest models
-   - small: GPT2, OPT-125M
-   - medium: GPT2-Medium, OPT-350M
-   - large: GPT2-Large, OPT-1.3B
-   - xl: GPT2-XL, larger models
-
-2. **Available Memory**: Parameters are scaled based on available GPU memory.
-
-3. **Stability Preference**: 
-   - When `prefer_stability=True`, more conservative parameters are used
-   - When `prefer_stability=False`, more aggressive parameters maximize utilization
-
-4. **Mixed Precision**: FP16 is enabled when appropriate based on model size and memory availability.
+For adding completely new experiment types, see the experiment framework in
+`utils/pruning/experiment.py`.
