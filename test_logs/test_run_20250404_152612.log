@@ -1,0 +1,20 @@
+2025-04-04 15:26:12,740 - INFO - TESTING MODEL FUNCTIONALITY
+2025-04-04 15:26:12,741 - INFO - ==========================
+2025-04-04 15:26:12,743 - INFO - Using sentinel namespace imports
+2025-04-04 15:26:12,743 - INFO - Using device: cpu
+2025-04-04 15:26:12,743 - INFO - Testing model: distilgpt2
+2025-04-04 15:26:12,743 - INFO - Loading tokenizer
+2025-04-04 15:26:13,168 - INFO - Loading baseline model
+2025-04-04 15:26:13,940 - INFO - Baseline model loaded, type: <class 'transformers.models.gpt2.modeling_gpt2.GPT2LMHeadModel'>
+2025-04-04 15:26:13,940 - INFO - Converting to adaptive model
+2025-04-04 15:26:14,557 - INFO - Adaptive model loaded, type: <class 'sentinel.models.adaptive.transformer.AdaptiveCausalLmWrapper'>
+2025-04-04 15:26:14,557 - INFO - Generating text for prompt: 'The future of AI is'
+2025-04-04 15:26:14,558 - INFO - Generating with adaptive model
+2025-04-04 15:26:15,467 - INFO - Generated text: The future of AI is not known as a few days old boyfriend of the same thing or the United States of a handful of the rest of the
+2025-04-04 15:26:15,467 - INFO - ✅ SUCCESS: Model successfully generated text
+2025-04-04 15:26:15,467 - INFO - Test completed successfully
+⚠️ Using original BLOOM loader (consider using the fixed version)
+✅ Loaded baseline model: distilgpt2 with 81,912,576 parameters
+Model type: gpt2
+✅ Adaptive model initialized from distilgpt2 weights
+Test completed. See results in: /Users/joel/Development/sentinel-ai/test_logs/test_run_20250404_152612.log

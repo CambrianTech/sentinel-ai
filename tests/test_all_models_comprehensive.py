@@ -38,14 +38,36 @@ logging.basicConfig(
         logging.FileHandler('model_testing.log')
     ]
 )
+
+# Add more verbose console output
+console = logging.StreamHandler(sys.stdout)
+console.setLevel(logging.DEBUG)
+console.setFormatter(logging.Formatter('%(asctime)s [%(levelname)s] %(message)s'))
+logging.getLogger().addHandler(console)
 logger = logging.getLogger(__name__)
 
 # Import sentinel modules
+import sys
+ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, ROOT_DIR)
+
 try:
+    # First try sentinel package
     from sentinel.models.loaders.loader import load_baseline_model, load_adaptive_model
+    logger.info("Using sentinel package imports")
 except ImportError:
-    logger.warning("Falling back to old import paths")
-    from models.loaders.loader import load_baseline_model, load_adaptive_model
+    try:
+        # Then try direct imports from models directory
+        logger.warning("Falling back to direct models imports")
+        from models.loaders.loader import load_baseline_model, load_adaptive_model
+    except ImportError:
+        # Finally try relative imports 
+        logger.warning("Using absolute path imports")
+        sys.path.append(os.path.join(ROOT_DIR, 'models'))
+        sys.path.append(os.path.join(ROOT_DIR, 'models', 'loaders'))
+        import loader
+        load_baseline_model = loader.load_baseline_model
+        load_adaptive_model = loader.load_adaptive_model
 
 # Define constants
 TEST_PROMPT = "The future of artificial intelligence is"

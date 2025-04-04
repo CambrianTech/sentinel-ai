@@ -1,0 +1,21 @@
+2025-04-04 15:28:05,537 - INFO - TESTING MODEL FUNCTIONALITY
+2025-04-04 15:28:05,537 - INFO - ==========================
+2025-04-04 15:28:05,540 - INFO - Using sentinel namespace imports
+2025-04-04 15:28:05,540 - INFO - Using device: cpu
+2025-04-04 15:28:05,540 - INFO - Testing model: bigscience/bloom-560m
+2025-04-04 15:28:05,540 - INFO - Loading tokenizer
+2025-04-04 15:28:06,380 - INFO - Loading baseline model
+2025-04-04 15:28:07,860 - INFO - Baseline model loaded, type: <class 'transformers.models.bloom.modeling_bloom.BloomForCausalLM'>
+2025-04-04 15:28:07,861 - INFO - Converting to adaptive model
+2025-04-04 15:28:11,253 - INFO - Adaptive model loaded, type: <class 'sentinel.models.adaptive.transformer.AdaptiveCausalLmWrapper'>
+2025-04-04 15:28:11,254 - INFO - Generating text for prompt: 'The future of AI is'
+2025-04-04 15:28:11,255 - INFO - Generating with adaptive model
+2025-04-04 15:28:16,911 - INFO - Generated text: The future of AI is(.ـ, لان德au慮烦ン ( , ,
+,ـ彈與jING, क -ج
+2025-04-04 15:28:16,911 - INFO - ✅ SUCCESS: Model successfully generated text
+2025-04-04 15:28:16,911 - INFO - Test completed successfully
+⚠️ Using original BLOOM loader (consider using the fixed version)
+✅ Loaded baseline model: bigscience/bloom-560m with 559,214,592 parameters
+Model type: bloom
+✅ Adaptive model initialized from bigscience/bloom-560m weights
+Test completed. See results in: /Users/joel/Development/sentinel-ai/test_logs/test_run_20250404_152805.log

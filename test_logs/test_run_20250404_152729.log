@@ -1,0 +1,20 @@
+2025-04-04 15:27:29,915 - INFO - TESTING MODEL FUNCTIONALITY
+2025-04-04 15:27:29,915 - INFO - ==========================
+2025-04-04 15:27:29,917 - INFO - Using sentinel namespace imports
+2025-04-04 15:27:29,918 - INFO - Using device: cpu
+2025-04-04 15:27:29,918 - INFO - Testing model: EleutherAI/pythia-70m
+2025-04-04 15:27:29,918 - INFO - Loading tokenizer
+2025-04-04 15:27:30,263 - INFO - Loading baseline model
+2025-04-04 15:27:38,624 - INFO - Baseline model loaded, type: <class 'transformers.models.gpt_neox.modeling_gpt_neox.GPTNeoXForCausalLM'>
+2025-04-04 15:27:38,624 - INFO - Converting to adaptive model
+2025-04-04 15:27:38,960 - INFO - Adaptive model loaded, type: <class 'sentinel.models.adaptive.transformer.AdaptiveCausalLmWrapper'>
+2025-04-04 15:27:38,960 - INFO - Generating text for prompt: 'The future of AI is'
+2025-04-04 15:27:38,961 - INFO - Generating with adaptive model
+2025-04-04 15:27:39,585 - INFO - Generated text: The future of AI is oflying. of and}</ward fromlyDrs ( forâ.ence cause effort not for; BY,
+2025-04-04 15:27:39,585 - INFO - ✅ SUCCESS: Model successfully generated text
+2025-04-04 15:27:39,585 - INFO - Test completed successfully
+⚠️ Using original BLOOM loader (consider using the fixed version)
+✅ Loaded baseline model: EleutherAI/pythia-70m with 70,426,624 parameters
+Model type: gpt_neox
+✅ Adaptive model initialized from EleutherAI/pythia-70m weights
+Test completed. See results in: /Users/joel/Development/sentinel-ai/test_logs/test_run_20250404_152729.log

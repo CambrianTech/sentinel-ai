@@ -1,0 +1,10 @@
+2025-04-04 15:24:36,270 [WARNING] Falling back to old import paths
+2025-04-04 15:24:50,361 [INFO] Using sentinel package imports
+2025-04-04 15:24:50,361 [INFO] Using device: cpu
+2025-04-04 15:24:50,361 [INFO] 
+================================================================================
+Testing model: distilgpt2
+================================================================================
+2025-04-04 15:24:50,362 [INFO] Loading tokenizer for distilgpt2
+2025-04-04 15:24:50,808 [INFO] Loading baseline model: distilgpt2
+2025-04-04 15:24:51,789 [INFO] Generating text with baseline model

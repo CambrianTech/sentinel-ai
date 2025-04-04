@@ -1,0 +1,20 @@
+2025-04-04 15:26:52,357 - INFO - TESTING MODEL FUNCTIONALITY
+2025-04-04 15:26:52,357 - INFO - ==========================
+2025-04-04 15:26:52,360 - INFO - Using sentinel namespace imports
+2025-04-04 15:26:52,360 - INFO - Using device: cpu
+2025-04-04 15:26:52,360 - INFO - Testing model: facebook/opt-125m
+2025-04-04 15:26:52,360 - INFO - Loading tokenizer
+2025-04-04 15:26:52,768 - INFO - Loading baseline model
+2025-04-04 15:26:53,828 - INFO - Baseline model loaded, type: <class 'transformers.models.opt.modeling_opt.OPTForCausalLM'>
+2025-04-04 15:26:53,829 - INFO - Converting to adaptive model
+2025-04-04 15:26:54,559 - INFO - Adaptive model loaded, type: <class 'sentinel.models.adaptive.transformer.AdaptiveCausalLmWrapper'>
+2025-04-04 15:26:54,559 - INFO - Generating text for prompt: 'The future of AI is'
+2025-04-04 15:26:54,560 - INFO - Generating with adaptive model
+2025-04-04 15:26:56,047 - INFO - Generated text: The future of AI ising,,ony,-etam ony-ch-yih tocoret-a
+2025-04-04 15:26:56,047 - INFO - ✅ SUCCESS: Model successfully generated text
+2025-04-04 15:26:56,047 - INFO - Test completed successfully
+⚠️ Using original BLOOM loader (consider using the fixed version)
+✅ Loaded baseline model: facebook/opt-125m with 125,239,296 parameters
+Model type: opt
+✅ Adaptive model initialized from facebook/opt-125m weights
+Test completed. See results in: /Users/joel/Development/sentinel-ai/test_logs/test_run_20250404_152652.log
