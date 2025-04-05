@@ -1,10 +1,21 @@
 """
-Sentinel-AI Pruning Module
+Sentinel-AI pruning module.
 
-This module provides functionality for pruning, measuring, and regrowth in transformer models,
-implementing the full neural plasticity cycle.
+This module contains the implementation of various pruning strategies and pruning-related utilities.
 """
 
-# Import key components for easy access
-from sentinel.pruning.fixed_pruning_module import FixedPruningModule
-from sentinel.pruning.fixed_pruning_module_jax import PruningModule
+from .entropy_magnitude import (
+    compute_attention_entropy,
+    collect_attention_distributions,
+    entropy_based_pruning,
+    magnitude_based_pruning,
+    update_mask,
+)
+
+__all__ = [
+    'compute_attention_entropy',
+    'collect_attention_distributions',
+    'entropy_based_pruning',
+    'magnitude_based_pruning',
+    'update_mask',
+]

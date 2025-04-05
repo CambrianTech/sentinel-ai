@@ -1174,7 +1174,7 @@ def benchmark_model(model, dataloader, tokenizer, collector, args, strategy=None
             
             print(f"Pruning {num_to_prune} of {total_heads} heads using {strategy} strategy...")
             
-            # Very basic pruning based on strategy
+            # Implement different pruning strategies
             if strategy == "random":
                 # Random pruning
                 import random
@@ -1194,22 +1194,78 @@ def benchmark_model(model, dataloader, tokenizer, collector, args, strategy=None
                     else:
                         prune_bar.write(f"Warning: Could not find gate tensor in layer {layer_idx}, head {head_idx}")
                     
-            elif strategy == "magnitude" or strategy == "entropy":
-                # For simplicity, just zero out the first num_to_prune heads
-                # In a real implementation, we would use entropy or magnitude measurements
-                remaining = num_to_prune
+            elif strategy == "magnitude":
+                # Import the proper magnitude pruning implementation
+                try:
+                    print("Applying magnitude-based pruning using weight magnitudes...")
+                    from sentinel.pruning.entropy_magnitude import magnitude_based_pruning
+                    
+                    # Get pruning indices
+                    pruned_heads = magnitude_based_pruning(
+                        model, 
+                        prune_ratio=pruning_level, 
+                        safe_update_tensor_fn=safe_update_tensor
+                    )
+                    num_pruned = len(pruned_heads)
+                except Exception as e:
+                    print(f"Error in magnitude pruning implementation: {e}")
+                    print("Falling back to simple pruning...")
+                    
+                    # Fallback to simple pruning
+                    remaining = num_to_prune
+                    prune_bar = tqdm(head_info, desc="Pruning heads (fallback)", leave=False)
+                    for layer_idx, attn_module, head_idx in prune_bar:
+                        if remaining > 0:
+                            gate_tensor = get_gate_tensor(attn_module)
+                            if gate_tensor is not None:
+                                safe_update_tensor(gate_tensor, 0.0, index=head_idx)
+                                num_pruned += 1
+                                remaining -= 1
+                                prune_bar.set_postfix(pruned=f"{num_pruned}/{num_to_prune}")
+                            else:
+                                prune_bar.write(f"Warning: Could not find gate tensor in layer {layer_idx}, head {head_idx}")
                 
-                prune_bar = tqdm(head_info, desc="Pruning heads", leave=False)
-                for layer_idx, attn_module, head_idx in prune_bar:
-                    if remaining > 0:
-                        gate_tensor = get_gate_tensor(attn_module)
-                        if gate_tensor is not None:
-                            safe_update_tensor(gate_tensor, 0.0, index=head_idx)
-                            num_pruned += 1
-                            remaining -= 1
-                            prune_bar.set_postfix(pruned=f"{num_pruned}/{num_to_prune}")
-                        else:
-                            prune_bar.write(f"Warning: Could not find gate tensor in layer {layer_idx}, head {head_idx}")
+            elif strategy == "entropy":
+                # Import the proper entropy pruning implementation
+                try:
+                    print("Collecting attention distributions for entropy-based pruning...")
+                    from sentinel.pruning.entropy_magnitude import (
+                        collect_attention_distributions,
+                        entropy_based_pruning
+                    )
+                    
+                    # Collect attention distributions (sample a few batches)
+                    distributions = collect_attention_distributions(
+                        model,
+                        dataloader,
+                        num_batches=5  # Adjust based on dataset size
+                    )
+                    
+                    # Apply entropy-based pruning
+                    pruned_heads = entropy_based_pruning(
+                        model,
+                        distributions,
+                        prune_ratio=pruning_level,
+                        safe_update_tensor_fn=safe_update_tensor
+                    )
+                    num_pruned = len(pruned_heads)
+                except Exception as e:
+                    print(f"Error in entropy pruning implementation: {e}")
+                    print("Falling back to simple pruning...")
+                    
+                    # Fallback to simple pruning
+                    remaining = num_to_prune
+                    prune_bar = tqdm(head_info, desc="Pruning heads (fallback)", leave=False)
+                    for layer_idx, attn_module, head_idx in prune_bar:
+                        if remaining > 0:
+                            gate_tensor = get_gate_tensor(attn_module)
+                            if gate_tensor is not None:
+                                safe_update_tensor(gate_tensor, 0.0, index=head_idx)
+                                num_pruned += 1
+                                remaining -= 1
+                                prune_bar.set_postfix(pruned=f"{num_pruned}/{num_to_prune}")
+                            else:
+                                prune_bar.write(f"Warning: Could not find gate tensor in layer {layer_idx}, head {head_idx}")
             
             print(f"✓ Pruned {num_pruned}/{total_heads} heads ({num_pruned/total_heads:.1%})")
         

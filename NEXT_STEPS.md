@@ -29,6 +29,7 @@ This document outlines prioritized tasks and future directions for the Sentinel-
 - [x] Evaluate inference speed improvements from dynamic pruning
 - [x] Measure memory usage reduction compared to baseline models
 - [x] Test learning capabilities after pruning (sentiment, poetry, etc.)
+- [x] Implement scientific entropy and magnitude-based pruning strategies with benchmarking
 - [ ] Test on more complex downstream tasks (summarization, translation, etc.)
 - [x] Add comprehensive model compatibility testing across architectures (GPT-2, OPT, Pythia)
 
