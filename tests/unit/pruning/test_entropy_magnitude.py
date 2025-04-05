@@ -289,8 +289,12 @@ class TestEntropyMagnitudePruning(unittest.TestCase):
             # Verify model can still generate text
             inputs = tokenizer("Hello, I am", return_tensors="pt")
             with torch.no_grad():
+                # Create attention mask
+                attention_mask = torch.ones_like(inputs.input_ids)
+                
                 outputs = model.generate(
                     inputs.input_ids,
+                    attention_mask=attention_mask,
                     max_length=20,
                     pad_token_id=tokenizer.eos_token_id
                 )

@@ -200,8 +200,12 @@ def generate_text_sample(model, tokenizer, prompt="Once upon a time", max_length
     
     # Generate text
     with torch.no_grad():
+        # Create attention mask (all 1s for the input length)
+        attention_mask = torch.ones_like(input_ids)
+        
         outputs = model.generate(
             input_ids,
+            attention_mask=attention_mask,
             max_length=max_length,
             do_sample=True,
             temperature=0.7,
