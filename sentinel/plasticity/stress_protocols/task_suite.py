@@ -14,10 +14,12 @@ import logging
 import json
 import numpy as np
 from pathlib import Path
-from typing import Dict, List, Any, Optional, Callable, Union, Tuple
+from typing import Dict, List, Any, Optional, Callable, Union, Tuple, TYPE_CHECKING
 from dataclasses import dataclass, field
 
-from transformers import PreTrainedTokenizer, PreTrainedModel
+# Use TYPE_CHECKING to avoid circular imports
+if TYPE_CHECKING:
+    from transformers import PreTrainedTokenizer, PreTrainedModel
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -86,7 +88,7 @@ class TaskSuite:
     def create_dataloader(
         self,
         task_name: str,
-        tokenizer: PreTrainedTokenizer,
+        tokenizer: "Any",  # PreTrainedTokenizer
         batch_size: int = 4,
         shuffle: bool = True
     ) -> torch.utils.data.DataLoader:
@@ -264,8 +266,8 @@ class TaskSuite:
     def evaluate(
         self,
         task_name: str,
-        model: PreTrainedModel,
-        tokenizer: PreTrainedTokenizer,
+        model: "Any",  # PreTrainedModel
+        tokenizer: "Any",  # PreTrainedTokenizer
         device: Optional[str] = None
     ) -> Dict[str, Any]:
         """
@@ -670,19 +672,30 @@ def create_conflicting_tasks() -> TaskSuite:
 
 if __name__ == "__main__":
     # Example usage
-    from transformers import AutoModelForCausalLM, AutoTokenizer
+    print("Loading task suite...")
     
     # Create task suite
     task_suite = create_diverse_task_suite()
     
-    # Load model and tokenizer
-    model_name = "distilgpt2"
-    model = AutoModelForCausalLM.from_pretrained(model_name)
-    tokenizer = AutoTokenizer.from_pretrained(model_name)
-    
-    # Create dataloader
-    dataloader = task_suite.create_dataloader("commonsense_qa", tokenizer)
-    
-    # Evaluate on task
-    metrics = task_suite.evaluate("commonsense_qa", model, tokenizer)
-    print(f"Metrics: {metrics}")
+    # Load transformers only when needed
+    try:
+        print("Loading transformers...")
+        from transformers import AutoModelForCausalLM, AutoTokenizer
+        
+        # Load model and tokenizer
+        model_name = "distilgpt2"
+        print(f"Loading model: {model_name}")
+        model = AutoModelForCausalLM.from_pretrained(model_name)
+        tokenizer = AutoTokenizer.from_pretrained(model_name)
+        
+        # Create dataloader
+        print("Creating dataloader...")
+        dataloader = task_suite.create_dataloader("commonsense_qa", tokenizer)
+        
+        # Evaluate on task
+        print("Evaluating model...")
+        metrics = task_suite.evaluate("commonsense_qa", model, tokenizer)
+        print(f"Metrics: {metrics}")
+    except ImportError as e:
+        print(f"Could not import required modules: {e}")
+        print("This script requires transformers to be installed.")
