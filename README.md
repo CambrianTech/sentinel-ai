@@ -1,4 +1,4 @@
-# Sentinel-AI
+# 👾 Sentinel-AI
 
 **Sentinel-AI isn't just trained. It forgets. It adapts. It evolves.**  
 Sentinel-AI is a biologically inspired transformer that dynamically rewires itself through neural plasticity. It prunes underused attention heads, regrows them based on task demands, and tracks entropy rhythms over time to guide its own architectural evolution.
@@ -294,7 +294,7 @@ Example benchmark on distilgpt2:
 
 ┌───────────────────────────────────────────────────────────────────┐
 │                                                                   │
-│                        👾 SENTINEL-AI APPROACH                    │
+│                     👾 SENTINEL-AI APPROACH                       │
 │                                                                   │
 │      ┌──────────┐                              ┌──────────┐       │
 │      │          │                              │          │       │
