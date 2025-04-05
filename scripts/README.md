@@ -12,6 +12,7 @@ publication-ready figure generation, and experimentation with new features.
 - `train.py`: Main training script for all model types
 - `main.py`: Primary entry point for inference and text generation
 - `benchmark.py`: Run standard benchmarks on model configurations
+- `benchmark_with_metrics.py`: Comprehensive benchmarking with metrics collection, pruning analysis, and fine-tuning
 - `generate_publication_figures.py`: Create figures for papers and presentations
 - `inference.py`: Run text generation inference with loaded models
 
@@ -72,6 +73,41 @@ python scripts/inference_with_pruning.py --model_name distilgpt2 --strategy entr
 
 # Analyze head importance
 python scripts/analyze_heads.py --model_name gpt2 --output_path ./head_analysis.json
+
+# Comprehensive benchmarking with metrics collection
+python scripts/benchmark_with_metrics.py --model_name distilgpt2 \
+  --pruning_strategies "random,entropy,magnitude" \
+  --pruning_levels "0.1,0.3,0.5" \
+  --eval_dataset "gutenberg" \
+  --use_real_data
+```
+
+### Benchmarking with Real Data
+
+```bash
+# Run benchmark with Project Gutenberg books
+python scripts/benchmark_with_metrics.py \
+  --model_name distilgpt2 \
+  --output_dir ./benchmark_results \
+  --pruning_strategies "random,entropy,magnitude" \
+  --pruning_levels "0.1,0.3,0.5" \
+  --learning_steps 100 \
+  --learning_rate 2e-5 \
+  --eval_dataset "gutenberg" \
+  --use_real_data \
+  --use_adaptive_lr
+
+# Use specific books for more targeted benchmarks
+python scripts/benchmark_with_metrics.py \
+  --model_name distilgpt2 \
+  --eval_dataset "sherlock" \
+  --use_real_data
+
+# Use pre-processed datasets from previous runs
+python scripts/benchmark_with_metrics.py \
+  --model_name distilgpt2 \
+  --eval_dataset "processed" \
+  --use_real_data
 ```
 
 ## Expanding Functionality

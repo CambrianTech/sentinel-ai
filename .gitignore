@@ -62,6 +62,9 @@ dist/
 /pruning_results/*
 !/pruning_results/examples/
 /pruning_speed_results.png
+/benchmark_results*/
+/benchmark_data/*
+!/benchmark_data/README.md
 
 # Profiling, optimization, and demo results
 /profiling_results/
@@ -83,6 +86,10 @@ model_compatibility_results.json
 message.txt
 docs/MANIFESTO.md
 MANIFESTO.md
+PR_DRAFT.md
+/test_*.py 
+/load_*.py
+
 # Temporary files from refactoring
 test_bloom_loader.py
 fix_indentation.py
