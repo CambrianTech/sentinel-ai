@@ -83,3 +83,6 @@ model_compatibility_results.json
 message.txt
 docs/MANIFESTO.md
 MANIFESTO.md
+# Temporary files from refactoring
+test_bloom_loader.py
+fix_indentation.py
