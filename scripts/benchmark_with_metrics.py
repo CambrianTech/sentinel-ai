@@ -1213,6 +1213,7 @@ def benchmark_model(model, dataloader, tokenizer, collector, args, strategy=None
                     
                     # Fallback to simple pruning
                     remaining = num_to_prune
+                    num_pruned = 0  # Initialize num_pruned variable
                     prune_bar = tqdm(head_info, desc="Pruning heads (fallback)", leave=False)
                     for layer_idx, attn_module, head_idx in prune_bar:
                         if remaining > 0:
@@ -1255,6 +1256,7 @@ def benchmark_model(model, dataloader, tokenizer, collector, args, strategy=None
                     
                     # Fallback to simple pruning
                     remaining = num_to_prune
+                    num_pruned = 0  # Initialize num_pruned variable
                     prune_bar = tqdm(head_info, desc="Pruning heads (fallback)", leave=False)
                     for layer_idx, attn_module, head_idx in prune_bar:
                         if remaining > 0:
