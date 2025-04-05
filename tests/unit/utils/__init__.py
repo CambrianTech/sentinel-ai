@@ -1,1 +1,1 @@
-# Unit tests for utils module
+# Unit tests for the sentinel.utils module
