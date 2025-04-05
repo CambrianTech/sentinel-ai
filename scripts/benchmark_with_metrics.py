@@ -311,33 +311,64 @@ def prepare_evaluation_data(tokenizer, args, split="validation"):
     if args.use_real_data and args.eval_dataset:
         # Load custom dataset if provided and real data is requested
         try:
-            from datasets import load_dataset
-            
-            print(f"Loading {split} split from dataset: {args.eval_dataset}")
-            
-            # Try to load from Hugging Face datasets
-            dataset = load_dataset(args.eval_dataset, split=split)
-            
-            # Get text column (try common column names)
-            text_column = None
-            for column in ["text", "content", "sentence", "input_text"]:
-                if column in dataset.column_names:
-                    text_column = column
-                    break
-            
-            if text_column is None:
-                print(f"Warning: Could not find text column in dataset. Using first column: {dataset.column_names[0]}")
-                text_column = dataset.column_names[0]
-            
-            # Extract texts (use all for training, limit for validation)
-            if split == "validation":
-                texts = dataset[text_column][:args.eval_samples]
+            # First try the standard Hugging Face datasets package
+            import importlib
+            if importlib.util.find_spec("datasets") is not None:
+                from datasets import load_dataset
+                
+                print(f"Loading {split} split from dataset: {args.eval_dataset}")
+                
+                # Try to load from Hugging Face datasets
+                try:
+                    # Handle different dataset formats
+                    if "/" in args.eval_dataset:
+                        # If it's in format like "wikitext/wikitext-2-raw-v1"
+                        dataset = load_dataset(args.eval_dataset, split=split)
+                    else:
+                        # If it's a simple name like "wikitext-2-raw-v1"
+                        dataset = load_dataset(args.eval_dataset, split=split)
+                except Exception as e:
+                    print(f"Error loading dataset directly: {e}")
+                    print("Trying alternative dataset formats...")
+                    
+                    # Try common variants of the dataset name
+                    for dataset_variant in [
+                        f"wikitext/{args.eval_dataset}",  # Try wikitext namespace
+                        "wikitext-2-raw-v1",              # Standard wikitext
+                        "wikitext-103-raw-v1"             # Larger wikitext
+                    ]:
+                        try:
+                            print(f"Attempting to load {dataset_variant}...")
+                            dataset = load_dataset(dataset_variant, split=split)
+                            print(f"Successfully loaded {dataset_variant}")
+                            break
+                        except Exception:
+                            continue
+                    else:
+                        raise ValueError(f"Could not load any variant of {args.eval_dataset}")
+                
+                # Get text column (try common column names)
+                text_column = None
+                for column in ["text", "content", "sentence", "input_text"]:
+                    if column in dataset.column_names:
+                        text_column = column
+                        break
+                
+                if text_column is None:
+                    print(f"Warning: Could not find text column in dataset. Using first column: {dataset.column_names[0]}")
+                    text_column = dataset.column_names[0]
+                
+                # Extract texts (use all for training, limit for validation)
+                if split == "validation":
+                    texts = dataset[text_column][:args.eval_samples]
+                else:
+                    # For training, use more samples but still limit to avoid excessive memory usage
+                    max_train_samples = min(len(dataset), 10000)  # Limit to 10k samples max
+                    texts = dataset[text_column][:max_train_samples]
+                
+                print(f"Loaded {len(texts)} samples from {args.eval_dataset} ({split} split)")
             else:
-                # For training, use more samples but still limit to avoid excessive memory usage
-                max_train_samples = min(len(dataset), 10000)  # Limit to 10k samples max
-                texts = dataset[text_column][:max_train_samples]
-            
-            print(f"Loaded {len(texts)} samples from {args.eval_dataset} ({split} split)")
+                raise ImportError("datasets package not available")
             
         except Exception as e:
             print(f"Error loading dataset: {e}")
