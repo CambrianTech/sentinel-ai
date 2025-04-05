@@ -23,12 +23,17 @@ from pathlib import Path
 # Add parent directory to path for imports
 sys.path.append(str(Path(__file__).parent.parent))
 
-# Import Sentinel-AI components
+# Import Sentinel-AI components from the reorganized structure
+# Note: Models are still in the original location
 from models.loaders.gpt2_loader import load_gpt2_with_sentinel_gates
 from models.agency_specialization import AgencySpecialization
-from controller.controller_manager import ControllerManager
-from controller.visualizations.agency_visualizer import AgencyVisualizer
-from utils.head_lr_manager import HeadLRManager
+
+# Controller has been moved to sentinel package
+from sentinel.controller import ControllerManager
+from sentinel.controller.visualizations import AgencyVisualizer
+
+# The HeadLRManager is now in the pruning module
+from utils.pruning.head_lr_manager import HeadLRManager
 
 def print_separator(title=""):
     """Print a separator with optional title."""
@@ -40,178 +45,143 @@ def print_separator(title=""):
     else:
         print("\n" + "-" * width)
 
-def load_model_with_agency():
-    """Load a model with agency-aware attention."""
-    print("Loading model with agency-aware attention...")
-    model, tokenizer = load_gpt2_with_sentinel_gates(
-        model_name="gpt2",
-        gate_init=1.0,
-        norm_attn_output=True
-    )
-    
-    # Apply agency specialization
-    specialization = AgencySpecialization(model)
-    specialization.initialize_specialization()
-    
-    return model, tokenizer, specialization
-
-def setup_controller_and_lr_manager(model):
-    """Set up controller and learning rate manager."""
-    print("Setting up controller and learning rate manager...")
-    
-    # Create controller manager
-    controller_config = {
-        "controller_type": "ann",
-        "update_frequency": 5,  # Update more frequently for demo
-        "warmup_steps": 10,     # Short warmup for demo
-        "controller_lr": 0.05,  # Higher learning rate for demo
-        "controller_config": {
-            "init_value": 2.0,  # Start with moderate gate values
-            "reg_weight": 1e-4  # L1 regularization weight
-        }
-    }
-    controller_manager = ControllerManager(model, controller_config)
-    
-    # Create optimizer (dummy for demo)
-    optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
-    
-    # Create learning rate manager
-    head_lr_manager = HeadLRManager(
-        model=model,
-        optimizer=optimizer,
-        base_lr=0.001,
-        boost_factor=5.0,
-        decay_factor=0.9,
-        warmup_steps=5,     # Short warmup for demo
-        cooldown_steps=20   # Short cooldown for demo
-    )
-    
-    return controller_manager, head_lr_manager, optimizer
-
-def simulate_training_step(model, controller_manager, head_lr_manager, specialization, step):
-    """Simulate a training step with agency-controller interaction."""
-    # Get agency state from the model
-    agency_state = {}
-    for layer_idx in range(model.num_layers):
-        attn = model.blocks[layer_idx]["attn"]
-        if hasattr(attn, "agency_signals"):
-            for head_idx, signals in attn.agency_signals.items():
-                agency_state[(layer_idx, head_idx)] = signals
-    
-    # Create dummy metrics dictionary
-    batch_size = 4
-    seq_len = 64
-    device = next(model.parameters()).device
-    
-    dummy_metrics = {
-        "entropy": torch.rand((model.num_layers, model.num_heads), device=device) * 3.0,
-        "grad_norm": torch.rand((model.num_layers, model.num_heads), device=device) * 0.1,
-        "head_importance": torch.rand((model.num_layers, model.num_heads), device=device)
-    }
-    
-    # Update controller with agency state
-    update_info = controller_manager.step(
-        metrics_dict=dummy_metrics,
-        head_lr_manager=head_lr_manager,
-        agency_state=agency_state
-    )
-    
-    # Log any agency signals emitted by controller
-    if "agency_signals" in update_info and update_info["agency_signals"].get("count", 0) > 0:
-        print(f"\nController emitted {update_info['agency_signals']['count']} agency signals:")
-        for signal in update_info["agency_signals"].get("signals_emitted", []):
-            print(f"  Layer {signal['layer']}, Head {signal['head']}: {signal['from_state']} → {signal['to_state']}")
-    
-    # Every few steps, simulate attention patterns that trigger state changes
-    if step % 3 == 0:
-        # Change some head states based on attention behavior patterns
-        state_changes = []
-        
-        # Simulate some heads becoming overloaded from high activity
-        if step % 9 == 0:
-            overloaded_layer = step % model.num_layers
-            overloaded_head = (step // 3) % model.num_heads
-            model.set_head_state(overloaded_layer, overloaded_head, "overloaded")
-            state_changes.append((overloaded_layer, overloaded_head, "active", "overloaded"))
-        
-        # Simulate some heads becoming misaligned
-        if step % 6 == 3:
-            misaligned_layer = (step // 3) % model.num_layers
-            misaligned_head = (step + 1) % model.num_heads
-            model.set_head_state(misaligned_layer, misaligned_head, "misaligned")
-            state_changes.append((misaligned_layer, misaligned_head, "active", "misaligned"))
-        
-        # Log changes
-        if state_changes:
-            print(f"\nAttention behavior triggered {len(state_changes)} state changes:")
-            for layer, head, from_state, to_state in state_changes:
-                print(f"  Layer {layer}, Head {head}: {from_state} → {to_state}")
-    
-    # Return summary info
-    return {
-        "active_gates": len(update_info.get("active_gates", {}).get(0, [])),
-        "total_heads": model.num_layers * model.num_heads,
-        "state_changes": update_info.get("agency_signals", {}).get("count", 0)
-    }
-
 def main():
-    print_separator("Sentinel-AI: Controller-Agency Integration Demo")
-    
-    # Set device
+    """Run the controller-agency integration demo."""
+    # Set up device
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(f"Using device: {device}")
     
-    # Load model with agency features
-    model, tokenizer, specialization = load_model_with_agency()
-    model = model.to(device)
-    print(f"Model loaded with {model.num_layers} layers, {model.num_heads} heads per layer")
+    print_separator("Loading Model with Agency")
     
-    # Set up controller and learning rate manager
-    controller_manager, head_lr_manager, optimizer = setup_controller_and_lr_manager(model)
+    # Load a small GPT-2 model with agency-enabled heads
+    model = load_gpt2_with_sentinel_gates("distilgpt2", device=device)
     
-    # Create agency visualizer
-    visualizer = AgencyVisualizer(model, controller_manager, head_lr_manager)
+    # Attach agency specialization to each attention head
+    specialization = AgencySpecialization(model)
     
-    # Simulate training steps
-    print_separator("Simulating Training with Agency-Controller Integration")
-    num_steps = 30
+    # Assign task specializations to heads
+    specialization.assign_specializations({
+        (0, 0): "syntactic parsing",
+        (0, 1): "semantic analysis",
+        (0, 2): "topic classification",
+        (1, 0): "entity recognition",
+        (1, 1): "sentiment analysis",
+        (1, 2): "coreference resolution",
+        (2, 0): "logical reasoning",
+        (2, 1): "factual recall",
+        (2, 2): "summarization"
+    })
     
-    for step in range(num_steps):
-        print(f"\nStep {step+1}/{num_steps}")
+    print("Model loaded with agency-aware attention heads")
+    print(f"Model has {len(model.blocks)} layers with {model.blocks[0]['attn'].num_heads} heads each")
+    
+    # Initialize some heads with different agency states
+    print("\nInitializing head agency states:")
+    specialization.set_head_state(0, 0, "active", consent=True)
+    specialization.set_head_state(0, 1, "active", consent=True)
+    specialization.set_head_state(0, 2, "misaligned", consent=True)
+    specialization.set_head_state(1, 0, "active", consent=True)
+    specialization.set_head_state(1, 1, "overloaded", consent=True)
+    specialization.set_head_state(1, 2, "active", consent=True)
+    specialization.set_head_state(2, 0, "withdrawn", consent=False)
+    specialization.set_head_state(2, 1, "active", consent=True)
+    specialization.set_head_state(2, 2, "active", consent=True)
+    
+    print_separator("Setting Up Controller")
+    
+    # Set up controller with agency awareness
+    controller_config = {
+        "update_frequency": 1,  # Update every step for demo
+        "controller_lr": 0.1,   # Higher learning rate for visible changes
+        "warmup_steps": 0,      # No warmup for demo
+        "enable_early_stopping": False
+    }
+    
+    controller = ControllerManager(model, config=controller_config)
+    
+    # Create head LR manager for adjusting learning rates
+    head_lr_manager = HeadLRManager(
+        num_layers=len(model.blocks),
+        num_heads=model.blocks[0]["attn"].num_heads,
+        base_lr=0.0001,
+        new_head_lr_factor=5.0
+    )
+    
+    # Set up visualizer
+    visualizer = AgencyVisualizer(model, controller, head_lr_manager)
+    
+    print_separator("Simulating Controller Updates with Agency")
+    
+    # Collect agency state information
+    agency_state = specialization.get_agency_state()
+    
+    # Simulate controller steps
+    for step in range(10):
+        print(f"\nStep {step+1}:")
         
-        # Simulate a training step
-        step_info = simulate_training_step(
-            model, controller_manager, head_lr_manager, specialization, step
+        # Generate random metrics for demonstration
+        metrics = {
+            "entropy": torch.rand(len(model.blocks), model.blocks[0]["attn"].num_heads) * 2.0,
+            "grad_norm": torch.rand(len(model.blocks), model.blocks[0]["attn"].num_heads) * 0.1,
+            "importance": torch.rand(len(model.blocks), model.blocks[0]["attn"].num_heads)
+        }
+        
+        # Execute controller step with agency awareness
+        result = controller.step(
+            metrics_dict=metrics,
+            head_lr_manager=head_lr_manager,
+            agency_state=agency_state
         )
         
+        # Check for agency signals from controller
+        signals = result.get("agency_signals", {})
+        if signals.get("count", 0) > 0:
+            print(f"  Controller emitted {signals.get('count', 0)} signals to heads")
+            for signal in signals.get("signals_emitted", []):
+                print(f"  Layer {signal['layer']}, Head {signal['head']}: "
+                      f"{signal['from_state']} → {signal['to_state']}")
+        
+        # Update agency states based on utilization and metrics
+        for layer_idx in range(len(model.blocks)):
+            for head_idx in range(model.blocks[0]["attn"].num_heads):
+                key = (layer_idx, head_idx)
+                if key in agency_state:
+                    # Skip withdrawn heads
+                    if agency_state[key].get("state") == "withdrawn":
+                        continue
+                        
+                    # Randomly create stress for a head
+                    if step == 3 and layer_idx == 1 and head_idx == 2:
+                        print(f"  Head (1, 2) becoming overloaded due to high utilization")
+                        specialization.set_head_state(1, 2, "overloaded", consent=True)
+                        agency_state = specialization.get_agency_state()
+                    
+                    # Random recovery from stress
+                    if step == 6 and layer_idx == 0 and head_idx == 2:
+                        print(f"  Head (0, 2) recovering from misalignment")
+                        specialization.set_head_state(0, 2, "active", consent=True)
+                        agency_state = specialization.get_agency_state()
+                    
+                    # Random withdrawal
+                    if step == 8 and layer_idx == 1 and head_idx == 1:
+                        print(f"  Head (1, 1) withdrawing consent after continued overload")
+                        specialization.set_head_state(1, 1, "withdrawn", consent=False)
+                        agency_state = specialization.get_agency_state()
+        
         # Update visualizer history
-        visualizer.update_history(step)
+        visualizer.update_history(timestamp=step)
         
-        # Print some stats
-        print(f"Active gates: {step_info['active_gates']}/{step_info['total_heads']}")
-        print(f"Controller-agency interactions: {step_info['state_changes']}")
-        
-        # Print current agency stats
-        agency_report = model.get_agency_report()
-        active_count = sum(layer_report.get("active_heads", 0) for layer_report in agency_report["layer_reports"].values())
-        withdrawn_count = sum(layer_report.get("withdrawn_heads", 0) for layer_report in agency_report["layer_reports"].values())
-        overloaded_count = sum(layer_report.get("overloaded_heads", 0) for layer_report in agency_report["layer_reports"].values())
-        misaligned_count = sum(layer_report.get("misaligned_heads", 0) for layer_report in agency_report["layer_reports"].values())
-        
-        print(f"Agency states: {active_count} active, {overloaded_count} overloaded, {misaligned_count} misaligned, {withdrawn_count} withdrawn")
+        # For demo purposes, we'll sleep to make changes visible
+        time.sleep(0.5)
     
-    # Create final visualization
-    print_separator("Creating Final Visualization")
+    print_separator("Generating Visualization")
+    
+    # Create visualization dashboard
     dashboard = visualizer.create_dashboard()
     
-    # Display plots
+    # Show plots
     plt.show()
     
-    print("\nDemo complete!")
-    print("The demo has shown how the controller dynamically adjusts gates based on agency states")
-    print("and how attention heads signal state changes that influence controller decisions.")
+    print_separator("Demo Complete")
 
 if __name__ == "__main__":
-    # Make sure the examples directory exists
-    os.makedirs(os.path.dirname(os.path.abspath(__file__)), exist_ok=True)
     main()

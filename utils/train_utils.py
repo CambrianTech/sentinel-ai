@@ -1,89 +1,45 @@
-"""
-Training utilities for neural plasticity experiments.
+"""Training utilities - DEPRECATED MODULE
 
-This module provides a simplified fine-tuning implementation for training
-transformer models during the neural plasticity cycle.
+This module is a backwards compatibility layer for the old utils.train_utils module.
+The functionality has been moved to sentinel.utils.train_utils.
+
+Please update your imports to use the new module path.
 """
 
-import numpy as np
-import copy
+import warnings
 import torch
+import copy
 from tqdm import tqdm
 
-class FineTuner:
-    """
-    Simple fine-tuner for transformer models using JAX/Flax.
-    
-    This class provides basic training functionality for fine-tuning models
-    during the neural plasticity cycle. It supports differential learning 
-    rates for newly added heads through the HeadLRManager.
-    """
+# Emit deprecation warning
+warnings.warn(
+    "The module utils.train_utils is deprecated. "
+    "Please use sentinel.utils.train_utils instead.",
+    DeprecationWarning,
+    stacklevel=2
+)
+
+# Import from new location
+from sentinel.utils.train_utils import FineTuner as _NewFineTuner
+
+# Create a subclass that maintains backward compatibility
+class FineTuner(_NewFineTuner):
+    """Legacy FineTuner with backward compatibility"""
     
     def __init__(self, pruning_module, dataset, learning_rate=5e-5, head_lr_manager=None):
-        """
-        Initialize the fine-tuner.
+        super().__init__(pruning_module, dataset, learning_rate, head_lr_manager)
         
-        Args:
-            pruning_module: PruningModule instance with the model to train
-            dataset: Dataset loader for training data
-            learning_rate: Base learning rate
-            head_lr_manager: Optional HeadLRManager for differential learning rates
-        """
-        self.pruning_module = pruning_module
-        self.dataset = dataset
-        self.learning_rate = learning_rate
-        self.head_lr_manager = head_lr_manager
-        
-        # Get model
+        # For backward compatibility with original implementation
         self.model = pruning_module.model
-        
-        # Use parameters from pruning_module directly
-        self.params = pruning_module.params
-        
-        # Setup training state
-        self.step = 0
-        
-        # Initialize optimizer
-        self.optimizer = torch.optim.AdamW(self.model.parameters(), lr=learning_rate)
-        
-        # Initialize loss tracking
         self.losses = []
+        
+        # Initialize optimizer (if needed)
+        if hasattr(self.model, 'parameters'):
+            self.optimizer = torch.optim.AdamW(self.model.parameters(), lr=learning_rate)
     
-    def set_params(self, params):
-        """
-        Set the model parameters for training.
-        
-        Args:
-            params: Model parameters to use
-        """
-        self.params = params
-        
-        # For PyTorch, we don't need to reinitialize optimizer
-        # Just update the model's parameters with the new params
-        
-        # Ensure model has params attribute
-        if hasattr(self.model, 'params'):
-            self.model.params = params
-    
-    def get_params(self):
-        """
-        Get the current model parameters.
-        
-        Returns:
-            Current model parameters
-        """
-        return copy.deepcopy(self.params)
-    
+    # Legacy methods with backward compatibility
     def compute_loss(self, batch):
-        """
-        Compute the loss for a batch.
-        
-        Args:
-            batch: Batch of data
-            
-        Returns:
-            Loss value
-        """
+        """Backward compatible loss computation"""
         # Forward pass
         outputs = self.model(batch["input_ids"])
         
@@ -140,79 +96,11 @@ class FineTuner:
         
         return loss
     
-    def apply_differential_learning_rates(self):
-        """
-        Apply differential learning rates to the optimizer if head_lr_manager is provided.
-        """
-        if self.head_lr_manager is None:
-            return
-        
-        # Apply head-specific learning rates if head_lr_manager is provided
-        # For PyTorch, we'd create parameter groups with different learning rates
-        
-        # For this implementation, we'll simply use the existing optimizer
-        # with differential learning rates to be implemented in the future
-        
-        # This is a placeholder for future implementation
-        pass
-    
-    def train_step(self):
-        """
-        Perform a single training step.
-        
-        Returns:
-            Loss value for the step
-        """
-        # Get a batch of data
-        batch = next(self.dataset.train_dataloader)
-        
-        # Move batch to device
-        input_ids = torch.tensor(batch["input_ids"]).to(self.model.device)
-        attention_mask = torch.tensor(batch["attention_mask"]).to(self.model.device)
-        
-        # Create a PyTorch batch
-        pytorch_batch = {
-            "input_ids": input_ids,
-            "attention_mask": attention_mask
-        }
-        
-        # Zero gradients
-        self.optimizer.zero_grad()
-        
-        # Compute loss
-        loss = self.compute_loss(pytorch_batch)
-        
-        # Backward pass
-        loss.backward()
-        
-        # Clip gradients
-        torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
-        
-        # Update parameters
-        self.optimizer.step()
-        
-        # Update step counter
-        self.step += 1
-        
-        # Track loss - convert to float
-        loss_value_float = loss.item()
-        self.losses.append(loss_value_float)
-        
-        return loss_value_float
-    
     def train(self, num_steps=100, eval_every=50):
-        """
-        Train the model for a specified number of steps.
-        
-        Args:
-            num_steps: Number of training steps
-            eval_every: Evaluate every N steps
-            
-        Returns:
-            Dictionary with training results
-        """
+        """Backward compatible training method"""
         # Set model to training mode
-        self.model.train()
+        if hasattr(self.model, 'train'):
+            self.model.train()
         
         # Training loop
         for step in tqdm(range(num_steps)):
@@ -232,17 +120,12 @@ class FineTuner:
         }
     
     def save_checkpoint(self, path):
-        """
-        Save a checkpoint of the current training state.
-        
-        Args:
-            path: Path to save the checkpoint
-        """
+        """Save a checkpoint of the current training state."""
         import pickle
         
         checkpoint = {
             "params": self.params,
-            "optimizer_state": self.opt_state,
+            "optimizer_state": self.opt_state if hasattr(self, 'opt_state') else None,
             "step": self.step,
             "losses": self.losses,
             "learning_rate": self.learning_rate
@@ -252,19 +135,19 @@ class FineTuner:
             pickle.dump(checkpoint, f)
     
     def load_checkpoint(self, path):
-        """
-        Load a checkpoint of a previous training state.
-        
-        Args:
-            path: Path to the checkpoint
-        """
+        """Load a checkpoint of a previous training state."""
         import pickle
         
         with open(path, 'rb') as f:
             checkpoint = pickle.load(f)
         
         self.params = checkpoint["params"]
-        self.opt_state = checkpoint["optimizer_state"]
+        if hasattr(self, 'opt_state') and "optimizer_state" in checkpoint:
+            self.opt_state = checkpoint["optimizer_state"]
         self.step = checkpoint["step"]
         self.losses = checkpoint["losses"]
         self.learning_rate = checkpoint["learning_rate"]
+
+
+# Add all imported symbols to __all__
+__all__ = ["FineTuner"]

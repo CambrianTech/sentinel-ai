@@ -3,6 +3,9 @@ JAX-Compatible PruningModule Adapter for Sentinel-AI
 
 This module provides a compatible adapter between the original JAX-based PruningModule
 and the newer PyTorch-based implementation to support scripts that expect the original.
+
+This module is maintained for backward compatibility.
+New code should import from sentinel.pruning.fixed_pruning_module_jax instead.
 """
 
 import os
@@ -11,12 +14,27 @@ import jax
 import jax.numpy as jnp
 import torch
 import numpy as np
+import warnings
 from typing import Dict, List, Tuple, Any, Optional, Union
 import copy
 
-# Import the fixed pruning module
-sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
-from utils.pruning.fixed_pruning_module import FixedPruningModule
+# Emit deprecation warning
+warnings.warn(
+    "The utils.pruning.fixed_pruning_module_jax module is deprecated. "
+    "Please use sentinel.pruning.fixed_pruning_module_jax instead.",
+    DeprecationWarning,
+    stacklevel=2
+)
+
+# Import from the new location for backward compatibility
+try:
+    from sentinel.pruning.fixed_pruning_module import FixedPruningModule
+    from sentinel.pruning.fixed_pruning_module_jax import PruningModule as SentinelPruningModule
+    # Redefine the class to use the imported one
+    PruningModule = SentinelPruningModule
+except ImportError:
+    # If import fails, fall back to local import
+    from utils.pruning.fixed_pruning_module import FixedPruningModule
 
 class PruningModule:
     """

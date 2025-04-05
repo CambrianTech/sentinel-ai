@@ -3,18 +3,35 @@ Simplified Head Learning Rate Manager for the neural plasticity experiments.
 
 This module provides a basic implementation of differential learning rates
 for newly added heads during the growth phase of neural plasticity.
+
+This module is maintained for backward compatibility.
+New code should import from sentinel.pruning.head_lr_manager instead.
 """
 
 import jax
 import jax.numpy as jnp
 import numpy as np
+import warnings
 
-class HeadLRManager:
-    """
-    Manages differential learning rates for attention heads during fine-tuning
-    after head growth. Newly added heads get higher learning rates to accelerate
-    their integration.
-    """
+# Emit deprecation warning
+warnings.warn(
+    "The utils.pruning.head_lr_manager module is deprecated. "
+    "Please use sentinel.pruning.head_lr_manager instead.",
+    DeprecationWarning,
+    stacklevel=2
+)
+
+# Import from the new location for backward compatibility
+try:
+    from sentinel.pruning.head_lr_manager import HeadLRManager
+except ImportError:
+    # If the import fails, define the class here for backward compatibility
+    class HeadLRManager:
+        """
+        Manages differential learning rates for attention heads during fine-tuning
+        after head growth. Newly added heads get higher learning rates to accelerate
+        their integration.
+        """
     
     def __init__(self, base_lr=5e-5, new_head_multiplier=5.0, new_heads=None):
         """
