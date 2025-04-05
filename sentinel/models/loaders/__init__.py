@@ -13,7 +13,17 @@ try:
 except ImportError:
     pass
 
-# These will be implemented later
-# from sentinel.models.loaders.bloom_loader import load_bloom_with_adaptive_transformer
-# from sentinel.models.loaders.opt_loader import load_opt_with_adaptive_transformer
-# from sentinel.models.loaders.llama_loader import load_llama_with_adaptive_transformer
+try:
+    from sentinel.models.loaders.bloom_loader import load_adaptive_model_bloom, load_bloom_with_adaptive_transformer
+except ImportError:
+    pass
+
+try:
+    from sentinel.models.loaders.opt_loader import load_opt_with_adaptive_transformer
+except ImportError:
+    pass
+
+try:
+    from sentinel.models.loaders.llama_loader import load_llama_with_adaptive_transformer
+except ImportError:
+    pass

@@ -7,6 +7,9 @@ model training and evaluation, to track progress and identify issues.
 
 import torch
 import numpy as np
+import re
+import math
+from collections import Counter
 from typing import Dict, Any, List, Optional
 
 def calculate_metrics(logits: torch.Tensor, labels: torch.Tensor, prefix: str = "") -> Dict[str, float]:
@@ -165,3 +168,98 @@ def calculate_sequence_metrics(
     metrics["accuracy"] = accuracy.item()
     
     return metrics
+
+
+def calculate_perplexity(model, tokenizer, text):
+    """
+    Calculate an approximate perplexity measure for a generated text.
+    
+    This is a simplified version for validation that doesn't require running the model.
+    
+    Args:
+        model: The model (used for reference only in this simplified version)
+        tokenizer: The tokenizer
+        text: The text to evaluate
+        
+    Returns:
+        Approximate perplexity score
+    """
+    if not text:
+        return 100.0  # Default high perplexity for empty text
+    
+    # Simple tokenization (split by whitespace and punctuation)
+    tokens = re.findall(r'\w+|[^\w\s]', text.lower())
+    
+    if not tokens:
+        return 100.0
+    
+    # Calculate token frequencies
+    token_counts = Counter(tokens)
+    total_tokens = len(tokens)
+    
+    # Calculate entropy
+    entropy = 0
+    for token, count in token_counts.items():
+        prob = count / total_tokens
+        entropy -= prob * math.log(prob)
+    
+    # Convert entropy to perplexity
+    perplexity = math.exp(entropy)
+    
+    return perplexity
+
+
+def calculate_diversity(text):
+    """
+    Calculate lexical diversity of a text.
+    
+    Args:
+        text: The text to evaluate
+        
+    Returns:
+        A diversity score (higher is better)
+    """
+    if not text:
+        return 0.0
+    
+    # Simple word tokenization
+    words = re.findall(r'\w+', text.lower())
+    
+    if not words:
+        return 0.0
+    
+    # Calculate lexical diversity as unique words / total words
+    unique_words = len(set(words))
+    total_words = len(words)
+    
+    return unique_words / total_words
+
+
+def calculate_repetition(text):
+    """
+    Calculate repetition score for a text.
+    
+    Args:
+        text: The text to evaluate
+        
+    Returns:
+        A repetition score (lower is better)
+    """
+    if not text:
+        return 0.0
+    
+    words = re.findall(r'\w+', text.lower())
+    
+    if len(words) <= 1:
+        return 0.0
+    
+    # Find repeated words in a window
+    window_size = min(50, len(words))
+    repeats = 0
+    
+    for i in range(len(words) - 1):
+        end_idx = min(i + window_size, len(words))
+        if words[i] in words[i+1:end_idx]:
+            repeats += 1
+            
+    return repeats / (len(words) - 1)

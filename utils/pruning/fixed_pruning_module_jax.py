@@ -29,7 +29,9 @@ warnings.warn(
 # Import from the new location for backward compatibility
 try:
     from sentinel.pruning.fixed_pruning_module import FixedPruningModule
-    from sentinel.pruning.fixed_pruning_module_jax import PruningModule
+    from sentinel.pruning.fixed_pruning_module_jax import PruningModule as SentinelPruningModule
+    # Redefine the class to use the imported one
+    PruningModule = SentinelPruningModule
 except ImportError:
     # If import fails, fall back to local import
     from utils.pruning.fixed_pruning_module import FixedPruningModule

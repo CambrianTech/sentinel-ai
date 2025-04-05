@@ -14,7 +14,13 @@ except ImportError:
     pass
 
 try:
-    from sentinel.utils.metrics import calculate_metrics, log_metrics
+    from sentinel.utils.metrics import (
+        calculate_metrics, 
+        log_metrics, 
+        calculate_perplexity, 
+        calculate_diversity, 
+        calculate_repetition
+    )
 except ImportError:
     pass
 
@@ -119,6 +125,9 @@ try:
     sys.modules['utils.metrics'] = type('ProxyModule', (), {
         'calculate_metrics': _create_proxy_function('utils.metrics', 'calculate_metrics', 'sentinel.utils.metrics'),
         'log_metrics': _create_proxy_function('utils.metrics', 'log_metrics', 'sentinel.utils.metrics'),
+        'calculate_perplexity': _create_proxy_function('utils.metrics', 'calculate_perplexity', 'sentinel.utils.metrics'),
+        'calculate_diversity': _create_proxy_function('utils.metrics', 'calculate_diversity', 'sentinel.utils.metrics'),
+        'calculate_repetition': _create_proxy_function('utils.metrics', 'calculate_repetition', 'sentinel.utils.metrics'),
         '__name__': 'utils.metrics',
     })
     
