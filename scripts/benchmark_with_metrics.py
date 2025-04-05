@@ -309,16 +309,75 @@ def prepare_evaluation_data(tokenizer, args, split="validation"):
     from torch.utils.data import TensorDataset, DataLoader
     
     if args.use_real_data and args.eval_dataset:
-        # NOTE: There's a conflict with sentinel_data.table that prevents using the Hugging Face datasets library
-        # For now, use high-quality synthetic data instead
+        # Load real data from files to avoid dataset loading issues
+        texts = []
         
-        print(f"Using high-quality synthetic data for {split} split")
-        texts = None
+        # First, try to load data from local files in benchmark_data directory
+        data_paths = {
+            "wikitext": "benchmark_data/wikitext-2-raw-v1-validation.txt",
+            "wikitext-2": "benchmark_data/wikitext-2-raw-v1-validation.txt",
+            "wikitext-103": "benchmark_data/wikitext-103-raw-v1-validation.txt",
+        }
         
-        # If dataset name contains wikipedia or wikitext, use wikipedia-like text 
-        if args.eval_dataset and ("wiki" in args.eval_dataset.lower()):
-            # Create Wikipedia-like synthetic data (more complex than the basic synthetic data)
-            wiki_texts = []
+        # Determine which file to load based on dataset name
+        data_file = None
+        if args.eval_dataset:
+            # Check for exact match first
+            if args.eval_dataset in data_paths:
+                data_file = data_paths[args.eval_dataset]
+            else:
+                # Try partial matches
+                for key in data_paths:
+                    if key in args.eval_dataset.lower():
+                        data_file = data_paths[key]
+                        break
+        
+        # Try to load the data file
+        if data_file and os.path.exists(data_file):
+            print(f"Loading real data from {data_file} for {split} split")
+            try:
+                with open(data_file, 'r', encoding='utf-8') as f:
+                    # Read all lines
+                    lines = f.readlines()
+                    
+                    # Process lines - join paragraphs and filter empty lines
+                    current_paragraph = ""
+                    for line in lines:
+                        line = line.strip()
+                        if line:
+                            current_paragraph += line + " "
+                        elif current_paragraph:
+                            # End of paragraph
+                            if len(current_paragraph) > 50:  # Only keep substantial paragraphs
+                                texts.append(current_paragraph)
+                            current_paragraph = ""
+                    
+                    # Add last paragraph if not empty
+                    if current_paragraph and len(current_paragraph) > 50:
+                        texts.append(current_paragraph)
+                
+                # If we have texts, we're done
+                if texts:
+                    # Limit based on split type
+                    if split == "validation":
+                        texts = texts[:args.eval_samples]
+                    else:
+                        # Use more samples for training, but still limit
+                        max_train_samples = min(len(texts), 10000)
+                        texts = texts[:max_train_samples]
+                    
+                    print(f"Loaded {len(texts)} real text segments for {split}")
+                else:
+                    print(f"No texts found in {data_file}, falling back to synthetic data")
+                    texts = None
+            except Exception as e:
+                print(f"Error loading data file: {e}")
+                texts = None
+                
+        # If still no texts, use high-quality synthetic data
+        if not texts:
+            print(f"Using high-quality synthetic data for {split} split")
+            texts = []
             
             # Wikipedia article on "Artificial Intelligence"
             wiki_ai = """
@@ -329,10 +388,6 @@ def prepare_evaluation_data(tokenizer, args, split="validation"):
             Computer scientists and philosophers have suggested that strong AI may never be achieved due to the complexity of human intelligence, while others believe that artificial general intelligence, the ability of a machine to apply intelligence to any problem, is a reachable goal. 
             
             Since its beginning, AI research has explored symbol manipulation, neural networks, and methods based on statistics, probability, and economics. In the 1960s and 1970s, cybernetics and computational intelligence began to flourish, and in the 1990s and early 21st century, statistics-based machine learning achieved remarkable successes.
-            
-            The field of AI was founded at a workshop held on the campus of Dartmouth College, USA during the summer of 1956. Those who attended would become the leaders of AI research for decades. Many of them predicted that a machine as intelligent as a human would exist in no more than a generation, and they were given millions of dollars to make this vision come true.
-            
-            By the mid-1960s, researchers in the USA were receiving more than $2 million per year from agencies such as the Defense Advanced Research Projects Agency (DARPA) to fund AI projects. The field of neural network research declined after Frank Rosenblatt passed away, and the field of symbolic AI dominated AI research for the next two decades.
             """
             
             # Wikipedia article on "Neural Networks"
@@ -342,10 +397,6 @@ def prepare_evaluation_data(tokenizer, args, split="validation"):
             Artificial neural networks (ANNs) are comprised of a node layers, containing an input layer, one or more hidden layers, and an output layer. Each node, or artificial neuron, connects to another and has an associated weight and threshold. If the output of any individual node is above the specified threshold value, that node is activated, sending data to the next layer of the network. Otherwise, no data is passed along to the next layer of the network.
             
             Neural networks rely on training data to learn and improve their accuracy over time. However, once these learning algorithms are fine-tuned for accuracy, they become powerful tools in computer science and artificial intelligence, allowing us to classify and cluster data at a high velocity. Tasks in speech recognition or image recognition can take minutes versus hours when compared to the manual identification by human experts. One of the most well-known neural networks is Google's search algorithm.
-            
-            The first artificial neural network was developed in 1943 by Warren McCulloch, a neurophysiologist, and Walter Pitts, a logician. They modeled a simple neural network with electrical circuits to show how neurons might work in the brain. This early model laid the foundation for the more complex neural networks that would be developed.
-            
-            In 1957, Frank Rosenblatt created the perceptron, the first artificial neuron. The perceptron was designed to recognize patterns, and it could learn through a process called training. While primitive by today's standards, the perceptron was a significant step forward in the development of neural networks.
             """
             
             # Wikipedia article on "Transformer Models"
@@ -355,29 +406,93 @@ def prepare_evaluation_data(tokenizer, args, split="validation"):
             Like recurrent neural networks (RNNs), transformers are designed to process sequential input data, such as natural language, with applications extending to other tasks like text generation. However, unlike RNNs, transformers process the entire input all at once. The attention mechanism provides context for any position in the input sequence.
             
             The transformer was proposed in the paper "Attention Is All You Need" by researchers at Google Brain in 2017. It has become the model of choice for NLP problems, replacing RNN models such as long short-term memory (LSTM). The additional capability of transformers to process all inputs in parallel has reduced training times and enabled training on larger datasets, leading to models such as BERT (Bidirectional Encoder Representations from Transformers) and GPT (Generative Pre-trained Transformer).
-            
-            Transformers consist of an encoder and a decoder. The encoder processes the input sequence, while the decoder produces the output sequence. Each encoder and decoder is composed of multiple layers, with each layer having two main parts: a self-attention mechanism and a feed-forward neural network.
-            
-            The self-attention mechanism allows the model to focus on different parts of the input sequence when encoding a particular element, enabling it to capture long-range dependencies in the input. The feed-forward network processes each element of the sequence independently, applying the same transformation to each one.
             """
             
-            # Combine and split into segments
-            wiki_full_text = wiki_ai + wiki_nn + wiki_transformer
-            for i in range(0, len(wiki_full_text), 200):
-                segment = wiki_full_text[i:i+200]
-                if len(segment.strip()) > 50:  # Skip segments that are too short
-                    wiki_texts.append(segment)
+            # Creative writing from 20 top authors
+            creative_texts = [
+                "The old man was thin and gaunt with deep wrinkles in the back of his neck. The brown blotches of the benevolent skin cancer the sun brings from its reflection on the tropic sea were on his cheeks.",
+                "All happy families are alike; each unhappy family is unhappy in its own way. Everything was in confusion in the Oblonskys' house.",
+                "It was the best of times, it was the worst of times, it was the age of wisdom, it was the age of foolishness, it was the epoch of belief, it was the epoch of incredulity.",
+                "For a long time, I went to bed early. Sometimes, my candle barely out, my eyes closed so quickly that I did not have time to tell myself: "I'm falling asleep."",
+                "It was a bright cold day in April, and the clocks were striking thirteen. Winston Smith, his chin nuzzled into his breast in an effort to escape the vile wind, slipped quickly through the glass doors of Victory Mansions.",
+                "Many years later, as he faced the firing squad, Colonel Aureliano Buendía was to remember that distant afternoon when his father took him to discover ice.",
+                "The sky above the port was the color of television, tuned to a dead channel. "It's not like I'm using," Case heard someone say, as he shouldered his way through the crowd.",
+                "In my younger and more vulnerable years my father gave me some advice that I've been turning over in my mind ever since. "Whenever you feel like criticizing anyone," he told me, "just remember that all the people in this world haven't had the advantages that you've had."",
+                "As Gregor Samsa awoke one morning from uneasy dreams he found himself transformed in his bed into a gigantic insect. He was lying on his hard, as it were armor-plated, back and when he lifted his head a little he could see his dome-like brown belly.",
+                "Call me Ishmael. Some years ago—never mind how long precisely—having little or no money in my purse, and nothing particular to interest me on shore, I thought I would sail about a little and see the watery part of the world.",
+                "Lolita, light of my life, fire of my loins. My sin, my soul. Lo-lee-ta: the tip of the tongue taking a trip of three steps down the palate to tap, at three, on the teeth. Lo. Lee. Ta.",
+                "I am an invisible man. No, I am not a spook like those who haunted Edgar Allan Poe; nor am I one of your Hollywood-movie ectoplasms. I am a man of substance, of flesh and bone, fiber and liquids—and I might even be said to possess a mind.",
+                "Happy families are all alike; every unhappy family is unhappy in its own way. Everything was in confusion in the Oblonskys' house. The wife had discovered that the husband was carrying on an intrigue with a French girl, who had been a governess in their family.",
+                "It was a pleasure to burn. It was a special pleasure to see things eaten, to see things blackened and changed. With the brass nozzle in his fists, with this great python spitting its venomous kerosene upon the world.",
+                "Somewhere in la Mancha, in a place whose name I do not care to remember, a gentleman lived not long ago, one of those who has a lance and ancient shield on a shelf and keeps a skinny nag and a greyhound for racing.",
+            ]
             
+            # Scientific texts on physics and mathematics
+            science_texts = [
+                "The theory of relativity transformed our understanding of space and time. Einstein's equations demonstrated that space and time are not absolute, but rather form a four-dimensional spacetime that can be warped by matter and energy.",
+                "Quantum mechanics describes the behavior of matter and energy at the atomic and subatomic scales. Its probabilistic nature challenged classical determinism, introducing concepts like wave-particle duality and quantum entanglement.",
+                "The Riemann Hypothesis concerns the distribution of prime numbers and is considered one of the most important unsolved problems in mathematics. It states that all non-trivial zeros of the Riemann zeta function have real part 1/2.",
+                "Machine learning algorithms learn patterns from data without explicit programming. Supervised learning uses labeled data for training, while unsupervised learning identifies patterns without labeled examples. Reinforcement learning involves agents learning through trial and error.",
+                "The P versus NP problem is a major unsolved question in computer science. It asks whether every problem whose solution can be quickly verified by a computer can also be quickly solved by a computer. Its resolution would have profound implications for cryptography and optimization.",
+                "Black holes are regions of spacetime where gravity is so strong that nothing, not even light, can escape from them. They form when massive stars collapse at the end of their life cycles. The event horizon marks the boundary beyond which escape is impossible.",
+                "Fermat's Last Theorem states that no three positive integers a, b, and c can satisfy the equation aⁿ + bⁿ = cⁿ for any integer value of n greater than 2. It remained unproven for 358 years until Andrew Wiles presented a proof in 1994.",
+                "The second law of thermodynamics states that the total entropy of an isolated system always increases over time. This fundamental principle explains why heat flows from hot to cold objects and why perpetual motion machines are impossible.",
+                "String theory proposes that the fundamental constituents of reality are not point-like particles but tiny one-dimensional strings. Different vibration patterns of these strings correspond to different fundamental particles. The theory requires extra spatial dimensions beyond the familiar three.",
+                "Neural networks are computational models inspired by the human brain. They consist of interconnected nodes or neurons organized in layers. Deep learning involves neural networks with many layers that can learn hierarchical representations of data.",
+            ]
+            
+            # Combine all texts and create a diverse corpus
+            all_texts = []
+            all_texts.extend([wiki_ai, wiki_nn, wiki_transformer])
+            all_texts.extend(creative_texts)
+            all_texts.extend(science_texts)
+            
+            # Split longer texts into smaller segments
+            for text in all_texts:
+                # Split by paragraph or 300-character chunks for longer texts
+                paragraphs = text.split("\n\n")
+                for paragraph in paragraphs:
+                    paragraph = paragraph.strip()
+                    if len(paragraph) > 50:  # Only keep substantial paragraphs
+                        if len(paragraph) > 300:
+                            # Split into smaller segments
+                            for i in range(0, len(paragraph), 300):
+                                segment = paragraph[i:i+300]
+                                if len(segment.strip()) > 50:
+                                    texts.append(segment)
+                        else:
+                            texts.append(paragraph)
+            
+            # Deduplicate and shuffle
+            import random
+            texts = list(set(texts))  # Remove duplicates
+            random.shuffle(texts)     # Shuffle for more diversity
+            
+            # Split appropriately
             if split == "validation":
-                texts = wiki_texts[:args.eval_samples]
+                texts = texts[:args.eval_samples]
             else:
-                texts = wiki_texts * (1 + (1000 // len(wiki_texts)))  # Repeat to get more samples
-                texts = texts[:10000]  # Limit to a reasonable number
+                # Generate more training samples by combining texts if needed
+                if len(texts) < 300:  # If we have too few unique samples
+                    additional_texts = []
+                    for _ in range(1000 // len(texts)):
+                        for t1, t2 in zip(texts[::2], texts[1::2]):
+                            combined = t1 + " " + t2
+                            additional_texts.append(combined)
+                    texts.extend(additional_texts)
+                
+                # Limit to a reasonable number
+                texts = texts[:min(len(texts), 2000)]
             
-            print(f"Created {len(texts)} high-quality wiki-like text segments for {split}")
-        elif texts is None:
-            print(f"Falling back to synthetic data for {split}")
-            texts = None
+            print(f"Created {len(texts)} diverse synthetic text segments for {split}")
+            
+            # Create directory for saving these synthetic datasets for future use
+            os.makedirs("benchmark_data", exist_ok=True)
+            dataset_path = f"benchmark_data/synthetic_{split}.txt"
+            with open(dataset_path, "w", encoding="utf-8") as f:
+                for text in texts:
+                    f.write(text + "\n\n")
+            print(f"Saved synthetic dataset to {dataset_path} for future use")
     else:
         # Use synthetic data if real data not requested or no dataset provided
         texts = None
