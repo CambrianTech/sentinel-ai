@@ -1,0 +1,128 @@
+\section{Methods}
+
+\subsection{Scientific Pruning Framework}
+
+We introduce a framework for studying neural plasticity in transformer models through information-theoretic and weight-based pruning methods. This framework enables systematic investigation of attention mechanism importance, functional redundancy, and model adaptation under structural constraints.
+
+\subsubsection{Model Architecture Detection}
+
+Our system dynamically adapts to different transformer architectures to ensure consistent application across model families:
+
+\begin{itemize}
+    \item \textbf{GPT-style models} with unified QKV projections (\texttt{c\_attn}, \texttt{c\_proj})
+    \item \textbf{BERT-style models} with separate projection matrices (\texttt{q\_proj}, \texttt{k\_proj}, \texttt{v\_proj})
+    \item \textbf{Adaptive transformer models} with block-based architectures
+\end{itemize}
+
+This architecture-aware approach ensures reliable operation across different model designs while maintaining scientific consistency in measurement and intervention.
+
+\subsection{Entropy-Based Pruning}
+
+\subsubsection{Theory}
+
+Entropy-based pruning quantifies the information-theoretic properties of attention distributions to identify heads with diffuse (unfocused) attention patterns. For each attention head $h$, we compute entropy $H(h)$ across a representative data sample:
+
+\begin{equation}
+H(h) = \frac{1}{B \cdot S} \sum_{b=1}^{B} \sum_{i=1}^{S} -\sum_{j=1}^{S} A^{(h)}_{b,i,j} \log A^{(h)}_{b,i,j}
+\end{equation}
+
+where $A^{(h)}_{b,i,j}$ is the attention probability from token $i$ to token $j$ for head $h$ in batch $b$, and $B$ and $S$ are the batch size and sequence length, respectively.
+
+Heads with higher entropy distribute attention more uniformly across tokens, suggesting they encode less specific token relationships and are candidates for pruning without significant impact on model performance.
+
+\subsubsection{Implementation}
+
+Our entropy-based pruning algorithm proceeds through the following stages:
+
+\begin{enumerate}
+    \item \textbf{Attention Distribution Collection:} We register non-intrusive forward hooks on attention modules to capture attention probabilities across multiple input batches.
+    
+    \item \textbf{Entropy Computation:} For each head, we calculate the entropy of its attention distribution using Equation 1, with a small epsilon ($\approx 10^{-8}$) to prevent numerical instability in log computation.
+    
+    \item \textbf{Head Ranking:} Heads are sorted by their entropy scores in descending order, with highest-entropy heads (most diffuse attention) ranked for priority pruning.
+    
+    \item \textbf{Selective Pruning:} The top $N$ heads, where $N = \lfloor\text{total\_heads} \times \text{prune\_ratio}\rfloor$, are selected for pruning based on the specified ratio.
+\end{enumerate}
+
+\subsection{Magnitude-Based Pruning}
+
+\subsubsection{Theory}
+
+Magnitude-based pruning assesses head importance through weight magnitudes, operating on the principle that parameters with smaller magnitudes tend to contribute less to model output. For each head $h$ in layer $l$, we compute a magnitude score $M(l,h)$ as:
+
+\begin{equation}
+M(l,h) = \|W^Q_{l,h}\|_F + \|W^K_{l,h}\|_F + \|W^V_{l,h}\|_F + \|W^O_{l,h}\|_F
+\end{equation}
+
+where $W^Q_{l,h}$, $W^K_{l,h}$, $W^V_{l,h}$, and $W^O_{l,h}$ are the query, key, value, and output projection weights for head $h$ in layer $l$, and $\|\cdot\|_F$ denotes the Frobenius norm.
+
+This approach is inspired by biological synaptic pruning, where weaker connections are more likely to be eliminated during neural development and refinement.
+
+\subsubsection{Implementation}
+
+The magnitude-based pruning algorithm consists of the following stages:
+
+\begin{enumerate}
+    \item \textbf{Weight Extraction:} For different model architectures, we employ specialized methods to access the relevant weight matrices:
+    
+    \begin{itemize}
+        \item For GPT-style models, we slice the combined QKV weight matrix to extract per-head parameters
+        \item For BERT-style models, we access separate projection matrices and isolate head-specific portions
+        \item For adaptive models, we extract parameters directly from attention blocks
+    \end{itemize}
+    
+    \item \textbf{Magnitude Computation:} We calculate the norm of each head's contribution to the Q, K, V, and O projection matrices and sum these values to obtain a comprehensive magnitude score.
+    
+    \item \textbf{Head Ranking:} Heads are sorted by their magnitude scores in ascending order, with lowest-magnitude heads prioritized for pruning.
+    
+    \item \textbf{Selective Pruning:} The bottom $N$ heads by magnitude are selected for pruning based on the specified pruning ratio.
+\end{enumerate}
+
+\subsection{Gradient-Preserving Pruning Application}
+
+To enable subsequent fine-tuning and study of model adaptation, we implement pruning through gradient-preserving mechanisms:
+
+\begin{enumerate}
+    \item \textbf{Pruning Mechanism Detection:} The system automatically identifies the appropriate pruning interface:
+    \begin{itemize}
+        \item \texttt{gate} parameters in adaptive models
+        \item \texttt{head\_mask} attributes in HuggingFace models
+        \item \texttt{pruning\_mask} buffers
+        \item Dynamic creation of mask buffers when no built-in mechanism exists
+    \end{itemize}
+    
+    \item \textbf{Safe Tensor Updates:} Pruning is applied through non-destructive tensor operations that preserve the computation graph:
+    \begin{lstlisting}[language=Python, caption=Safe tensor update function]
+def safe_update_tensor(tensor, new_value, index=None):
+    with torch.no_grad():
+        if index is not None:
+            tensor[index] = new_value
+        else:
+            if isinstance(new_value, torch.Tensor) and tensor.size() == new_value.size():
+                tensor.copy_(new_value)
+            else:
+                tensor.fill_(new_value)
+    \end{lstlisting}
+\end{enumerate}
+
+This approach allows us to maintain differentiability for unpruned components, enabling investigation of neural plasticity through post-pruning fine-tuning and adaptation.
+
+\subsection{Experimental Protocol}
+
+To study neural plasticity through pruning and adaptation, we employ the following experimental protocol:
+
+\begin{enumerate}
+    \item \textbf{Baseline Evaluation:} Measure model performance on target tasks before any pruning.
+    
+    \item \textbf{Structured Pruning:} Apply either entropy-based or magnitude-based pruning at specified ratios (typically 10\%, 30\%, or 50\% of heads).
+    
+    \item \textbf{Post-Pruning Evaluation:} Measure immediate performance impact after pruning.
+    
+    \item \textbf{Adaptive Fine-Tuning:} Retrain the pruned model on the target domain for a specified number of steps.
+    
+    \item \textbf{Plasticity Analysis:} Track changes in gate values, attention patterns, and performance metrics to quantify model adaptation.
+\end{enumerate}
+
+Performance is measured using perplexity for language modeling tasks, along with task-specific metrics for downstream applications. Text generation quality is assessed through both automated metrics and sample analysis.
+
+Through this protocol, we can systematically investigate how transformer models reorganize their internal representations after targeted disruption, providing insights into the functional allocation of attention mechanisms and the model's capacity for neural plasticity.
