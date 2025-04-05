@@ -93,3 +93,18 @@ PR_DRAFT.md
 # Temporary files from refactoring
 test_bloom_loader.py
 fix_indentation.py
+
+# Temporary import testing and patching files
+*test_import*.py
+*patch_datasets*.py
+isolated_mock_test.py
+simple_test_with_mock.py
+apply_*patch*.py
+test_patched_*.py
+update_imports.py
+test_minimal_task_suite.py
+test_task_alternation.py
+
+# Benchmark test results
+benchmark_test/
+.private/
