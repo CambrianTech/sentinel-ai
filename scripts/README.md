@@ -20,7 +20,7 @@ publication-ready figure generation, and experimentation with new features.
 
 These scripts help resolve import conflicts between our code and external libraries:
 
-- `update_imports.py`: Updates imports from `sentinel_data` to `sdata` throughout the codebase
+- `update_imports.py`: Updates imports from legacy modules to current naming throughout the codebase
 - `apply_comprehensive_patch.py`: Applies patches to the HuggingFace datasets library to fix circular imports
 - `simple_test_with_mock.py`: Demonstrates using mock imports to test our code without importing problematic libraries
 - `isolated_mock_test.py`: Provides a completely isolated test environment with mock implementations
@@ -61,7 +61,7 @@ These scripts help resolve import conflicts between our code and external librar
 ### Import Conflict Resolution
 
 ```bash
-# Update imports from sentinel_data to sdata throughout the codebase
+# Update module imports throughout the codebase
 python scripts/update_imports.py
 
 # Test with completely isolated mock implementations (recommended)
