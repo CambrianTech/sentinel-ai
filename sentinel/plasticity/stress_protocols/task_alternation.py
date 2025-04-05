@@ -14,12 +14,14 @@ import json
 import numpy as np
 import matplotlib.pyplot as plt
 from pathlib import Path
-from typing import Dict, List, Any, Optional, Callable, Union, Tuple, Sequence
+from typing import Dict, List, Any, Optional, Callable, Union, Tuple, Sequence, TYPE_CHECKING
 from dataclasses import dataclass, field
 from datetime import datetime
-
-from transformers import PreTrainedTokenizer, PreTrainedModel, Trainer, TrainingArguments
 from torch.utils.data import DataLoader
+
+# Use TYPE_CHECKING to avoid circular imports
+if TYPE_CHECKING:
+    from transformers import PreTrainedTokenizer, PreTrainedModel, Trainer, TrainingArguments
 
 from sentinel.plasticity.stress_protocols.task_suite import TaskSuite, TaskConfig
 
@@ -120,8 +122,8 @@ class TaskAlternationProtocol:
     
     def run_protocol(
         self,
-        model: PreTrainedModel,
-        tokenizer: PreTrainedTokenizer,
+        model: "Any",  # PreTrainedModel
+        tokenizer: "Any",  # PreTrainedTokenizer
         fine_tuning_fn: Optional[Callable] = None,
         device: Optional[str] = None
     ) -> Dict[str, Any]:
@@ -268,7 +270,7 @@ class TaskAlternationProtocol:
     
     def _default_fine_tuning(
         self,
-        model: PreTrainedModel,
+        model: "Any",  # PreTrainedModel
         dataloader: DataLoader,
         task_name: str,
         epochs: int = 1,
@@ -337,8 +339,8 @@ class TaskAlternationProtocol:
     
     def _evaluate_all_tasks(
         self,
-        model: PreTrainedModel,
-        tokenizer: PreTrainedTokenizer,
+        model: "Any",  # PreTrainedModel
+        tokenizer: "Any",  # PreTrainedTokenizer
         task_names: List[str]
     ) -> Dict[str, Dict[str, Any]]:
         """
@@ -487,8 +489,8 @@ class TaskAlternationProtocol:
     
     def _save_checkpoint(
         self,
-        model: PreTrainedModel,
-        tokenizer: PreTrainedTokenizer,
+        model: "Any",  # PreTrainedModel
+        tokenizer: "Any",  # PreTrainedTokenizer
         checkpoint_name: str
     ) -> None:
         """
@@ -644,8 +646,8 @@ class TaskAlternationProtocol:
 
 
 def run_diverse_task_alternation(
-    model: PreTrainedModel,
-    tokenizer: PreTrainedTokenizer,
+    model: "Any",  # PreTrainedModel
+    tokenizer: "Any",  # PreTrainedTokenizer
     output_dir: Optional[str] = None,
     cycles: int = 3,
     epochs_per_task: int = 1
@@ -684,8 +686,8 @@ def run_diverse_task_alternation(
 
 
 def run_conflicting_task_alternation(
-    model: PreTrainedModel,
-    tokenizer: PreTrainedTokenizer,
+    model: "Any",  # PreTrainedModel
+    tokenizer: "Any",  # PreTrainedTokenizer
     output_dir: Optional[str] = None,
     cycles: int = 3,
     epochs_per_task: int = 1
@@ -725,20 +727,28 @@ def run_conflicting_task_alternation(
 
 if __name__ == "__main__":
     # Example usage
-    from transformers import AutoModelForCausalLM, AutoTokenizer
-    
-    # Load model and tokenizer
-    model_name = "distilgpt2"
-    model = AutoModelForCausalLM.from_pretrained(model_name)
-    tokenizer = AutoTokenizer.from_pretrained(model_name)
-    
-    # Run diverse task alternation
-    results = run_diverse_task_alternation(
-        model=model,
-        tokenizer=tokenizer,
-        output_dir="outputs/diverse_task_alternation",
-        cycles=2,
-        epochs_per_task=1
-    )
-    
-    print(f"Task alternation completed. Results saved to {results['config']['output_dir']}")
+    print("Loading required modules...")
+    # Only import when actually running the script
+    try:
+        from transformers import AutoModelForCausalLM, AutoTokenizer
+        
+        # Load model and tokenizer
+        model_name = "distilgpt2"
+        print(f"Loading model and tokenizer: {model_name}")
+        model = AutoModelForCausalLM.from_pretrained(model_name)
+        tokenizer = AutoTokenizer.from_pretrained(model_name)
+        
+        # Run diverse task alternation
+        print("Running diverse task alternation...")
+        results = run_diverse_task_alternation(
+            model=model,
+            tokenizer=tokenizer,
+            output_dir="outputs/diverse_task_alternation",
+            cycles=2,
+            epochs_per_task=1
+        )
+        
+        print(f"Task alternation completed. Results saved to {results['config']['output_dir']}")
+    except ImportError as e:
+        print(f"Could not import required modules: {e}")
+        print("This script requires transformers and datasets to be installed.")

@@ -14,7 +14,7 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 # Import our fixed modules
 from utils.pruning.fixed_pruning_module_jax import PruningModule
 from utils.pruning.growth import determine_active_heads
-from sentinel_data.dataset_loader import load_dataset
+from sdata.dataset_loader import load_dataset
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Test Neural Plasticity Functionality")

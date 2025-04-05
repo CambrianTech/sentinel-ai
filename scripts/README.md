@@ -16,6 +16,16 @@ publication-ready figure generation, and experimentation with new features.
 - `generate_publication_figures.py`: Create figures for papers and presentations
 - `inference.py`: Run text generation inference with loaded models
 
+## Import Conflict Resolution Scripts
+
+These scripts help resolve import conflicts between our code and external libraries:
+
+- `update_imports.py`: Updates imports from `sentinel_data` to `sdata` throughout the codebase
+- `apply_comprehensive_patch.py`: Applies patches to the HuggingFace datasets library to fix circular imports
+- `simple_test_with_mock.py`: Demonstrates using mock imports to test our code without importing problematic libraries
+- `isolated_mock_test.py`: Provides a completely isolated test environment with mock implementations
+- `test_import_resolution.py`: Tests our import conflict resolution strategy
+
 ## Neural Plasticity Scripts
 
 - `neural_plasticity_cycle.py`: Run the complete neural plasticity cycle (train → prune → measure → grow → learn)
@@ -47,6 +57,27 @@ publication-ready figure generation, and experimentation with new features.
 - `benchmark_optimization.py`: Benchmark optimization techniques
 
 ## Usage Examples
+
+### Import Conflict Resolution
+
+```bash
+# Update imports from sentinel_data to sdata throughout the codebase
+python scripts/update_imports.py
+
+# Test with completely isolated mock implementations (recommended)
+python scripts/isolated_mock_test.py
+
+# Test the basic task suite without external dependencies
+python scripts/simple_test_with_mock.py 
+
+# Test import resolution compatibility
+python scripts/test_import_resolution.py
+
+# Apply patches to datasets library (use with caution)
+python scripts/apply_comprehensive_patch.py
+# Restore original files
+python scripts/apply_comprehensive_patch.py --restore
+```
 
 ### Neural Plasticity Cycle
 

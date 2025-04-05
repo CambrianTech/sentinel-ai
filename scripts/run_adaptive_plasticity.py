@@ -24,7 +24,7 @@ from datetime import datetime
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 # Import Sentinel-AI modules
-from sentinel_data.dataset_loader import load_dataset
+from sdata.dataset_loader import load_dataset
 from utils.adaptive.adaptive_plasticity import run_adaptive_system
 
 def parse_args():

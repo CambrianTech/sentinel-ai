@@ -71,7 +71,7 @@ def plot_cycle_comparison(metrics_by_cycle, metric="perplexity", title="Model Pe
     except Exception as e:
         print(f"Error creating cycle comparison plot: {e}")
         # Continue execution even if visualization fails
-from sentinel_data.dataset_loader import load_dataset
+from sdata.dataset_loader import load_dataset
 
 # Fix torch import for FineTuner
 import torch

@@ -1,8 +1,8 @@
 #!/usr/bin/env python
 """
-Update imports from sdata to sdata in the project's files.
+Update imports from sentinel_data to sdata in the project's files.
 
-This script scans Python files in the project and updates imports from sdata to sdata.
+This script scans Python files in the project and updates imports from sentinel_data to sdata.
 """
 
 import os
@@ -32,7 +32,7 @@ def should_process(path):
     return True
 
 def update_imports(content):
-    """Update imports from sdata to sdata"""
+    """Update imports from sentinel_data to sdata"""
     # Update import statements
     content = re.sub(
         r'from\s+sentinel_data(\s+|\.)([^\s]+)',

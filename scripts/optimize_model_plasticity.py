@@ -39,7 +39,7 @@ from utils.pruning.head_lr_manager import HeadLRManager
 from utils.train_utils import FineTuner
 from utils.metrics_logger import MetricsLogger
 from utils.charting import plot_head_distribution, plot_metrics_comparison
-from sentinel_data.dataset_loader import load_dataset
+from sdata.dataset_loader import load_dataset
 
 def parse_args():
     """Parse command line arguments"""
