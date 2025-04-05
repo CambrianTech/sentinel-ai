@@ -35,6 +35,10 @@ This document outlines prioritized tasks and future directions for the Sentinel-
 
 ### 4. Architecture Refinements
 - [x] Implement progressive growth (starting with heavily pruned model and strategically growing)
+- [ ] Implement neural defragging system (sleep-inspired consolidation)
+  - [ ] Create head defragmentation module for reorganizing attention after pruning
+  - [ ] Implement sleep-cycle phases (active learning vs. maintenance)
+  - [ ] Add visualization tools for monitoring neural reorganization
 - [ ] Experiment with different controller architectures (RNN vs. Feedforward)
 - [ ] Test various skip connection patterns beyond standard U-Net structure
 - [ ] Implement adaptive layer pruning in addition to head pruning

@@ -8,13 +8,20 @@
    - Support both periodic and continuous feedback
    - PR: [#30](https://github.com/CambrianTech/sentinel-ai/pull/30)
 
-2. **Visualization Tools for Controller Learning**
+2. **Neural Defragging System**
+   - Implement sleep-inspired head consolidation for transformers
+   - Create `defrag_heads.py` module for merging redundant attention
+   - Build sleep cycle alternating between active learning and maintenance
+   - Add metrics for tracking reorganization effectiveness
+   - Develop entropy-based visualization for consolidation process
+
+3. **Visualization Tools for Controller Learning**
    - Create real-time visualization of controller decisions
    - Track reward signals, gate values, and performance metrics
    - Build interactive dashboard for monitoring adaptation
    - Generate architecture evolution diagrams
 
-3. **Metric Collection and Analysis Pipeline**
+4. **Metric Collection and Analysis Pipeline**
    - Add comprehensive metrics for controller evaluation
    - Build automated analysis of pruning patterns
    - Create correlation analysis between gates and performance
