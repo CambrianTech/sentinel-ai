@@ -29,6 +29,14 @@ from sentinel.pruning import pruning_module
 from sentinel.plasticity import plasticity_loop, sleep_cycle, defrag_heads
 
 # Import new plasticity tracking modules
-from sentinel.plasticity import entropy_journal, function_tracking, stress_protocols
+from sentinel.plasticity import entropy_journal, function_tracking
 from sentinel.visualization import entropy_rhythm_plot
 from sentinel.plasticity.controller import rl_controller
+
+# Import stress protocols for neural plasticity testing
+from sentinel.plasticity.stress_protocols import (
+    TaskSuite, TaskConfig, TaskExample,
+    create_diverse_task_suite, create_memory_stress_task, create_conflicting_tasks,
+    TaskAlternationConfig, TaskAlternationProtocol,
+    run_diverse_task_alternation, run_conflicting_task_alternation
+)
