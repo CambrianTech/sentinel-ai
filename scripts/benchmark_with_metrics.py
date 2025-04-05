@@ -914,6 +914,31 @@ def finetune_model(model, train_dataloader, val_dataloader, tokenizer, collector
                     strategy=strategy, pruning_level=pruning_level
                 )
                 
+                # Generate sample text to monitor quality during training
+                progress_bar.write("\n🔍 PERIODIC TEXT GENERATION CHECK:")
+                prompt = "Once upon a time"
+                inputs = tokenizer(prompt, return_tensors="pt", padding=True)
+                input_ids = inputs.input_ids.to(device)
+                attention_mask = inputs.attention_mask.to(device)
+                
+                with torch.no_grad():
+                    try:
+                        model.eval()  # Ensure model is in eval mode
+                        output = model.generate(
+                            input_ids,
+                            attention_mask=attention_mask,
+                            max_length=100,
+                            temperature=0.7,
+                            top_p=0.9,
+                            num_return_sequences=1,
+                            pad_token_id=tokenizer.eos_token_id
+                        )
+                        generated_text = tokenizer.decode(output[0], skip_special_tokens=True)
+                        progress_bar.write(f"Step {global_step}, Prompt: '{prompt}'")
+                        progress_bar.write(f"Generated: {generated_text[:200]}...\n")
+                    except Exception as e:
+                        progress_bar.write(f"Error generating text: {e}")
+                
                 # Save checkpoint if it's the best model so far
                 if val_metrics["loss"] < best_val_loss:
                     best_val_loss = val_metrics["loss"]
@@ -1200,6 +1225,31 @@ def benchmark_model(model, dataloader, tokenizer, collector, args, strategy=None
     
     # Run evaluation
     start_time = time.time()
+    
+    # Generate a quick sample immediately to see baseline generation before any training
+    if args.verbose:
+        print("\n🔍 BASELINE TEXT GENERATION BEFORE FINE-TUNING:")
+        prompt = "Once upon a time"
+        inputs = tokenizer(prompt, return_tensors="pt", padding=True)
+        input_ids = inputs.input_ids.to(device)
+        attention_mask = inputs.attention_mask.to(device)
+        
+        with torch.no_grad():
+            try:
+                output = model.generate(
+                    input_ids,
+                    attention_mask=attention_mask,
+                    max_length=100,
+                    temperature=0.7,
+                    top_p=0.9,
+                    num_return_sequences=1,
+                    pad_token_id=tokenizer.eos_token_id
+                )
+                generated_text = tokenizer.decode(output[0], skip_special_tokens=True)
+                print(f"\nPrompt: {prompt}")
+                print(f"Generated: {generated_text}\n")
+            except Exception as e:
+                print(f"Error generating text: {e}")
     
     # Evaluate the model
     metrics = evaluate_model(
