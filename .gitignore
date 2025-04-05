@@ -87,8 +87,8 @@ message.txt
 docs/MANIFESTO.md
 MANIFESTO.md
 PR_DRAFT.md
-test_*.py
-load_*.py
+/test_*.py 
+/load_*.py
 
 # Temporary files from refactoring
 test_bloom_loader.py
