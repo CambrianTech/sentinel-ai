@@ -389,7 +389,10 @@ def plot_regrowth_heatmap(
             if not np.isnan(regrowth_array[i, j]):
                 value = regrowth_array[i, j]
                 # Add text annotation in white or black depending on the darkness of the cell
-                text_color = "white" if value / np.nanmax(regrowth_array) > 0.6 else "black"
+                # Add epsilon to avoid division by zero
+                epsilon = 1e-10
+                max_value = max(np.nanmax(regrowth_array), epsilon)
+                text_color = "white" if value / max_value > 0.6 else "black"
                 ax.text(j + 0.5, i + 0.5, f"{value:.2f}", 
                         ha="center", va="center", color=text_color, fontsize=8)
     
