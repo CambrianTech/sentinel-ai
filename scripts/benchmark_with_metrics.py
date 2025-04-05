@@ -22,6 +22,27 @@ from datetime import datetime
 from pathlib import Path
 from transformers import AutoTokenizer, AutoModelForCausalLM
 
+
+def safe_update_tensor(tensor, new_value, index=None):
+    """
+    Safely update a tensor in-place, handling tensors that require gradients.
+    
+    Args:
+        tensor: The tensor to update
+        new_value: The new value to assign
+        index: Optional index for updating specific elements
+    """
+    with torch.no_grad():
+        if index is not None:
+            # Update specific index
+            tensor[index] = new_value
+        else:
+            # Update entire tensor or use copy_ for tensor-to-tensor assignment
+            if isinstance(new_value, torch.Tensor) and tensor.size() == new_value.size():
+                tensor.copy_(new_value)
+            else:
+                tensor.fill_(new_value)
+
 # Add project root to Python path
 script_dir = os.path.dirname(os.path.abspath(__file__))
 project_root = os.path.dirname(script_dir)
@@ -190,9 +211,10 @@ def benchmark_model(model, dataloader, tokenizer, collector, args, strategy=None
                 random.shuffle(head_indices)
                 prune_indices = head_indices[:num_to_prune]
                 
-                # Apply pruning
+                # Apply pruning using the safe update utility
                 for layer_idx, head_idx in prune_indices:
-                    model.blocks[layer_idx]["attn"].gate[head_idx] = 0.0
+                    gate_tensor = model.blocks[layer_idx]["attn"].gate
+                    safe_update_tensor(gate_tensor, 0.0, index=head_idx)
                     num_pruned += 1
                     
             elif strategy == "magnitude" or strategy == "entropy":
@@ -202,7 +224,8 @@ def benchmark_model(model, dataloader, tokenizer, collector, args, strategy=None
                 for layer_idx, block in enumerate(model.blocks):
                     for head_idx in range(len(block["attn"].gate)):
                         if remaining > 0:
-                            model.blocks[layer_idx]["attn"].gate[head_idx] = 0.0
+                            gate_tensor = model.blocks[layer_idx]["attn"].gate
+                            safe_update_tensor(gate_tensor, 0.0, index=head_idx)
                             num_pruned += 1
                             remaining -= 1
             
