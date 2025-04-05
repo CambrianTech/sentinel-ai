@@ -314,6 +314,25 @@ def prepare_evaluation_data(tokenizer, args, split="validation"):
         
         # First, try to load data from local files in benchmark_data directory
         data_paths = {
+            # Project Gutenberg books (real data)
+            "gutenberg": "benchmark_data/gutenberg",
+            "books": "benchmark_data/gutenberg",
+            "classics": "benchmark_data/gutenberg",
+            "literature": "benchmark_data/gutenberg",
+            "novels": "benchmark_data/gutenberg",
+            "pride": "benchmark_data/gutenberg/pride_and_prejudice.txt",
+            "austen": "benchmark_data/gutenberg/pride_and_prejudice.txt",
+            "sherlock": "benchmark_data/gutenberg/sherlock_holmes.txt",
+            "holmes": "benchmark_data/gutenberg/sherlock_holmes.txt",
+            "monte": "benchmark_data/gutenberg/count_of_monte_cristo.txt",
+            "cristo": "benchmark_data/gutenberg/count_of_monte_cristo.txt",
+            "dumas": "benchmark_data/gutenberg/count_of_monte_cristo.txt",
+            
+            # Pre-processed datasets (if available from previous runs)
+            "processed": f"benchmark_data/gutenberg_processed_{split}.txt",
+            "gutenberg_processed": f"benchmark_data/gutenberg_processed_{split}.txt",
+            
+            # Wikitext datasets (if available)
             "wikitext": "benchmark_data/wikitext-2-raw-v1-validation.txt",
             "wikitext-2": "benchmark_data/wikitext-2-raw-v1-validation.txt",
             "wikitext-103": "benchmark_data/wikitext-103-raw-v1-validation.txt",
@@ -332,46 +351,126 @@ def prepare_evaluation_data(tokenizer, args, split="validation"):
                         data_file = data_paths[key]
                         break
         
-        # Try to load the data file
+        # Try to load the data 
         if data_file and os.path.exists(data_file):
-            print(f"Loading real data from {data_file} for {split} split")
             try:
-                with open(data_file, 'r', encoding='utf-8') as f:
-                    # Read all lines
-                    lines = f.readlines()
+                # Handle directory case (multiple files)
+                if os.path.isdir(data_file):
+                    print(f"Loading real data from directory {data_file} for {split} split")
+                    book_files = []
                     
-                    # Process lines - join paragraphs and filter empty lines
-                    current_paragraph = ""
-                    for line in lines:
-                        line = line.strip()
-                        if line:
-                            current_paragraph += line + " "
-                        elif current_paragraph:
-                            # End of paragraph
-                            if len(current_paragraph) > 50:  # Only keep substantial paragraphs
-                                texts.append(current_paragraph)
-                            current_paragraph = ""
+                    # Get all text files in the directory
+                    for filename in os.listdir(data_file):
+                        if filename.endswith('.txt'):
+                            book_files.append(os.path.join(data_file, filename))
                     
-                    # Add last paragraph if not empty
-                    if current_paragraph and len(current_paragraph) > 50:
-                        texts.append(current_paragraph)
+                    if not book_files:
+                        print(f"No text files found in {data_file}")
+                        texts = None
+                    else:
+                        # Choose different files for training and validation to prevent overlap
+                        if split == "validation":
+                            # Use 1/3 of books for validation
+                            selected_files = book_files[:max(1, len(book_files) // 3)]
+                            print(f"Selected {len(selected_files)} books for validation: {[os.path.basename(f) for f in selected_files]}")
+                        else:
+                            # Use 2/3 of books for training
+                            selected_files = book_files[max(1, len(book_files) // 3):]
+                            print(f"Selected {len(selected_files)} books for training: {[os.path.basename(f) for f in selected_files]}")
+                        
+                        # Load content from each selected file
+                        for book_file in selected_files:
+                            with open(book_file, 'r', encoding='utf-8') as f:
+                                book_content = f.read()
+                                
+                                # Split book into paragraphs
+                                paragraphs = book_content.split('\n\n')
+                                
+                                # Process paragraphs
+                                for paragraph in paragraphs:
+                                    paragraph = paragraph.strip().replace('\n', ' ')
+                                    if len(paragraph) > 100:  # Keep only substantial paragraphs
+                                        texts.append(paragraph)
+                
+                # Handle single file case
+                else:
+                    print(f"Loading real data from file {data_file} for {split} split")
+                    with open(data_file, 'r', encoding='utf-8') as f:
+                        # Read all content
+                        content = f.read()
+                        
+                        # Split into paragraphs (both newline and double newline)
+                        paragraphs = content.split('\n\n')
+                        
+                        # Process paragraphs
+                        for paragraph in paragraphs:
+                            paragraph = paragraph.strip().replace('\n', ' ')
+                            if len(paragraph) > 100:  # Only keep substantial paragraphs
+                                texts.append(paragraph)
                 
                 # If we have texts, we're done
                 if texts:
+                    # Remove Project Gutenberg headers and footers
+                    texts = [t for t in texts if "PROJECT GUTENBERG" not in t.upper() 
+                             and "GUTENBERG EBOOK" not in t.upper()
+                             and "PRODUCED BY" not in t.upper()
+                             and not t.startswith("***")]
+                    
+                    # Deduplicate texts
+                    texts = list(set(texts))
+                    
+                    # Split texts that are too long into smaller segments
+                    segmented_texts = []
+                    for text in texts:
+                        if len(text) > 500:  # Maximum segment length
+                            # Split into sentences first
+                            sentences = text.replace('. ', '.|').replace('! ', '!|').replace('? ', '?|').split('|')
+                            
+                            # Recombine sentences into segments of appropriate length
+                            current_segment = ""
+                            for sentence in sentences:
+                                if len(current_segment) + len(sentence) < 500:
+                                    current_segment += sentence + " "
+                                else:
+                                    if current_segment:
+                                        segmented_texts.append(current_segment.strip())
+                                    current_segment = sentence + " "
+                            
+                            # Add the last segment if not empty
+                            if current_segment:
+                                segmented_texts.append(current_segment.strip())
+                        else:
+                            segmented_texts.append(text)
+                    
+                    texts = segmented_texts
+                    
                     # Limit based on split type
                     if split == "validation":
-                        texts = texts[:args.eval_samples]
+                        # Shuffle and select validation samples
+                        import random
+                        random.shuffle(texts)
+                        texts = texts[:min(len(texts), args.eval_samples)]
                     else:
-                        # Use more samples for training, but still limit
-                        max_train_samples = min(len(texts), 10000)
+                        # For training, use more samples but still limit
+                        import random
+                        random.shuffle(texts)
+                        max_train_samples = min(len(texts), 5000)  # Limit to 5000 samples
                         texts = texts[:max_train_samples]
                     
                     print(f"Loaded {len(texts)} real text segments for {split}")
+                    
+                    # Save the processed dataset for future use
+                    processed_file = f"benchmark_data/gutenberg_processed_{split}.txt"
+                    with open(processed_file, 'w', encoding='utf-8') as f:
+                        for text in texts[:min(len(texts), 1000)]:  # Save at most 1000 samples
+                            f.write(text + "\n\n")
+                    print(f"Saved processed dataset to {processed_file}")
+                    
                 else:
-                    print(f"No texts found in {data_file}, falling back to synthetic data")
+                    print(f"No valid texts found in {data_file}, falling back to synthetic data")
                     texts = None
             except Exception as e:
-                print(f"Error loading data file: {e}")
+                print(f"Error loading data: {e}")
                 texts = None
                 
         # If still no texts, use high-quality synthetic data
