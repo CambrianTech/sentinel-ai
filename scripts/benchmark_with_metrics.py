@@ -29,7 +29,8 @@ sys.path.insert(0, project_root)
 
 # Import necessary modules
 from sentinel.utils.metric_collection import MetricCollector
-from sentinel.models.loaders.loader import load_baseline_model, load_adaptive_model
+# The loader functions are in the original models.loaders module, not yet in sentinel
+from models.loaders.loader import load_baseline_model, load_adaptive_model
 from sentinel.utils.pruning.pruning_module import PruningModule
 
 
