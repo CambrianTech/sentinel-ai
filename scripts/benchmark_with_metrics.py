@@ -40,6 +40,11 @@ from datetime import datetime
 from pathlib import Path
 from transformers import AutoTokenizer, AutoModelForCausalLM
 
+# Add project root to Python path
+script_dir = os.path.dirname(os.path.abspath(__file__))
+project_root = os.path.dirname(script_dir)
+sys.path.insert(0, project_root)
+
 
 def safe_update_tensor(tensor, new_value, index=None):
     """
@@ -224,6 +229,8 @@ sys.path.insert(0, project_root)
 
 # Import necessary modules
 from sentinel.utils.metric_collection import MetricCollector
+from utils.evaluation import generate_text_samples, save_generated_samples, evaluate_text_coherence
+
 # Import model loaders from sentinel namespace
 try:
     # Try to use sentinel namespace first (preferred)
@@ -954,46 +961,29 @@ def finetune_model(model, train_dataloader, val_dataloader, tokenizer, collector
     )
     
     # Generate sample text to verify coherence
-    sample_prompts = [
-        "Once upon a time",
-        "The scientists discovered",
-        "In a world where technology",
-        "The history of literature",
-        "When considering the implications"
-    ]
+    # Use the modular text generation utility
+    generated_samples = generate_text_samples(
+        model=model,
+        tokenizer=tokenizer,
+        max_length=100,
+        temperature=0.7,
+        top_p=0.9
+    )
     
-    generated_samples = []
+    # Add coherence metrics
+    evaluated_samples = evaluate_text_coherence(generated_samples)
     
-    # Set model to eval mode for generation
-    model.eval()
+    # Print a sample
+    if evaluated_samples and "generated" in evaluated_samples[0]:
+        sample = evaluated_samples[0]
+        print(f"\nGenerated sample for '{sample['prompt']}':")
+        print(f"{sample['generated'][:200]}...")
+        if "metrics" in sample:
+            print("\nMetrics:")
+            for metric, value in sample["metrics"].items():
+                print(f"- {metric}: {value:.4f}" if isinstance(value, float) else f"- {metric}: {value}")
     
-    with torch.no_grad():
-        for prompt in sample_prompts:
-            try:
-                # Tokenize prompt
-                input_ids = tokenizer(prompt, return_tensors="pt").input_ids.to(next(model.parameters()).device)
-                
-                # Generate continuation
-                output = model.generate(
-                    input_ids,
-                    max_length=100,
-                    temperature=0.7,
-                    top_p=0.9,
-                    num_return_sequences=1,
-                    pad_token_id=tokenizer.eos_token_id
-                )
-                
-                # Decode and add to samples
-                generated_text = tokenizer.decode(output[0], skip_special_tokens=True)
-                generated_samples.append({"prompt": prompt, "generated": generated_text})
-                
-                print(f"\nGenerated sample for '{prompt}':\n{generated_text}\n")
-                
-            except Exception as e:
-                print(f"Error generating text for prompt '{prompt}': {e}")
-                generated_samples.append({"prompt": prompt, "error": str(e)})
-    
-    # Return results with generated samples
+    # Return results with generated samples and metrics
     return {
         "train_loss": avg_train_loss,
         "train_perplexity": avg_train_perplexity,
@@ -1003,7 +993,7 @@ def finetune_model(model, train_dataloader, val_dataloader, tokenizer, collector
         "elapsed_time": elapsed_time,
         "best_val_loss": best_val_loss,
         "checkpoints": checkpoints,
-        "generated_samples": generated_samples
+        "generated_samples": evaluated_samples
     }
 
 
@@ -1373,26 +1363,12 @@ def main():
                 if "generated_samples" in results:
                     generated_samples_all[f"{strategy}_{level}"] = results["generated_samples"]
     
-    # Save to a more readable format
-    with open(os.path.join(output_dir, "generated_samples.txt"), "w") as f:
-        f.write("GENERATED TEXT SAMPLES\n")
-        f.write("=====================\n\n")
-        
-        for config, samples in generated_samples_all.items():
-            f.write(f"Configuration: {config}\n")
-            f.write("-" * 50 + "\n")
-            
-            for sample in samples:
-                f.write(f"Prompt: {sample['prompt']}\n\n")
-                
-                if "generated" in sample:
-                    f.write(f"{sample['generated']}\n\n")
-                elif "error" in sample:
-                    f.write(f"ERROR: {sample['error']}\n\n")
-                
-                f.write("-" * 30 + "\n")
-            
-            f.write("\n\n")
+    # Use the modular utility to save samples
+    save_generated_samples(
+        samples_dict=generated_samples_all,
+        output_path=os.path.join(output_dir, "generated_samples.txt"),
+        title="GENERATED TEXT SAMPLES - BENCHMARK RESULTS"
+    )
     
     # Generate comprehensive analysis
     print("\n" + "="*50)
