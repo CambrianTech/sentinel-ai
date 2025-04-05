@@ -963,8 +963,12 @@ class MetricCollector:
     
     def __del__(self):
         """Ensure metrics are flushed when the collector is destroyed."""
-        if hasattr(self, 'metrics_logger'):
-            self.metrics_logger.flush()
+        try:
+            if hasattr(self, 'metrics_logger'):
+                self.metrics_logger.flush()
+        except:
+            # Ignore errors during cleanup
+            pass
 
 
 # Analysis functions that can be used without instantiating the collector

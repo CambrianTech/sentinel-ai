@@ -164,4 +164,8 @@ class MetricsLogger:
     
     def __del__(self):
         """Ensure all metrics are flushed when the logger is destroyed."""
-        self.flush()
+        try:
+            self.flush()
+        except:
+            # Ignore errors during cleanup
+            pass
