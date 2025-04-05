@@ -19,8 +19,9 @@ from copy import deepcopy
 from datetime import datetime
 from tqdm import tqdm
 
-# Import from sentinel modules
-from sentinel.models.loaders import load_baseline_model, load_adaptive_model
+# Import from models modules
+# Need to use the legacy loaders for now as they have the needed functions
+from models.loaders.loader import load_baseline_model, load_adaptive_model
 from sentinel.pruning.entropy_magnitude import (
     collect_attention_distributions,
     compute_attention_entropy,
