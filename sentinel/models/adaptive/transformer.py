@@ -22,12 +22,30 @@ try:
     )
     
 except ImportError:
-    # Placeholder implementation - this will be replaced with an actual implementation
+    # Fallback implementation - will be replaced with an actual implementation
     # that doesn't depend on the legacy code
+    import sys
+    
     class AdaptiveCausalLmWrapper:
-        """Placeholder implementation - will be implemented properly later"""
+        """
+        Placeholder implementation for AdaptiveCausalLmWrapper.
+        
+        This class is a stub that provides clear error messages when the original implementation
+        cannot be imported. The actual implementation will be added in a future release.
+        
+        IMPORTANT: Currently, you must have the original models.adaptive_transformer module 
+        available in your Python path. This stub exists only to provide clear error messages
+        and documentation.
+        """
         def __init__(self, config, token_embeddings, position_embeddings, debug=False):
-            raise NotImplementedError(
-                "AdaptiveCausalLmWrapper is not yet fully implemented in the sentinel package. "
-                "Please use the legacy implementation from models.adaptive_transformer for now."
+            message = (
+                "ERROR: Cannot initialize AdaptiveCausalLmWrapper.\n\n"
+                "The sentinel.models.adaptive.transformer module is currently a compatibility layer "
+                "that requires the original models.adaptive_transformer module.\n\n"
+                "To resolve this issue:\n"
+                "1. Ensure the original module is in your Python path\n"
+                "2. Import from models.adaptive_transformer directly until the migration is complete\n\n"
+                "This stub will be replaced with a full implementation in a future release."
             )
+            print(message, file=sys.stderr)
+            raise ImportError(message)
