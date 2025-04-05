@@ -55,6 +55,23 @@ def collect_attention_distributions(
     model.eval()
     distributions = {}
     
+    # Get model layers, handling different model structures
+    transformer = None
+    if hasattr(model, 'transformer'):
+        transformer = model.transformer
+    elif hasattr(model, 'model') and hasattr(model.model, 'transformer'):
+        transformer = model.model.transformer
+    elif hasattr(model, 'base_model') and hasattr(model.base_model, 'transformer'):
+        transformer = model.base_model.transformer
+    else:
+        logger.warning(f"Could not find transformer attribute in model. Model attributes: {dir(model)}")
+        return {}
+    
+    # Check if transformer has layers
+    if not hasattr(transformer, 'h'):
+        logger.warning(f"Transformer does not have 'h' attribute. Transformer attributes: {dir(transformer)}")
+        return {}
+    
     # Hook to capture attention distributions
     attention_distributions = {}
     
@@ -74,7 +91,7 @@ def collect_attention_distributions(
     
     # Register hooks for each attention layer
     hooks = []
-    for i, layer in enumerate(model.transformer.h):
+    for i, layer in enumerate(transformer.h):
         hook = layer.attn.register_forward_hook(hook_fn(i))
         hooks.append(hook)
     
@@ -171,8 +188,25 @@ def magnitude_based_pruning(
     """
     magnitude_scores = []  # [(layer_idx, head_idx, magnitude)]
     
+    # Get model layers, handling different model structures
+    transformer = None
+    if hasattr(model, 'transformer'):
+        transformer = model.transformer
+    elif hasattr(model, 'model') and hasattr(model.model, 'transformer'):
+        transformer = model.model.transformer
+    elif hasattr(model, 'base_model') and hasattr(model.base_model, 'transformer'):
+        transformer = model.base_model.transformer
+    else:
+        logger.warning(f"Could not find transformer attribute in model. Model attributes: {dir(model)}")
+        return []
+    
+    # Check if transformer has layers
+    if not hasattr(transformer, 'h'):
+        logger.warning(f"Transformer does not have 'h' attribute. Transformer attributes: {dir(transformer)}")
+        return []
+    
     # Compute magnitude for each head
-    for i, layer in enumerate(model.transformer.h):
+    for i, layer in enumerate(transformer.h):
         # Handle different model architectures for weight access
         if hasattr(layer.attn, 'c_attn'):
             # GPT-2 style
@@ -281,12 +315,28 @@ def _apply_pruning(
     
     # Apply pruning
     for layer_idx, head_indices in pruning_by_layer.items():
-        # Try different model architectures
-        if layer_idx >= len(model.transformer.h):
-            logger.warning(f"Layer index {layer_idx} out of range for model with {len(model.transformer.h)} layers")
+        # Get model layers, handling different model structures
+        transformer = None
+        if hasattr(model, 'transformer'):
+            transformer = model.transformer
+        elif hasattr(model, 'model') and hasattr(model.model, 'transformer'):
+            transformer = model.model.transformer
+        elif hasattr(model, 'base_model') and hasattr(model.base_model, 'transformer'):
+            transformer = model.base_model.transformer
+        else:
+            logger.warning(f"Could not find transformer attribute in model. Model attributes: {dir(model)}")
+            continue
+        
+        # Get layer
+        if not hasattr(transformer, 'h'):
+            logger.warning(f"Transformer does not have 'h' attribute. Transformer attributes: {dir(transformer)}")
             continue
             
-        layer = model.transformer.h[layer_idx]
+        if layer_idx >= len(transformer.h):
+            logger.warning(f"Layer index {layer_idx} out of range for model with {len(transformer.h)} layers")
+            continue
+            
+        layer = transformer.h[layer_idx]
         
         # Check for mask_heads method (HuggingFace compatible)
         if hasattr(layer.attn, 'mask_heads'):
