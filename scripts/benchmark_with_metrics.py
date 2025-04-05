@@ -31,7 +31,7 @@ sys.path.insert(0, project_root)
 from sentinel.utils.metric_collection import MetricCollector
 # The loader functions are in the original models.loaders module, not yet in sentinel
 from models.loaders.loader import load_baseline_model, load_adaptive_model
-from sentinel.utils.pruning.pruning_module import PruningModule
+from utils.pruning.pruning_module import PruningModule
 
 
 def setup_args():
