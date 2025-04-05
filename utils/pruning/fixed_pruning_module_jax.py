@@ -11,7 +11,7 @@ import jax
 import jax.numpy as jnp
 import torch
 import numpy as np
-from typing import Dict, List, Tuple, Any, Optional
+from typing import Dict, List, Tuple, Any, Optional, Union
 import copy
 
 # Import the fixed pruning module
@@ -340,7 +340,7 @@ class PruningModule:
                         perplexity = torch.exp(loss).item()
                         
                         # Apply some sanity checks
-                        if perplexity > 1000 or torch.isnan(perplexity) or torch.isinf(perplexity):
+                        if perplexity > 1000 or (isinstance(perplexity, torch.Tensor) and (torch.isnan(perplexity) or torch.isinf(perplexity))) or (not isinstance(perplexity, torch.Tensor) and (np.isnan(perplexity) or np.isinf(perplexity))):
                             print(f"Warning: Unusually high perplexity detected ({perplexity}), using default value")
                             return 30.0
                         
