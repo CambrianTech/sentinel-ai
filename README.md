@@ -29,6 +29,23 @@ Inspired by neuroscience, it integrates entropy tracking, memory consolidation, 
 └─────────────────────┘             └───────────────────┘
 ```
 
+## 🚀 Quickstart
+
+Transform any HuggingFace model into an adaptive, self-optimizing neural network with just one command:
+
+```bash
+# Basic usage
+python scripts/upgrayedd.py --model distilgpt2 --dataset tiny_shakespeare
+
+# With custom pruning and growth parameters
+python scripts/upgrayedd.py --model gpt2 --pruning-level 0.3 --growth-ratio 0.5
+
+# Run inference with the upgraded model
+python scripts/upgrayedd.py --model facebook/opt-125m --run-inference --prompt "The future of AI is"
+```
+
+For complete documentation, see [upgrayedd usage guide](docs/upgrayedd_usage.md).
+
 ## 💡 Key Features
 
 - **🧠 Neural Plasticity Engine:**  
