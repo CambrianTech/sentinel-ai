@@ -28,7 +28,7 @@ from datetime import datetime
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from models.loaders.loader import load_baseline_model, load_adaptive_model
-from sentinel_data.dataset_loader import load_dataset
+from sdata.dataset_loader import load_dataset
 from utils.metrics import compute_perplexity, compute_text_statistics
 from utils.generation_wrapper import generate_text
 from controller.metrics.head_metrics import collect_head_metrics

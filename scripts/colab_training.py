@@ -33,7 +33,7 @@ from transformers import AutoTokenizer, get_linear_schedule_with_warmup
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from models.loaders.loader import load_baseline_model, load_adaptive_model
-from sentinel_data.dataset_loader import load_dataset
+from sdata.dataset_loader import load_dataset
 from utils.model_wrapper import wrap_model_for_generation
 from utils.checkpoint import save_checkpoint, load_checkpoint
 from utils.generation_wrapper import generate_text

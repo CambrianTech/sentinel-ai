@@ -10,7 +10,7 @@ import os
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 # Import our custom dataset loader
-from sentinel_data.dataset_loader import load_dataset
+from sdata.dataset_loader import load_dataset
 print("Dataset module imported successfully")
 
 # Test the dataset loader with a tokenizer
