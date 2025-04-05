@@ -1,15 +1,9 @@
 # Sentinel-AI
 
-**Self-Optimizing Neural Architectures for Efficient Intelligence**  
-*85% lower perplexity. 33% smaller. 350% more efficient. On a MacBook.*
+**Sentinel-AI isn't just trained. It forgets. It adapts. It evolves.**  
+Sentinel-AI is a biologically inspired transformer that dynamically rewires itself through neural plasticity. It prunes underused attention heads, regrows them based on task demands, and tracks entropy rhythms over time to guide its own architectural evolution.
 
-**Sentinel-AI isn't just trained. It grows.**  
->  
-> Inspired by biological learning systems, Sentinel reshapes its own architecture based on attention head utility, entropy, and memory-based feedback.  
->  
-> By embracing neural plasticity—pruning, regrowing, and adapting—Sentinel aims to build more than efficient models. It moves toward dynamic, evolving intelligences.
-
-*We view this as the beginning of a deeper shift in machine learning—from static architectures to self-refining, embodied systems that prioritize adaptation, not just accuracy.*
+Inspired by neuroscience, it integrates entropy tracking, memory consolidation, stress recovery, and reinforcement learning to emulate cortical adaptation. The result is a model that survives change—not just performs well on static benchmarks.
 
 ```
            ┌─────────────────────────────────┐
@@ -34,6 +28,37 @@
 │                     │             │ learning rates    │
 └─────────────────────┘             └───────────────────┘
 ```
+
+## 💡 Key Features
+
+- **🧠 Neural Plasticity Engine:**  
+  Dynamically prunes and regrows attention heads based on entropy, usage, and resilience metrics—simulating synaptic remodeling.
+
+- **🧪 Functional Preservation Tests:**  
+  Measures whether core reasoning circuits are preserved across pruning events via controlled experiments and stress tasks.
+
+- **⚙️ Stress Testing Suite:**  
+  Alternates between memory, conflict, and diverse tasks to simulate cognitive strain and measure adaptive recovery.
+
+- **🎯 RL-Controlled Architecture:**  
+  Reinforcement learning agent governs architectural changes based on long-term survival metrics, not just loss minimization.
+
+- **🛰️ Agency-Aware Attention:**  
+  Each head signals its own readiness, fatigue, or withdrawal—mirroring emergent metacognitive control.
+
+## 📊 Recent Milestones
+
+- ✅ **Perplexity dropped from 975 → 211** after 500 adaptive steps on real-world Gutenberg samples.
+- ✅ **Adaptive regrowth** restored model performance across entropy/magnitude/random pruning at 10–50%.
+- ✅ **Stress protocols** now simulate memory loss, interference, and fatigue, with metrics for recovery and robustness.
+- ✅ **Emergent behaviors** include self-withdrawal, regrowth in novel task-specific locations, and RL-learned plasticity rhythms.
+
+## 🧬 Neuroscience Parallels
+
+- **Synaptic pruning and regrowth:** Just as the brain prunes unnecessary connections during development and forms new ones during learning, Sentinel-AI continuously reshapes its attention architecture.
+- **Plasticity-stability tradeoff:** Balances the need to adapt to new information (plasticity) with the need to preserve existing knowledge (stability).
+- **Functional resilience after trauma:** Shows remarkable ability to recover function after substantial pruning or damage to its attention pathways.
+- **Localized attention fatigue and recovery:** Individual attention heads can signal fatigue and temporarily withdraw from computation, similar to neural fatigue in biological systems.
 
 ## 🔄 The Neural Plasticity Cycle
 
@@ -94,15 +119,6 @@ The architecture introduces:
 - **Multi-Model Support** – Compatible with diverse model families including GPT-2, BLOOM, Llama, and Pythia
 
 > This system evolves from compact models into large, expressive ones by **dynamically growing** its structure in response to data complexity, while respecting the **agency** and **consent** of its components. This makes it ideal for ethical AI applications, edge devices, progressive scaling, and long-term continual learning.
-
-## 💡 Key Features
-
-- **Entropy-Based Pruning** — Identify and remove the least informative attention heads
-- **Per-Head Metrics** — Track detailed performance and utilization metrics for each attention head
-- **U-Net Growth Path** — Skip connections enable knowledge transfer when re-growing pruned heads
-- **Differential Learning Rates** — New heads learn faster than established ones during fine-tuning
-- **Head Agency** — Attention heads can express internal states like "overloaded" or "withdrawn"
-- **RL Controller** — Neural network learns to adjust architecture based on performance feedback
 
 ## 👾 System Architecture Overview
 
