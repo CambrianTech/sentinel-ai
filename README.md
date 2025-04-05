@@ -583,7 +583,7 @@ sentinel-ai/
 ├── controller/            # Controller for head gating with metrics
 │   ├── metrics/           # Metrics collection for controller
 │   └── visualizations/    # Agency and gate visualizations
-├── data_modules/          # Dataset loading and processing
+├── sdata/                 # Dataset loading and processing (renamed from sentinel_data)
 ├── utils/                 # Various utilities
 │   ├── pruning/           # Comprehensive pruning implementation
 │   │   └── stability/     # Training stability improvements
