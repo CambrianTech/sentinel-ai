@@ -1,11 +1,17 @@
 """
-Adaptive Neural Plasticity System
+Adaptive neural plasticity utilities.
 
-This module implements a self-improving neural network architecture
-that uses degeneration detection as a feedback mechanism to guide
-pruning, growth, and learning cycles.
+This module provides tools for implementing neural plasticity in transformer models,
+allowing them to dynamically adjust their structure through cycles of
+pruning, measuring, growing, and learning.
 """
 
-from .adaptive_plasticity import AdaptivePlasticitySystem, run_adaptive_system
+from utils.adaptive.adaptive_plasticity import (
+    AdaptivePlasticitySystem,
+    run_adaptive_system
+)
 
-__all__ = ["AdaptivePlasticitySystem", "run_adaptive_system"]
+__all__ = [
+    'AdaptivePlasticitySystem',
+    'run_adaptive_system'
+]
