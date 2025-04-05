@@ -4,37 +4,22 @@ Fixed Pruning Module for Sentinel-AI
 This module provides a consistent interface for pruning attention heads across
 different model architectures. It implements core operations for pruning and 
 parameter manipulation while ensuring performance and stability.
-
-This module is maintained for backward compatibility.
-New code should import from sentinel.pruning.fixed_pruning_module instead.
 """
 
 import os
 import torch
 import numpy as np
-import warnings
 from typing import Dict, List, Tuple, Any, Optional
 
-# Emit deprecation warning
-warnings.warn(
-    "The utils.pruning.fixed_pruning_module module is deprecated. "
-    "Please use sentinel.pruning.fixed_pruning_module instead.",
-    DeprecationWarning,
-    stacklevel=2
-)
+# For backward compatibility
+__all__ = ['FixedPruningModule']
 
-# Import from the new location for backward compatibility
-try:
-    from sentinel.pruning.fixed_pruning_module import FixedPruningModule
-except ImportError:
-    # If the import fails, define the class here for backward compatibility
-    # This allows existing code to continue working even if the new module isn't available
-    class FixedPruningModule:
-        """
-        Core module for pruning attention heads in transformer-based models.
-        
-        This class provides a fixed (stable) interface for pruning operations across
-        different model architectures, including GPT-2, BLOOM, OPT, Pythia, and Llama.
+class FixedPruningModule:
+    """
+    Core module for pruning attention heads in transformer-based models.
+    
+    This class provides a fixed (stable) interface for pruning operations across
+    different model architectures, including GPT-2, BLOOM, OPT, Pythia, and Llama.
     """
     
     def __init__(
