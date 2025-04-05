@@ -5,10 +5,27 @@
 Benchmark With Comprehensive Metrics
 
 This script runs benchmarks with the comprehensive metrics collection system, tracking
-pruning patterns, gate values, head importance, and performance metrics.
+pruning patterns, gate values, head importance, and performance metrics. It supports
+both synthetic data and real data from Project Gutenberg books for realistic evaluation.
 
 Usage:
+    # Basic usage
     python scripts/benchmark_with_metrics.py --model_name gpt2 --output_dir ./benchmark_results
+    
+    # With real data from Project Gutenberg
+    python scripts/benchmark_with_metrics.py --model_name distilgpt2 --eval_dataset gutenberg --use_real_data
+    
+    # Full benchmark with multiple pruning strategies and fine-tuning
+    python scripts/benchmark_with_metrics.py \
+      --model_name distilgpt2 \
+      --output_dir ./benchmark_results \
+      --pruning_strategies "random,entropy,magnitude" \
+      --pruning_levels "0.1,0.3,0.5" \
+      --learning_steps 100 \
+      --learning_rate 2e-5 \
+      --eval_dataset "gutenberg" \
+      --use_real_data \
+      --use_adaptive_lr
 """
 
 import os
@@ -256,13 +273,17 @@ def setup_args():
     
     # Evaluation configuration
     parser.add_argument("--eval_dataset", type=str, default=None,
-                       help="Dataset for evaluation and fine-tuning")
+                       help="Dataset for evaluation and fine-tuning. Options include: "
+                            "'gutenberg' (Project Gutenberg books), 'pride' (Pride and Prejudice), "
+                            "'sherlock' (Sherlock Holmes), 'monte' (Count of Monte Cristo), or "
+                            "'processed' (pre-processed datasets from previous runs).")
     parser.add_argument("--eval_samples", type=int, default=100,
                        help="Number of evaluation samples")
     parser.add_argument("--batch_size", type=int, default=4,
                        help="Batch size for evaluation and fine-tuning")
     parser.add_argument("--use_real_data", action="store_true",
-                       help="Use real data instead of synthetic data")
+                       help="Use real data from Project Gutenberg or other sources instead of synthetic data. "
+                            "When used with --eval_dataset, loads real text data from the specified source.")
     
     # Output configuration
     parser.add_argument("--output_dir", type=str, default="./benchmark_results",
@@ -350,6 +371,35 @@ def prepare_evaluation_data(tokenizer, args, split="validation"):
                     if key in args.eval_dataset.lower():
                         data_file = data_paths[key]
                         break
+        
+        # Check for Gutenberg directory and download books if needed
+        if data_file and 'gutenberg' in data_file and not os.path.exists(data_file):
+            gutenberg_dir = os.path.dirname(data_file) if data_file.endswith('.txt') else data_file
+            os.makedirs(gutenberg_dir, exist_ok=True)
+            
+            # Dictionary of essential Gutenberg books to download
+            gutenberg_books = {
+                "pride_and_prejudice.txt": "https://www.gutenberg.org/files/1342/1342-0.txt",
+                "sherlock_holmes.txt": "https://www.gutenberg.org/files/1661/1661-0.txt",
+                "count_of_monte_cristo.txt": "https://www.gutenberg.org/files/1184/1184-0.txt"
+            }
+            
+            # Download missing books
+            if not os.path.isdir(gutenberg_dir):
+                os.makedirs(gutenberg_dir, exist_ok=True)
+                
+            for book_name, book_url in gutenberg_books.items():
+                book_path = os.path.join(gutenberg_dir, book_name)
+                if not os.path.exists(book_path):
+                    print(f"Downloading {book_name} from Project Gutenberg...")
+                    try:
+                        import requests
+                        response = requests.get(book_url)
+                        with open(book_path, 'wb') as f:
+                            f.write(response.content)
+                        print(f"Downloaded {book_name} successfully")
+                    except Exception as e:
+                        print(f"Error downloading {book_name}: {e}")
         
         # Try to load the data 
         if data_file and os.path.exists(data_file):
@@ -512,11 +562,11 @@ def prepare_evaluation_data(tokenizer, args, split="validation"):
                 "The old man was thin and gaunt with deep wrinkles in the back of his neck. The brown blotches of the benevolent skin cancer the sun brings from its reflection on the tropic sea were on his cheeks.",
                 "All happy families are alike; each unhappy family is unhappy in its own way. Everything was in confusion in the Oblonskys' house.",
                 "It was the best of times, it was the worst of times, it was the age of wisdom, it was the age of foolishness, it was the epoch of belief, it was the epoch of incredulity.",
-                "For a long time, I went to bed early. Sometimes, my candle barely out, my eyes closed so quickly that I did not have time to tell myself: "I'm falling asleep."",
+                "For a long time, I went to bed early. Sometimes, my candle barely out, my eyes closed so quickly that I did not have time to tell myself: 'I'm falling asleep.'",
                 "It was a bright cold day in April, and the clocks were striking thirteen. Winston Smith, his chin nuzzled into his breast in an effort to escape the vile wind, slipped quickly through the glass doors of Victory Mansions.",
                 "Many years later, as he faced the firing squad, Colonel Aureliano Buendía was to remember that distant afternoon when his father took him to discover ice.",
-                "The sky above the port was the color of television, tuned to a dead channel. "It's not like I'm using," Case heard someone say, as he shouldered his way through the crowd.",
-                "In my younger and more vulnerable years my father gave me some advice that I've been turning over in my mind ever since. "Whenever you feel like criticizing anyone," he told me, "just remember that all the people in this world haven't had the advantages that you've had."",
+                "The sky above the port was the color of television, tuned to a dead channel. 'It's not like I'm using,' Case heard someone say, as he shouldered his way through the crowd.",
+                "In my younger and more vulnerable years my father gave me some advice that I've been turning over in my mind ever since. 'Whenever you feel like criticizing anyone,' he told me, 'just remember that all the people in this world haven't had the advantages that you've had.'",
                 "As Gregor Samsa awoke one morning from uneasy dreams he found himself transformed in his bed into a gigantic insect. He was lying on his hard, as it were armor-plated, back and when he lifted his head a little he could see his dome-like brown belly.",
                 "Call me Ishmael. Some years ago—never mind how long precisely—having little or no money in my purse, and nothing particular to interest me on shore, I thought I would sail about a little and see the watery part of the world.",
                 "Lolita, light of my life, fire of my loins. My sin, my soul. Lo-lee-ta: the tip of the tongue taking a trip of three steps down the palate to tap, at three, on the teeth. Lo. Lee. Ta.",
@@ -587,6 +637,31 @@ def prepare_evaluation_data(tokenizer, args, split="validation"):
             
             # Create directory for saving these synthetic datasets for future use
             os.makedirs("benchmark_data", exist_ok=True)
+            
+            # Also create gutenberg directory if it doesn't exist
+            gutenberg_dir = "benchmark_data/gutenberg"
+            if not os.path.exists(gutenberg_dir):
+                os.makedirs(gutenberg_dir, exist_ok=True)
+                
+                # Download essential Gutenberg books
+                gutenberg_books = {
+                    "pride_and_prejudice.txt": "https://www.gutenberg.org/files/1342/1342-0.txt",
+                    "sherlock_holmes.txt": "https://www.gutenberg.org/files/1661/1661-0.txt",
+                    "count_of_monte_cristo.txt": "https://www.gutenberg.org/files/1184/1184-0.txt"
+                }
+                
+                for book_name, book_url in gutenberg_books.items():
+                    book_path = os.path.join(gutenberg_dir, book_name)
+                    print(f"Downloading {book_name} from Project Gutenberg...")
+                    try:
+                        import requests
+                        response = requests.get(book_url)
+                        with open(book_path, 'wb') as f:
+                            f.write(response.content)
+                        print(f"Downloaded {book_name} successfully")
+                    except Exception as e:
+                        print(f"Error downloading {book_name}: {e}")
+            
             dataset_path = f"benchmark_data/synthetic_{split}.txt"
             with open(dataset_path, "w", encoding="utf-8") as f:
                 for text in texts:
