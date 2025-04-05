@@ -1,0 +1,27 @@
+{
+  "model_name": "distilgpt2",
+  "dataset": "wikitext",
+  "strategy": "entropy",
+  "pruning_ratio": 0.3,
+  "growth_ratio": 0.1,
+  "epochs": 2,
+  "cycles": 3,
+  "output_dir": "./upgrayedd_output/gpt2_entropy",
+  "device": "cuda",
+  "attention_samples": 256,
+  "batch_size": 4,
+  "learning_rate": 5e-5,
+  "max_length": 128,
+  "evaluation_steps": 500,
+  "seed": 42,
+  "log_level": "INFO",
+  "use_differential_learning_rates": true,
+  "save_checkpoints": true,
+  "checkpoint_steps": 1000,
+  "visualization": {
+    "enabled": true,
+    "plot_attention_heatmaps": true,
+    "plot_metrics": true,
+    "plot_head_importance": true
+  }
+}
