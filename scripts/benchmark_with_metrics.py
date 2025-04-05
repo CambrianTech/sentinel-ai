@@ -38,6 +38,7 @@ import time
 import json
 from datetime import datetime
 from pathlib import Path
+from tqdm import tqdm
 from transformers import AutoTokenizer, AutoModelForCausalLM
 
 # Add project root to Python path
@@ -827,6 +828,9 @@ def finetune_model(model, train_dataloader, val_dataloader, tokenizer, collector
     start_time = time.time()
     
     while global_step < args.learning_steps:
+        # Initialize progress bar for training
+        progress_bar = tqdm(total=args.learning_steps, desc="Training", initial=global_step)
+        
         # Loop through batches
         for batch_idx, (input_ids, attention_mask, labels) in enumerate(train_dataloader):
             if global_step >= args.learning_steps:
@@ -873,7 +877,17 @@ def finetune_model(model, train_dataloader, val_dataloader, tokenizer, collector
             
             # Log training loss
             loss_val = loss.item()
+            perplexity = torch.exp(loss).item()
+            current_lr = lr_scheduler.get_last_lr()[0]
             train_losses.append(loss_val)
+            
+            # Update progress bar
+            progress_bar.update(1)
+            progress_bar.set_postfix(
+                loss=f"{loss_val:.4f}",
+                ppl=f"{perplexity:.1f}",
+                lr=f"{current_lr:.2e}"
+            )
             
             # Collect training metrics
             collector.collect_step_metrics(
@@ -885,20 +899,13 @@ def finetune_model(model, train_dataloader, val_dataloader, tokenizer, collector
                 logits=shift_logits,
                 additional_metrics={
                     "train/loss": loss_val,
-                    "train/perplexity": torch.exp(loss).item(),
-                    "train/lr": lr_scheduler.get_last_lr()[0],
+                    "train/perplexity": perplexity,
+                    "train/lr": current_lr,
                     "train/strategy": strategy or "baseline",
                     "train/pruning_level": pruning_level or 0.0,
                     "train/batch": batch_idx,
                 }
             )
-            
-            # Print progress
-            if args.verbose and global_step % 10 == 0:
-                print(f"Step {global_step}/{args.learning_steps}, "
-                     f"Loss: {loss_val:.4f}, "
-                     f"Perplexity: {torch.exp(loss).item():.4f}, "
-                     f"LR: {lr_scheduler.get_last_lr()[0]:.2e}")
             
             # Evaluate periodically
             if global_step % args.eval_interval == 0 or global_step == args.learning_steps - 1:
@@ -911,6 +918,13 @@ def finetune_model(model, train_dataloader, val_dataloader, tokenizer, collector
                 if val_metrics["loss"] < best_val_loss:
                     best_val_loss = val_metrics["loss"]
                     patience_counter = 0
+                    
+                    # Update progress bar with validation metrics
+                    progress_bar.set_postfix(
+                        train_loss=f"{loss_val:.4f}",
+                        val_loss=f"{val_metrics['loss']:.4f}",
+                        val_ppl=f"{val_metrics['perplexity']:.1f}"
+                    )
                     
                     # Save checkpoint if requested
                     if args.save_checkpoints:
@@ -928,14 +942,14 @@ def finetune_model(model, train_dataloader, val_dataloader, tokenizer, collector
                         }
                         
                         torch.save(model.state_dict(), checkpoint_path)
-                        print(f"Saved checkpoint to {checkpoint_path}")
+                        progress_bar.write(f"✓ Saved checkpoint to {checkpoint_path}")
                 else:
                     patience_counter += 1
-                    print(f"Validation loss did not improve. Patience: {patience_counter}/{args.early_stop_patience}")
+                    progress_bar.write(f"⚠️ Validation loss did not improve. Patience: {patience_counter}/{args.early_stop_patience}")
                 
                 # Apply early stopping if patience is exceeded
                 if patience_counter >= args.early_stop_patience:
-                    print(f"Early stopping triggered after {global_step} steps")
+                    progress_bar.write(f"⛔ Early stopping triggered after {global_step} steps")
                     break
                 
                 # Set model back to training mode after evaluation
@@ -1031,9 +1045,10 @@ def evaluate_model(model, dataloader, tokenizer, collector, step,
     def compute_perplexity(loss):
         return torch.exp(loss).item()
     
-    # Run evaluation
+    # Run evaluation with progress bar
+    progress_bar = tqdm(dataloader, desc=f"{phase.capitalize()} evaluation", leave=False)
     with torch.no_grad():
-        for batch_num, (input_ids, attention_mask, labels) in enumerate(dataloader):
+        for batch_num, (input_ids, attention_mask, labels) in enumerate(progress_bar):
             # Move batch to device
             input_ids = input_ids.to(device)
             attention_mask = attention_mask.to(device)
@@ -1060,6 +1075,9 @@ def evaluate_model(model, dataloader, tokenizer, collector, step,
             
             # Calculate perplexity
             perplexity = compute_perplexity(loss)
+            
+            # Update progress bar
+            progress_bar.set_postfix(loss=f"{loss.item():.4f}", ppl=f"{perplexity:.1f}")
             
             # Collect comprehensive metrics
             collector.collect_step_metrics(
@@ -1107,12 +1125,14 @@ def benchmark_model(model, dataloader, tokenizer, collector, args, strategy=None
         
         # Direct implementation of pruning for adaptive model
         try:
-            # Get blocks and count total heads
+            # Get blocks and count total heads with progress indicator
+            print("Analyzing model structure...")
             blocks = get_model_blocks(model)
             total_heads = 0
             head_info = []  # Store (layer_idx, attention_module, head_idx) for each head
             
-            for layer_idx, block in enumerate(blocks):
+            block_bar = tqdm(enumerate(blocks), total=len(blocks), desc="Scanning blocks", leave=False)
+            for layer_idx, block in block_bar:
                 attn_module = get_attention_module(block)
                 if attn_module is not None and has_gate(attn_module):
                     gate_tensor = get_gate_tensor(attn_module)
@@ -1121,10 +1141,13 @@ def benchmark_model(model, dataloader, tokenizer, collector, args, strategy=None
                         total_heads += num_heads
                         for head_idx in range(num_heads):
                             head_info.append((layer_idx, attn_module, head_idx))
+                block_bar.set_postfix(heads=total_heads)
             
             # Apply simple pruning (set gates to 0)
             num_to_prune = int(total_heads * pruning_level)
             num_pruned = 0
+            
+            print(f"Pruning {num_to_prune} of {total_heads} heads using {strategy} strategy...")
             
             # Very basic pruning based on strategy
             if strategy == "random":
@@ -1135,31 +1158,35 @@ def benchmark_model(model, dataloader, tokenizer, collector, args, strategy=None
                 random.shuffle(head_info)
                 prune_list = head_info[:num_to_prune]
                 
-                # Apply pruning using the safe update utility
-                for layer_idx, attn_module, head_idx in prune_list:
+                # Apply pruning using the safe update utility with progress bar
+                prune_bar = tqdm(prune_list, desc="Pruning heads", leave=False)
+                for layer_idx, attn_module, head_idx in prune_bar:
                     gate_tensor = get_gate_tensor(attn_module)
                     if gate_tensor is not None:
                         safe_update_tensor(gate_tensor, 0.0, index=head_idx)
                         num_pruned += 1
+                        prune_bar.set_postfix(pruned=f"{num_pruned}/{num_to_prune}")
                     else:
-                        print(f"Warning: Could not find gate tensor in layer {layer_idx}, head {head_idx}")
+                        prune_bar.write(f"Warning: Could not find gate tensor in layer {layer_idx}, head {head_idx}")
                     
             elif strategy == "magnitude" or strategy == "entropy":
                 # For simplicity, just zero out the first num_to_prune heads
                 # In a real implementation, we would use entropy or magnitude measurements
                 remaining = num_to_prune
                 
-                for layer_idx, attn_module, head_idx in head_info:
+                prune_bar = tqdm(head_info, desc="Pruning heads", leave=False)
+                for layer_idx, attn_module, head_idx in prune_bar:
                     if remaining > 0:
                         gate_tensor = get_gate_tensor(attn_module)
                         if gate_tensor is not None:
                             safe_update_tensor(gate_tensor, 0.0, index=head_idx)
                             num_pruned += 1
                             remaining -= 1
+                            prune_bar.set_postfix(pruned=f"{num_pruned}/{num_to_prune}")
                         else:
-                            print(f"Warning: Could not find gate tensor in layer {layer_idx}, head {head_idx}")
+                            prune_bar.write(f"Warning: Could not find gate tensor in layer {layer_idx}, head {head_idx}")
             
-            print(f"Pruned {num_pruned}/{total_heads} heads ({num_pruned/total_heads:.1%})")
+            print(f"✓ Pruned {num_pruned}/{total_heads} heads ({num_pruned/total_heads:.1%})")
         
         except Exception as e:
             print(f"Error applying pruning: {e}")
@@ -1291,10 +1318,18 @@ def main():
         "baseline": baseline_results
     }
     
-    for strategy in pruning_strategies:
+    # Create progress bars for overall progress
+    strategy_bar = tqdm(pruning_strategies, desc="Pruning Strategies", position=0)
+    
+    for strategy in strategy_bar:
         strategy_results = {}
+        strategy_bar.set_description(f"Strategy: {strategy}")
         
-        for level in pruning_levels:
+        # Add a nested progress bar for levels
+        level_bar = tqdm(pruning_levels, desc="Pruning Levels", position=1, leave=False)
+        
+        for level in level_bar:
+            level_bar.set_description(f"Level: {level}")
             print("\n" + "="*50)
             print(f"Benchmarking {strategy} pruning at level {level}")
             print("="*50)
