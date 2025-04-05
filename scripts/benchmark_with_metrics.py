@@ -953,7 +953,47 @@ def finetune_model(model, train_dataloader, val_dataloader, tokenizer, collector
         strategy=strategy, pruning_level=pruning_level, phase="final"
     )
     
-    # Return results
+    # Generate sample text to verify coherence
+    sample_prompts = [
+        "Once upon a time",
+        "The scientists discovered",
+        "In a world where technology",
+        "The history of literature",
+        "When considering the implications"
+    ]
+    
+    generated_samples = []
+    
+    # Set model to eval mode for generation
+    model.eval()
+    
+    with torch.no_grad():
+        for prompt in sample_prompts:
+            try:
+                # Tokenize prompt
+                input_ids = tokenizer(prompt, return_tensors="pt").input_ids.to(next(model.parameters()).device)
+                
+                # Generate continuation
+                output = model.generate(
+                    input_ids,
+                    max_length=100,
+                    temperature=0.7,
+                    top_p=0.9,
+                    num_return_sequences=1,
+                    pad_token_id=tokenizer.eos_token_id
+                )
+                
+                # Decode and add to samples
+                generated_text = tokenizer.decode(output[0], skip_special_tokens=True)
+                generated_samples.append({"prompt": prompt, "generated": generated_text})
+                
+                print(f"\nGenerated sample for '{prompt}':\n{generated_text}\n")
+                
+            except Exception as e:
+                print(f"Error generating text for prompt '{prompt}': {e}")
+                generated_samples.append({"prompt": prompt, "error": str(e)})
+    
+    # Return results with generated samples
     return {
         "train_loss": avg_train_loss,
         "train_perplexity": avg_train_perplexity,
@@ -962,7 +1002,8 @@ def finetune_model(model, train_dataloader, val_dataloader, tokenizer, collector
         "steps": global_step,
         "elapsed_time": elapsed_time,
         "best_val_loss": best_val_loss,
-        "checkpoints": checkpoints
+        "checkpoints": checkpoints,
+        "generated_samples": generated_samples
     }
 
 
@@ -1317,6 +1358,42 @@ def main():
         sanitized_results = sanitize_for_json(all_results)
         json.dump(sanitized_results, f, indent=2)
     
+    # Save sample generated texts to a separate file for easy viewing
+    print("\n" + "="*50)
+    print("Saving generated text samples")
+    print("="*50)
+    
+    generated_samples_all = {}
+    for strategy, levels in all_results.items():
+        if strategy == "baseline":
+            if "generated_samples" in levels:
+                generated_samples_all["baseline"] = levels["generated_samples"]
+        else:
+            for level, results in levels.items():
+                if "generated_samples" in results:
+                    generated_samples_all[f"{strategy}_{level}"] = results["generated_samples"]
+    
+    # Save to a more readable format
+    with open(os.path.join(output_dir, "generated_samples.txt"), "w") as f:
+        f.write("GENERATED TEXT SAMPLES\n")
+        f.write("=====================\n\n")
+        
+        for config, samples in generated_samples_all.items():
+            f.write(f"Configuration: {config}\n")
+            f.write("-" * 50 + "\n")
+            
+            for sample in samples:
+                f.write(f"Prompt: {sample['prompt']}\n\n")
+                
+                if "generated" in sample:
+                    f.write(f"{sample['generated']}\n\n")
+                elif "error" in sample:
+                    f.write(f"ERROR: {sample['error']}\n\n")
+                
+                f.write("-" * 30 + "\n")
+            
+            f.write("\n\n")
+    
     # Generate comprehensive analysis
     print("\n" + "="*50)
     print("Generating comprehensive analysis")
@@ -1332,6 +1409,7 @@ def main():
     
     print("\n" + "="*50)
     print(f"Benchmark complete. Results saved to {output_dir}")
+    print(f"Generated text samples saved to {os.path.join(output_dir, 'generated_samples.txt')}")
     print("="*50)
     
     # Print summary of best strategies
