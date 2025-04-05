@@ -27,7 +27,7 @@ from pathlib import Path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 # Import Sentinel-AI modules
-from utils.pruning.pruning_module import PruningModule
+from utils.pruning.fixed_pruning_module_jax import PruningModule
 from utils.pruning.strategies import get_strategy as get_pruning_strategy
 from utils.pruning.growth import (
     grow_attention_heads_gradually, 
@@ -38,7 +38,43 @@ from utils.pruning.head_lr_manager import HeadLRManager
 from utils.train_utils import FineTuner
 from utils.metrics_logger import MetricsLogger
 from utils.charting import plot_head_distribution, plot_metrics_comparison
+
+# Add missing function for plotting cycle comparison
+def plot_cycle_comparison(metrics_by_cycle, metric="perplexity", title="Model Performance by Cycle", save_path=None):
+    """
+    Plot a comparison of metrics across cycles.
+    
+    Args:
+        metrics_by_cycle: Dictionary of metrics by cycle
+        metric: Metric to plot (perplexity, active_heads, etc.)
+        title: Plot title
+        save_path: Path to save the figure
+    """
+    try:
+        import matplotlib.pyplot as plt
+        
+        cycles = sorted(metrics_by_cycle.keys())
+        values = [metrics_by_cycle[cycle].get(metric, 0) for cycle in cycles]
+        
+        plt.figure(figsize=(10, 6))
+        plt.plot(cycles, values, 'o-', linewidth=2, markersize=8)
+        plt.xlabel('Cycle')
+        plt.ylabel(metric.replace('_', ' ').title())
+        plt.title(title)
+        plt.grid(True, linestyle='--', alpha=0.7)
+        
+        if save_path:
+            plt.savefig(save_path, dpi=300, bbox_inches='tight')
+            plt.close()
+        else:
+            plt.show()
+    except Exception as e:
+        print(f"Error creating cycle comparison plot: {e}")
+        # Continue execution even if visualization fails
 from sentinel_data.dataset_loader import load_dataset
+
+# Fix torch import for FineTuner
+import torch
 
 def parse_args():
     """Parse command line arguments"""

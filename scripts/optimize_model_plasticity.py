@@ -28,7 +28,7 @@ from pathlib import Path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 # Import Sentinel-AI modules
-from utils.pruning.fixed_pruning_module import FixedPruningModule as PruningModule
+from utils.pruning.fixed_pruning_module_jax import PruningModule
 from utils.pruning.strategies import get_strategy as get_pruning_strategy
 from utils.pruning.growth import (
     grow_attention_heads_gradually, 
@@ -247,7 +247,7 @@ def optimize_model(args):
             import pickle
             baseline_params = pickle.load(f)
     else:
-        baseline_params = pruning_module.model.params
+        baseline_params = pruning_module.params  # Access the params from the pruning module itself
     
     # Determine active heads
     baseline_active_heads = determine_active_heads(pruning_module, baseline_params)
