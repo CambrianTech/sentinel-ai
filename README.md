@@ -28,7 +28,7 @@ Inspired by neuroscience, it integrates entropy tracking, memory consolidation, 
 │                     │             │ learning rates    │
 └─────────────────────┘             └───────────────────┘
 ```
-#A Neuroscience Inspired Architecture
+# A Neuroscience Inspired Architecture
 
 Sentinel-AI doesn’t just mimic machine learning — it draws deeply from neuroscience to mimic learning itself. Each component of the system is inspired by biological mechanisms:
 
