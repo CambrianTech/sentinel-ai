@@ -28,26 +28,28 @@ Inspired by neuroscience, it integrates entropy tracking, memory consolidation, 
 │                     │             │ learning rates    │
 └─────────────────────┘             └───────────────────┘
 ```
-# A Neuroscience Inspired Architecture
 
-Sentinel-AI doesn’t just mimic machine learning — it draws deeply from neuroscience to mimic learning itself. Each component of the system is inspired by biological mechanisms:
+## 🧠 Making Transformers More Like Human Brains
 
-Neurons With Agency:
-Just like biological neurons signal fatigue or specialize, Sentinel-AI’s attention heads can express withdrawal, overload, misalignment, or activation states. This isn’t just gating — it’s a communication system within the model, much like inter-neuronal signaling.
+Sentinel-AI doesn’t just mimic *machine learning* — it draws deeply from neuroscience to mimic *learning itself*. Each component of the system is inspired by biological mechanisms:
 
-Plasticity Cycles Inspired by Sleep and Defragmentation:
-We modeled a sleep-like defrag phase, where the model stops acquiring new data and instead reorganizes its structure. This mirrors how sleep consolidates memory and reorganizes neural connections — making room for growth, pruning noise, and optimizing layout.
+- **Neurons With Agency**:  
+  Just like biological neurons signal fatigue or specialize, Sentinel-AI’s attention heads can express *withdrawal, overload, misalignment,* or *activation* states. This isn’t just gating — it’s a communication system within the model, much like inter-neuronal signaling.
 
-Entropy-Guided Pruning:
-Like synaptic pruning in human development, Sentinel-AI continuously removes low-information heads and pathways. The use of entropy isn’t just a heuristic — it's a stand-in for metabolic cost and information utility.
+- **Plasticity Cycles Inspired by Sleep and Defragmentation**:  
+  We modeled a *sleep-like defrag* phase, where the model stops acquiring new data and instead reorganizes its structure. This mirrors how sleep consolidates memory and reorganizes neural connections — making room for growth, pruning noise, and optimizing layout.
 
-Regrowth Through Cortical-Like Rewiring:
-Heads grow back based on performance gaps and attention entropy, with gradual ramp-up and mentorship from skip-connected pathways. This mirrors how neurons regrow and integrate during recovery, guided by cortical feedback and task-based utility.
+- **Entropy-Guided Pruning**:  
+  Like synaptic pruning in human development, Sentinel-AI continuously removes low-information heads and pathways. The use of entropy isn’t just a heuristic — it's a stand-in for metabolic cost and information utility.
 
-Resilience to Damage:
-Even after major architectural changes (like 50% pruning), Sentinel-AI can recover its function — like brain regions compensating after injury, thanks to distributed computation and emergent specialization.
+- **Regrowth Through Cortical-Like Rewiring**:  
+  Heads grow back based on performance gaps and attention entropy, with gradual ramp-up and mentorship from skip-connected pathways. This mirrors how neurons regrow and integrate during recovery, guided by cortical feedback and task-based utility.
 
-These principles aren’t decorative. They allow us to scale models down without degrading, recover faster, and build a more ethical, explainable AI system that exhibits natural learning cycles. Sentinel-AI forgets, remembers, gets tired, recovers, and improves over time — just like you do.
+- **Resilience to Damage**:  
+  Even after major architectural changes (like 50% pruning), Sentinel-AI can recover its function — like brain regions compensating after injury, thanks to distributed computation and emergent specialization.
+
+These principles aren’t decorative. They allow us to **scale models down without degrading**, **recover faster**, and **build a more ethical, explainable AI system** that exhibits natural learning cycles. Sentinel-AI *forgets*, *remembers*, *gets tired*, *recovers*, and *improves over time* — just like you do.
+
 
 ## 💡 Key Features
 
