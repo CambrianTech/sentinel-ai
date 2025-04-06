@@ -1,3 +1,4 @@
+# Version v0.0.34 - Fixed CUDA error handling with proper variable initialization
 # Evaluate after pruning
 print("\nEvaluating pruned model performance...")
 pruned_loss, pruned_ppl = evaluate_model(model, val_dataloader)
