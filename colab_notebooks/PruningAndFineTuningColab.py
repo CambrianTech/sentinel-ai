@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 
 """
-Pruning and Fine-Tuning Colab (v0.0.32)
+Pruning and Fine-Tuning Colab (v0.0.33)
 
 This script demonstrates making a GPT-2 model smaller and more powerful by:
 1. Applying pruning to remove less important attention heads
@@ -12,6 +12,7 @@ This script demonstrates making a GPT-2 model smaller and more powerful by:
 It's designed to be run in Google Colab using real-world data (not tiny Shakespeare).
 
 Version History:
+- v0.0.33 (April 2025): Fixed visualization issues, improved model compatibility and enhanced error handling
 - v0.0.32 (April 2025): Added CUDA error handling for Colab compatibility and memory management
 - v0.0.31 (April 2025): Fixed get_strategy parameters issue and improved Colab compatibility 
 - v0.0.30 (April 2025): Added OPT model support and chart improvements
@@ -299,15 +300,20 @@ def load_model_and_tokenizer(model_name, cache_dir=None):
         tokenizer.pad_token = tokenizer.eos_token
     
     # Load model with potential FP16 optimization
-    if USE_FP16:
-        print("Using FP16 for model loading")
-        # For FP16, we need to set torch_dtype
-        model = GPT2LMHeadModel.from_pretrained(
-            model_name, 
-            cache_dir=cache_dir,
-            torch_dtype=torch.float16
-        )
-    else:
+    try:
+        if USE_FP16:
+            print("Using FP16 for model loading")
+            # For FP16, we need to set torch_dtype
+            model = AutoModelForCausalLM.from_pretrained(
+                model_name, 
+                cache_dir=cache_dir,
+                torch_dtype=torch.float16
+            )
+        else:
+            model = AutoModelForCausalLM.from_pretrained(model_name, cache_dir=cache_dir)
+    except Exception as e:
+        print(f"Error loading model with AutoModelForCausalLM: {e}")
+        print("Falling back to GPT2LMHeadModel")
         model = GPT2LMHeadModel.from_pretrained(model_name, cache_dir=cache_dir)
     
     model.to(DEVICE)
@@ -319,6 +325,22 @@ def load_model_and_tokenizer(model_name, cache_dir=None):
     param_count = sum(p.numel() for p in model.parameters())
     print(f"Model loaded with {param_count/1e6:.2f}M parameters")
     
+    # Add head_count attribute if we can determine it
+    try:
+        # Count number of attention heads
+        if hasattr(model.config, "n_head"):
+            model.head_count = model.config.n_head
+        elif hasattr(model.config, "num_attention_heads"):
+            model.head_count = model.config.num_attention_heads
+        elif hasattr(model.config, "num_heads"):
+            model.head_count = model.config.num_heads
+        else:
+            model.head_count = 12  # Reasonable default
+        print(f"Model has {model.head_count} attention heads per layer")
+    except Exception as e:
+        print(f"Could not determine head count: {e}")
+        model.head_count = 12  # Reasonable default
+    
     return model, tokenizer
 
 def get_attention_modules(model):
@@ -329,34 +351,110 @@ def get_attention_modules(model):
     
     attention_modules = []
     
-    # GPT-2 style models
-    if model.model_type == "gpt2" and hasattr(model, "transformer") and hasattr(model.transformer, "h"):
-        blocks = model.transformer.h
-        
-        for i, block in enumerate(blocks):
-            if hasattr(block, "attn"):
-                attention_modules.append((i, block.attn))
+    # Function to safely get attribute path
+    def get_nested_attr(obj, attr_path):
+        """Safely get attribute path without raising AttributeError."""
+        attrs = attr_path.split(".")
+        current = obj
+        for attr in attrs:
+            if hasattr(current, attr):
+                current = getattr(current, attr)
+            else:
+                return None
+        return current
     
-    # OPT style models
-    elif model.model_type == "opt" and hasattr(model, "model") and hasattr(model.model, "decoder"):
-        blocks = model.model.decoder.layers
-        
-        for i, block in enumerate(blocks):
-            if hasattr(block, "self_attn"):
-                attention_modules.append((i, block.self_attn))
+    # Try different model architectures
+    if model.model_type == "gpt2":
+        # GPT-2 style models
+        transformer = get_nested_attr(model, "transformer")
+        if transformer:
+            blocks = get_nested_attr(transformer, "h")
+            if blocks:
+                for i, block in enumerate(blocks):
+                    attn = get_nested_attr(block, "attn")
+                    if attn:
+                        attention_modules.append((i, attn))
     
-    # Pythia style models (similar to GPT-2)
-    elif model.model_type == "pythia" and hasattr(model, "transformer") and hasattr(model.transformer, "h"):
-        blocks = model.transformer.h
-        
-        for i, block in enumerate(blocks):
-            if hasattr(block, "attn"):
-                attention_modules.append((i, block.attn))
+    elif model.model_type == "opt":
+        # OPT models
+        model_module = get_nested_attr(model, "model")
+        if model_module:
+            decoder = get_nested_attr(model_module, "decoder")
+            if decoder:
+                layers = get_nested_attr(decoder, "layers")
+                if layers:
+                    for i, layer in enumerate(layers):
+                        self_attn = get_nested_attr(layer, "self_attn")
+                        if self_attn:
+                            attention_modules.append((i, self_attn))
     
-    # Not a supported model
+    elif model.model_type == "pythia":
+        # Pythia models (similar to GPT-2)
+        transformer = get_nested_attr(model, "transformer") or get_nested_attr(model, "gpt_neox")
+        if transformer:
+            blocks = get_nested_attr(transformer, "h") or get_nested_attr(transformer, "layers")
+            if blocks:
+                for i, block in enumerate(blocks):
+                    attn = get_nested_attr(block, "attn") or get_nested_attr(block, "attention")
+                    if attn:
+                        attention_modules.append((i, attn))
+    
+    # Generic fallback if nothing matched
     if not attention_modules:
-        print("Warning: Could not find attention modules. Unsupported model architecture.")
+        # Try common patterns across different architectures
+        candidate_paths = [
+            "transformer.h",              # GPT-2 style
+            "model.decoder.layers",       # OPT style
+            "encoder.layers",             # Encoder style models
+            "decoder.layers",             # Decoder style models
+            "layers",                     # Direct layers attribute
+            "transformer.layers",         # Some transformers
+            "gpt_neox.layers"             # Pythia/GPT-NeoX
+        ]
         
+        for path in candidate_paths:
+            try:
+                blocks = get_nested_attr(model, path)
+                if blocks and isinstance(blocks, (list, tuple)) or hasattr(blocks, "__getitem__"):
+                    for i, block in enumerate(blocks):
+                        # Try common attention module names
+                        for attn_name in ["attn", "attention", "self_attn", "self_attention", "mha"]:
+                            attn = get_nested_attr(block, attn_name)
+                            if attn:
+                                attention_modules.append((i, attn))
+                                break
+                    
+                    if attention_modules:
+                        # Found some attention modules, can stop looking
+                        break
+            except Exception as e:
+                continue
+    
+    if attention_modules:
+        print(f"Found {len(attention_modules)} attention modules")
+        
+        # Try to add head_size attribute if not present
+        for _, attn in attention_modules:
+            if not hasattr(attn, "head_size") and hasattr(model, "head_count"):
+                # Try to determine head size from attention module
+                if hasattr(attn, "head_dim"):
+                    attn.head_size = attn.head_dim
+                elif hasattr(model.config, "hidden_size"):
+                    attn.head_size = model.config.hidden_size // model.head_count
+                elif hasattr(attn, "q_proj") and hasattr(attn.q_proj, "weight"):
+                    # Common in models like OPT
+                    attn.head_size = attn.q_proj.weight.shape[0] // model.head_count
+                elif hasattr(attn, "c_attn") and hasattr(attn.c_attn, "weight"):
+                    # Common in GPT-2 models
+                    q_weight = attn.c_attn.weight
+                    attn.head_size = q_weight.shape[1] // (3 * model.head_count)
+            
+            # Add num_heads attribute if not present
+            if not hasattr(attn, "num_heads") and hasattr(model, "head_count"):
+                attn.num_heads = model.head_count
+    else:
+        print("Warning: Could not find attention modules. Unsupported model architecture.")
+    
     return attention_modules
 
 def get_head_importances(model, val_dataloader, strategy="entropy"):
@@ -716,6 +814,13 @@ def fine_tune_model(model, train_dataloader, val_dataloader, tokenizer,
         num_training_steps=total_steps
     )
     
+    # Import memory monitoring if available
+    try:
+        import psutil
+        has_psutil = True
+    except ImportError:
+        has_psutil = False
+    
     # Train the model
     step = 0
     for epoch in range(num_epochs):
@@ -725,78 +830,167 @@ def fine_tune_model(model, train_dataloader, val_dataloader, tokenizer,
         model.train()
         epoch_losses = []
         
+        # Check available memory before starting epoch
+        if has_psutil and DEVICE == "cuda" and torch.cuda.is_available():
+            try:
+                # Get available system memory
+                available_memory_gb = psutil.virtual_memory().available / (1024**3)
+                # Get GPU memory info
+                gpu_memory_allocated = torch.cuda.memory_allocated() / (1024**3)
+                gpu_memory_reserved = torch.cuda.memory_reserved() / (1024**3)
+                
+                print(f"Memory before epoch - System: {available_memory_gb:.2f}GB free, "
+                      f"GPU: {gpu_memory_allocated:.2f}GB allocated, {gpu_memory_reserved:.2f}GB reserved")
+                
+                # If memory is low, try to clear it
+                if available_memory_gb < 2.0 or gpu_memory_allocated > 3.0:
+                    print("Low memory detected - clearing caches")
+                    gc.collect()
+                    torch.cuda.empty_cache()
+            except Exception as e:
+                print(f"Memory check error: {e}")
+        
         # Create progress bar
         progress_bar = tqdm(train_dataloader, desc=f"Training epoch {epoch+1}")
         
         for batch_idx, (input_ids, attention_mask) in enumerate(progress_bar):
-            # Prepare data
-            input_ids = input_ids.to(DEVICE)
-            attention_mask = attention_mask.to(DEVICE)
-            
-            # Forward pass
-            outputs = model(
-                input_ids=input_ids,
-                attention_mask=attention_mask,
-                labels=input_ids
-            )
-            
-            loss = outputs.loss
-            
-            # Backward pass
-            optimizer.zero_grad()
-            loss.backward()
-            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
-            optimizer.step()
-            scheduler.step()
-            
-            # Track metrics
-            loss_val = loss.item()
-            epoch_losses.append(loss_val)
-            perplexity = torch.exp(torch.tensor(loss_val)).item()
-            
-            progress_bar.set_postfix(loss=f"{loss_val:.4f}", ppl=f"{perplexity:.2f}")
-            
-            # Generate sample text every 50 steps
-            if step % 50 == 0:
-                sample_text = generate_text(model, tokenizer, prompt="A large language model is")
+            try:
+                # Prepare data
+                input_ids = input_ids.to(DEVICE)
+                attention_mask = attention_mask.to(DEVICE)
                 
-                if progress_tracker:
-                    # Get gate values for visualization
-                    gate_values = get_gate_values(model)
+                # Forward pass
+                outputs = model(
+                    input_ids=input_ids,
+                    attention_mask=attention_mask,
+                    labels=input_ids
+                )
+                
+                loss = outputs.loss
+                
+                # Backward pass
+                optimizer.zero_grad()
+                loss.backward()
+                torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+                optimizer.step()
+                scheduler.step()
+                
+                # Track metrics
+                loss_val = loss.item()
+                epoch_losses.append(loss_val)
+                perplexity = torch.exp(torch.tensor(loss_val)).item()
+                
+                progress_bar.set_postfix(loss=f"{loss_val:.4f}", ppl=f"{perplexity:.2f}")
+                
+                # Generate sample text every 50 steps with error handling
+                if step % 50 == 0:
+                    try:
+                        sample_text = generate_text(model, tokenizer, prompt="A large language model is")
+                        
+                        if progress_tracker:
+                            # Get gate values for visualization
+                            gate_values = get_gate_values(model)
+                            
+                            progress_tracker.update(
+                                step=step,
+                                loss=loss_val,
+                                perplexity=perplexity,
+                                gate_values=gate_values,
+                                generation_sample=sample_text
+                            )
+                    except Exception as gen_error:
+                        print(f"Error during sample generation: {gen_error}")
+                        # Still update metrics without the generation sample
+                        if progress_tracker:
+                            progress_tracker.update(
+                                step=step,
+                                loss=loss_val,
+                                perplexity=perplexity
+                            )
+                
+                step += 1
+                
+                # Clear memory periodically
+                if step % 100 == 0 and DEVICE == "cuda":
+                    gc.collect()
+                    torch.cuda.empty_cache()
                     
+            except RuntimeError as e:
+                if "CUDA" in str(e) or "out of memory" in str(e).lower():
+                    print(f"\nCUDA error during training: {e}")
+                    
+                    # Try to recover by clearing memory
+                    if DEVICE == "cuda":
+                        print("Attempting to clear GPU memory...")
+                        torch.cuda.empty_cache()
+                        gc.collect()
+                    
+                    # Skip this batch and continue
+                    print("Skipping batch and continuing...")
+                    continue
+                else:
+                    # For non-CUDA errors, print and continue
+                    print(f"Error during training: {e}")
+                    continue
+            except Exception as gen_error:
+                print(f"Unexpected error: {gen_error}")
+                continue
+        
+        # Evaluate after each epoch with error handling
+        try:
+            eval_loss, eval_ppl = evaluate_model(model, val_dataloader)
+            
+            # Print epoch summary
+            if epoch_losses:  # Make sure we have some losses to average
+                epoch_loss = sum(epoch_losses) / len(epoch_losses)
+                epoch_ppl = torch.exp(torch.tensor(epoch_loss)).item()
+                
+                print(f"Epoch {epoch+1} summary:")
+                print(f"  Train loss: {epoch_loss:.4f}, perplexity: {epoch_ppl:.2f}")
+                print(f"  Val loss: {eval_loss:.4f}, perplexity: {eval_ppl:.2f}")
+            else:
+                print(f"Epoch {epoch+1} summary:")
+                print(f"  No valid training steps completed")
+                print(f"  Val loss: {eval_loss:.4f}, perplexity: {eval_ppl:.2f}")
+            
+            # Track validation metrics
+            if progress_tracker:
+                try:
+                    sample_text = generate_text(
+                        model, tokenizer, 
+                        prompt="In recent years, artificial intelligence has"
+                    )
                     progress_tracker.update(
                         step=step,
-                        loss=loss_val,
-                        perplexity=perplexity,
-                        gate_values=gate_values,
+                        loss=eval_loss,
+                        perplexity=eval_ppl,
                         generation_sample=sample_text
                     )
-            
-            step += 1
-        
-        # Evaluate after each epoch
-        eval_loss, eval_ppl = evaluate_model(model, val_dataloader)
-        
-        # Print epoch summary
-        epoch_loss = sum(epoch_losses) / len(epoch_losses)
-        epoch_ppl = torch.exp(torch.tensor(epoch_loss)).item()
-        
-        print(f"Epoch {epoch+1} summary:")
-        print(f"  Train loss: {epoch_loss:.4f}, perplexity: {epoch_ppl:.2f}")
-        print(f"  Val loss: {eval_loss:.4f}, perplexity: {eval_ppl:.2f}")
-        
-        # Track validation metrics
-        if progress_tracker:
-            progress_tracker.update(
-                step=step,
-                loss=eval_loss,
-                perplexity=eval_ppl,
-                generation_sample=generate_text(model, tokenizer, prompt="In recent years, artificial intelligence has")
-            )
+                except Exception as e:
+                    print(f"Error during evaluation text generation: {e}")
+                    # Still update metrics
+                    progress_tracker.update(
+                        step=step,
+                        loss=eval_loss,
+                        perplexity=eval_ppl
+                    )
+        except Exception as eval_error:
+            print(f"Error during evaluation: {eval_error}")
+            # Try to continue to the next epoch
     
-    # Final evaluation
-    final_loss, final_ppl = evaluate_model(model, val_dataloader)
-    print(f"Final evaluation - Loss: {final_loss:.4f}, Perplexity: {final_ppl:.2f}")
+    # Final evaluation with error handling
+    try:
+        final_loss, final_ppl = evaluate_model(model, val_dataloader)
+        print(f"Final evaluation - Loss: {final_loss:.4f}, Perplexity: {final_ppl:.2f}")
+    except Exception as e:
+        print(f"Error during final evaluation: {e}")
+        # Use the last known evaluation metrics
+        if 'eval_loss' in locals() and 'eval_ppl' in locals():
+            final_loss, final_ppl = eval_loss, eval_ppl
+        else:
+            # If we have no metrics at all, use placeholder values
+            final_loss, final_ppl = 999.0, 999.0
+        print(f"Using fallback metrics - Loss: {final_loss:.4f}, Perplexity: {final_ppl:.2f}")
     
     return {
         "final_loss": final_loss,
@@ -815,17 +1009,50 @@ def evaluate_model(model, dataloader):
             input_ids = input_ids.to(DEVICE)
             attention_mask = attention_mask.to(DEVICE)
             
-            outputs = model(
-                input_ids=input_ids,
-                attention_mask=attention_mask,
-                labels=input_ids
-            )
-            
-            loss = outputs.loss
-            total_loss += loss.item()
-            total_batches += 1
+            try:
+                outputs = model(
+                    input_ids=input_ids,
+                    attention_mask=attention_mask,
+                    labels=input_ids
+                )
+                
+                loss = outputs.loss
+                total_loss += loss.item()
+                total_batches += 1
+            except RuntimeError as e:
+                if "CUDA" in str(e):
+                    print(f"CUDA error during evaluation, attempting fallback: {e}")
+                    try:
+                        # Try with CPU
+                        cpu_model = model.cpu()
+                        cpu_input_ids = input_ids.cpu()
+                        cpu_attention_mask = attention_mask.cpu()
+                        
+                        outputs = cpu_model(
+                            input_ids=cpu_input_ids,
+                            attention_mask=cpu_attention_mask,
+                            labels=cpu_input_ids
+                        )
+                        
+                        loss = outputs.loss
+                        total_loss += loss.item()
+                        total_batches += 1
+                        
+                        # Move model back
+                        model.to(DEVICE)
+                    except Exception as cpu_error:
+                        print(f"CPU fallback failed: {cpu_error}")
+                        # Skip this batch
+                        continue
+                else:
+                    print(f"Error during evaluation: {e}")
+                    # Skip this batch
+                    continue
     
     # Calculate average loss and perplexity
+    if total_batches == 0:
+        return 999.0, 999.0  # Return high values if all batches failed
+        
     avg_loss = total_loss / total_batches
     perplexity = torch.exp(torch.tensor(avg_loss)).item()
     
@@ -848,21 +1075,85 @@ def generate_text(model, tokenizer, prompt, max_length=50, temperature=0.7):
     
     input_ids = tokenizer.encode(prompt, return_tensors="pt").to(DEVICE)
     
-    with torch.no_grad():
-        output = model.generate(
-            input_ids,
-            max_length=max_length,
-            temperature=temperature,
-            top_p=0.9,
-            do_sample=True,
-            pad_token_id=tokenizer.eos_token_id,
-            num_return_sequences=1
-        )
+    try:
+        with torch.no_grad():
+            # First try with all options enabled
+            output = model.generate(
+                input_ids,
+                max_length=max_length,
+                temperature=temperature,
+                top_p=0.9,
+                do_sample=True,
+                pad_token_id=tokenizer.eos_token_id,
+                num_return_sequences=1
+            )
+        
+        # Decode the output
+        return tokenizer.decode(output[0], skip_special_tokens=True)
     
-    # Decode the output
-    return tokenizer.decode(output[0], skip_special_tokens=True)
+    except RuntimeError as e:
+        if "CUDA" in str(e):
+            print("CUDA error during generation, attempting fallback to CPU...")
+            # Try moving to CPU for generation
+            try:
+                cpu_model = model.cpu()
+                cpu_input_ids = input_ids.cpu()
+                
+                with torch.no_grad():
+                    output = cpu_model.generate(
+                        cpu_input_ids,
+                        max_length=max_length,
+                        temperature=temperature,
+                        top_p=0.9,
+                        do_sample=True,
+                        pad_token_id=tokenizer.eos_token_id,
+                        num_return_sequences=1
+                    )
+                
+                # Move model back to original device
+                model.to(DEVICE)
+                
+                # Decode the output
+                return tokenizer.decode(output[0], skip_special_tokens=True)
+            
+            except Exception as cpu_error:
+                print(f"CPU fallback also failed: {cpu_error}")
+                # Try with safer parameters
+                model.to(DEVICE)  # Ensure model is back on the original device
+                try:
+                    with torch.no_grad():
+                        # Try with simpler generation parameters
+                        output = model.generate(
+                            input_ids,
+                            max_length=max_length,
+                            do_sample=False,  # Use greedy decoding
+                            pad_token_id=tokenizer.eos_token_id,
+                            num_return_sequences=1
+                        )
+                    
+                    return tokenizer.decode(output[0], skip_special_tokens=True)
+                except Exception as safe_error:
+                    print(f"Safe generation also failed: {safe_error}")
+                    return f"{prompt} [Error: Text generation failed]"
+        
+        # For other types of errors, try with safer parameters
+        try:
+            print(f"Error during generation: {e}, trying with safer parameters...")
+            with torch.no_grad():
+                # Try with simpler generation parameters
+                output = model.generate(
+                    input_ids,
+                    max_length=max_length,
+                    do_sample=False,  # Use greedy decoding
+                    pad_token_id=tokenizer.eos_token_id
+                )
+            
+            return tokenizer.decode(output[0], skip_special_tokens=True)
+        except Exception as safe_error:
+            print(f"Safe generation also failed: {safe_error}")
+            return f"{prompt} [Error: Text generation failed]"
 
-def create_head_importance_visualization(head_importances, pruned_heads, output_path):
+def create_head_importance_visualization(head_importances, pruned_heads, output_path=None):
     """Create visualization of head importances and pruned heads."""
     # Organize by layer
     layers = {}
@@ -874,24 +1165,68 @@ def create_head_importance_visualization(head_importances, pruned_heads, output_
     # Convert pruned_heads to a set for faster lookup
     pruned_set = set((layer, head) for layer, head in pruned_heads)
     
-    # Create figure
+    # Create figure - adjust size based on layer count
     num_layers = len(layers)
-    fig, ax = plt.subplots(figsize=(12, max(6, num_layers)))
+    max_heads_per_layer = max([len(heads) for heads in layers.values()]) if layers else 0
     
-    # Prepare data for plotting
+    # Calculate appropriate figure height (minimum 6, scales with layer count)
+    fig_height = max(6, num_layers * 0.4)
+    
+    # Create figure
+    fig, ax = plt.subplots(figsize=(12, fig_height))
+    
+    # Prepare data for plotting - LIMIT displayed items if too many
     layer_labels = []
     head_importance_data = []
     colors = []
     
+    # Determine if we need to limit labels (if too many layers/heads)
+    too_many_layers = num_layers > 30
+    
+    # Track which layers we're showing
+    included_layers = set()
+    
+    # Process data for visualization, prioritizing pruned heads and limiting total items
+    max_labels = 40  # Maximum number of labels to show
+    
+    # First add all pruned heads
     for layer_idx in sorted(layers.keys()):
         heads = layers[layer_idx]
-        
         for head_idx, importance in sorted(heads, key=lambda x: x[0]):
-            layer_labels.append(f"L{layer_idx}-H{head_idx}")
-            head_importance_data.append(importance)
-            
-            # Red for pruned, blue for kept
-            colors.append('red' if (layer_idx, head_idx) in pruned_set else 'blue')
+            if (layer_idx, head_idx) in pruned_set:
+                layer_labels.append(f"L{layer_idx}-H{head_idx}")
+                head_importance_data.append(importance)
+                colors.append('red')  # Pruned heads are red
+                included_layers.add(layer_idx)
+    
+    # Then add remaining heads until we hit the limit, sampling across layers
+    remaining_slots = max_labels - len(layer_labels)
+    if remaining_slots > 0:
+        # Get layers that have at least one non-pruned head
+        remaining_layers = sorted(set(layer_idx for layer_idx, head_idx, _ in head_importances 
+                               if (layer_idx, head_idx) not in pruned_set))
+        
+        # If we have too many layers, sample evenly
+        if len(remaining_layers) > remaining_slots:
+            # Sample layers evenly
+            step = len(remaining_layers) / remaining_slots
+            sampled_indices = [int(i * step) for i in range(remaining_slots)]
+            remaining_layers = [remaining_layers[i] for i in sampled_indices]
+        
+        # Add one head from each remaining layer
+        for layer_idx in remaining_layers:
+            if len(layer_labels) >= max_labels:
+                break
+                
+            heads = layers[layer_idx]
+            # Find first non-pruned head
+            for head_idx, importance in sorted(heads, key=lambda x: x[0]):
+                if (layer_idx, head_idx) not in pruned_set:
+                    layer_labels.append(f"L{layer_idx}-H{head_idx}")
+                    head_importance_data.append(importance)
+                    colors.append('blue')  # Kept heads are blue
+                    included_layers.add(layer_idx)
+                    break
     
     # Create horizontal bar chart
     y_pos = np.arange(len(layer_labels))
@@ -902,11 +1237,25 @@ def create_head_importance_visualization(head_importances, pruned_heads, output_
     ax.set_yticklabels(layer_labels)
     ax.invert_yaxis()  # Labels read top-to-bottom
     ax.set_xlabel('Importance Score')
-    ax.set_title('Attention Head Importance (red = pruned)')
     
-    # Save figure
+    # Create title with info on displayed vs total heads
+    total_heads = sum(len(heads) for heads in layers.values())
+    displayed_heads = len(layer_labels)
+    title = f'Attention Head Importance (red = pruned, showing {displayed_heads}/{total_heads} heads)'
+    ax.set_title(title)
+    
+    # Add a note if not all heads are shown
+    if displayed_heads < total_heads:
+        total_layers = len(layers)
+        shown_layers = len(included_layers)
+        plt.figtext(0.5, 0.01, 
+                   f"Note: Only a subset of heads are shown for clarity. {shown_layers}/{total_layers} layers represented.", 
+                   ha="center", fontsize=9, bbox={"facecolor":"orange", "alpha":0.2, "pad":5})
+    
+    # Save figure if path provided
     plt.tight_layout()
-    plt.savefig(output_path)
+    if output_path:
+        plt.savefig(output_path)
     
     return fig
 

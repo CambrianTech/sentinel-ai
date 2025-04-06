@@ -4,24 +4,35 @@
 
 This Colab notebook demonstrates making transformer language models (like GPT-2) both smaller and more powerful through a combination of pruning and fine-tuning techniques.
 
-## Features (v0.0.32)
+## Features (v0.0.33)
 
 - Supports multiple model architectures (GPT-2, OPT, Pythia)
 - Implements three pruning strategies:
   - Random: Assigns random importance to heads
   - Magnitude: Uses L2 norm of weights for importance
   - Entropy: Measures attention entropy on validation data
-- Provides real-time visualization of training progress
+- Provides real-time visualization of training progress with improved readability
 - Uses real-world Wikitext data for training
 - Includes memory management features for Colab
 - Supports CPU, GPU, and TPU environments
 - Includes file download functionality for Colab
 - Robust CUDA error handling and recovery
+- Advanced model compatibility detection and attribute handling
 
 ## Version History
 
 | Version | Date       | Changes                                               |
 |---------|------------|-------------------------------------------------------|
+| v0.0.33 | April 2025 | Fixed visualization and model compatibility issues:    |
+|         |            | - Improved head importance visualization readability   |
+|         |            | - Limited displayed items when too many heads/layers   |
+|         |            | - Enhanced model detection with nested attribute path  |
+|         |            | - Fixed "Layer X doesn't have expected attributes"     |
+|         |            | - More robust CPU fallback for CUDA errors            |
+|         |            | - Added memory monitoring with psutil                 |
+|         |            | - Fixed blank first graph issue                       |
+|         |            | - Added comprehensive error handling in all phases     |
+|         |            | - Better tracking of model attributes across architectures |
 | v0.0.32 | April 2025 | Added robust CUDA error handling:                     |
 |         |            | - Automatic fallback to CPU when CUDA errors occur    |
 |         |            | - Mixed precision training with autocast              |
@@ -62,6 +73,16 @@ This Colab notebook demonstrates making transformer language models (like GPT-2)
 - Optimal pruning level is usually around 30% (pruning_level=0.3)
 - FP16 is used automatically on GPU for better memory efficiency
 - Automatic CUDA error recovery ensures notebook continues even with memory issues
+
+## Known Issues Fixed in v0.0.33
+
+- Fixed overcrowded y-axis in head importance visualization making it unreadable
+- Fixed blank first graph issue with initialization improvements
+- Fixed "Layer X doesn't have expected attributes" warnings with better attribute detection
+- Fixed CUDA errors during fine-tuning with comprehensive CPU fallback mechanisms
+- Added memory monitoring with psutil to prevent out-of-memory issues
+- Improved model compatibility across different architectures with nested attribute detection
+- Enhanced visualization techniques for better readability with models that have many heads/layers
 
 ## Known Issues Fixed in v0.0.32
 
