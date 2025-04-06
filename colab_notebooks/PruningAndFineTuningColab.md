@@ -4,9 +4,9 @@
 
 This Colab notebook demonstrates making transformer language models (like GPT-2) both smaller and more powerful through a combination of pruning and fine-tuning techniques.
 
-## Features (v0.0.31)
+## Features (v0.0.32)
 
-- Supports multiple model architectures (GPT-2, OPT)
+- Supports multiple model architectures (GPT-2, OPT, Pythia)
 - Implements three pruning strategies:
   - Random: Assigns random importance to heads
   - Magnitude: Uses L2 norm of weights for importance
@@ -16,11 +16,17 @@ This Colab notebook demonstrates making transformer language models (like GPT-2)
 - Includes memory management features for Colab
 - Supports CPU, GPU, and TPU environments
 - Includes file download functionality for Colab
+- Robust CUDA error handling and recovery
 
 ## Version History
 
 | Version | Date       | Changes                                               |
 |---------|------------|-------------------------------------------------------|
+| v0.0.32 | April 2025 | Added robust CUDA error handling:                     |
+|         |            | - Automatic fallback to CPU when CUDA errors occur    |
+|         |            | - Mixed precision training with autocast              |
+|         |            | - Improved memory management to prevent OOM errors    |
+|         |            | - Safe text generation with multiple fallback options |
 | v0.0.31 | April 2025 | Fixed get_strategy parameters issue                   |
 |         |            | Added Colab-specific optimizations:                   |
 |         |            | - Memory management display                           |
@@ -55,6 +61,14 @@ This Colab notebook demonstrates making transformer language models (like GPT-2)
 - Three pruning strategies are provided with "entropy" typically giving best results
 - Optimal pruning level is usually around 30% (pruning_level=0.3)
 - FP16 is used automatically on GPU for better memory efficiency
+- Automatic CUDA error recovery ensures notebook continues even with memory issues
+
+## Known Issues Fixed in v0.0.32
+
+- Fixed CUDA device-side assert errors during text generation with automatic CPU fallback
+- Added mixed precision training with autocast to improve memory efficiency
+- Added context managers for better GPU memory handling
+- Implemented multiple fallback mechanisms for errors during fine-tuning
 
 ## Known Issues Fixed in v0.0.31
 
