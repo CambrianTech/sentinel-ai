@@ -396,16 +396,35 @@ os.makedirs("pruning_results", exist_ok=True)
 
 def main(args):
     """Main function to run the experiment with command line arguments"""
-    # Create experiment configuration
-    config = ExperimentConfig(
-        model_name=args.model_name,
-        pruning_percent=args.pruning_percent,
-        num_epochs=args.epochs,
-        batch_size=args.batch_size,
-        use_test_data=args.test_mode,
-        device=device,
-        prompt=DEFAULT_PROMPT  # Use the default prompt defined at the top
-    )
+    # Try to import pruning mode
+    try:
+        from sentinel.pruning.dual_mode_pruning import PruningMode
+        pruning_mode = PruningMode.ADAPTIVE if args.pruning_mode.lower() == "adaptive" else PruningMode.COMPRESSED
+        print(f"Using pruning mode: {pruning_mode.value}")
+    except (ImportError, AttributeError):
+        pruning_mode = None
+        print("Dual-mode pruning not available - using default pruning behavior")
+    
+    # Create experiment configuration with pruning mode if supported
+    if 'pruning_mode' in ExperimentConfig.__init__.__code__.co_varnames:
+        config = ExperimentConfig(
+            model_name=args.model_name,
+            pruning_percent=args.pruning_percent,
+            num_epochs=args.epochs,
+            batch_size=args.batch_size,
+            use_test_data=args.test_mode,
+            device=device,
+            pruning_mode=pruning_mode  # Pass the pruning mode if supported
+        )
+    else:
+        config = ExperimentConfig(
+            model_name=args.model_name,
+            pruning_percent=args.pruning_percent,
+            num_epochs=args.epochs,
+            batch_size=args.batch_size,
+            use_test_data=args.test_mode,
+            device=device
+        )
     
     # If in test mode, use a super-simplified workflow just to verify imports
     if args.test_mode and args.super_simple:
@@ -473,6 +492,9 @@ def parse_args():
     parser.add_argument("--pruning_percent", type=float, default=0.3,
                         help="Percentage of heads to prune (default: 0.3)")
     
+    parser.add_argument("--pruning_mode", type=str, default="adaptive", choices=["adaptive", "compressed"],
+                        help="Pruning mode: 'adaptive' allows recovery, 'compressed' prevents recovery (default: adaptive)")
+    
     parser.add_argument("--epochs", type=int, default=3,
                         help="Number of fine-tuning epochs (default: 3)")
     
@@ -498,22 +520,48 @@ if __name__ == "__main__":
 else:
     # When run in a notebook, use default parameters
     
+    # Default prompt for text generation
+    DEFAULT_PROMPT = "Once upon a time"
+    
     # Configure experiment parameters
     MODEL_NAME = "distilgpt2"  # Smaller GPT-2 model for faster demonstration
     PRUNING_PERCENT = 0.3  # Percentage of heads to prune (0-1)
     NUM_EPOCHS = 3  # Number of fine-tuning epochs 
     BATCH_SIZE = 4  # Batch size for training and evaluation
     
-    # Create experiment config
-    experiment_config = ExperimentConfig(
-        model_name=MODEL_NAME,
-        pruning_percent=PRUNING_PERCENT,
-        num_epochs=NUM_EPOCHS,
-        batch_size=BATCH_SIZE,
-        device=device,
-        output_dir="pruning_results",
-        prompt=DEFAULT_PROMPT  # Use the default prompt defined at the top
-    )
+    # Configure pruning mode
+    # First try to import from the module
+    try:
+        from sentinel.pruning.dual_mode_pruning import PruningMode
+        # Set pruning mode (ADAPTIVE allows recovery, COMPRESSED prevents recovery)
+        PRUNING_MODE = PruningMode.ADAPTIVE  # Change to PruningMode.COMPRESSED for permanent pruning
+        print(f"Using pruning mode: {PRUNING_MODE.value}")
+    except ImportError:
+        # If import fails, define a placeholder
+        print("Dual-mode pruning not available - using default pruning behavior")
+        PRUNING_MODE = None
+    
+    # Create experiment config with additional pruning mode parameter if available
+    if 'pruning_mode' in ExperimentConfig.__init__.__code__.co_varnames:
+        experiment_config = ExperimentConfig(
+            model_name=MODEL_NAME,
+            pruning_percent=PRUNING_PERCENT,
+            num_epochs=NUM_EPOCHS,
+            batch_size=BATCH_SIZE,
+            device=device,
+            output_dir="pruning_results",
+            pruning_mode=PRUNING_MODE  # Pass the pruning mode if supported
+        )
+    else:
+        # If the experiment config doesn't support pruning_mode, use the standard constructor
+        experiment_config = ExperimentConfig(
+            model_name=MODEL_NAME,
+            pruning_percent=PRUNING_PERCENT,
+            num_epochs=NUM_EPOCHS,
+            batch_size=BATCH_SIZE,
+            device=device,
+            output_dir="pruning_results"
+        )
     
     # Run the experiment
     model, tokenizer, summary = run_experiment(experiment_config)
