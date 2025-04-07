@@ -387,33 +387,56 @@ def run_experiment(config):
         "pruned_heads": len(pruned_heads)
     }
     
-    # 10. Plot training history
+    # 10. Plot training history and metrics comparison
     try:
-        plt.figure(figsize=(10, 6))
-        epochs = range(1, len(training_history["train_loss"]) + 1)
+        # Create plot with metrics
+        plt.figure(figsize=(12, 5))
         
-        # Plot training and validation loss
+        # Left subplot: Metrics comparison
         plt.subplot(1, 2, 1)
-        plt.plot(epochs, training_history["train_loss"], "b-", label="Training Loss")
-        plt.plot(epochs, training_history["eval_loss"], "r-", label="Validation Loss")
-        plt.title("Loss During Fine-tuning")
-        plt.xlabel("Epoch")
-        plt.ylabel("Loss")
-        plt.legend()
+        stages = ['Baseline', 'Pruned', 'Fine-tuned']
+        perplexity = [baseline_perplexity, pruned_perplexity, finetuned_perplexity]
         
-        # Plot perplexity
-        plt.subplot(1, 2, 2)
-        plt.plot(epochs, training_history["eval_perplexity"], "g-", label="Validation Perplexity")
-        plt.axhline(y=baseline_metrics["perplexity"], color="b", linestyle="--", label="Baseline")
-        plt.axhline(y=pruned_metrics["perplexity"], color="r", linestyle="--", label="After Pruning")
-        plt.title("Perplexity During Fine-tuning")
-        plt.xlabel("Epoch")
-        plt.ylabel("Perplexity")
-        plt.legend()
+        # Create bar chart
+        bars = plt.bar(stages, perplexity, color=['blue', 'red', 'green'])
+        plt.ylabel('Perplexity (lower is better)')
+        plt.title('Perplexity Comparison')
         
+        # Add value labels above bars
+        for bar in bars:
+            height = bar.get_height()
+            plt.text(bar.get_x() + bar.get_width()/2., height + 0.1,
+                    f'{height:.2f}', ha='center', va='bottom')
+        
+        # Try to plot training history if available in right format
+        if isinstance(training_history, dict) and 'train_loss' in training_history and len(training_history['train_loss']) > 0:
+            # Right subplot: Training history
+            plt.subplot(1, 2, 2)
+            epochs = range(1, len(training_history['train_loss']) + 1)
+            
+            # Plot training loss
+            plt.plot(epochs, training_history['train_loss'], 'b-', label='Training Loss')
+            
+            # Plot eval loss if available
+            if 'eval_loss' in training_history:
+                plt.plot(epochs, training_history['eval_loss'], 'r-', label='Validation Loss')
+                
+            plt.title('Loss During Fine-tuning')
+            plt.xlabel('Epoch')
+            plt.ylabel('Loss')
+            plt.legend()
+        else:
+            # If no training history, just show improvement percentage
+            plt.subplot(1, 2, 2)
+            plt.text(0.5, 0.5, f"Overall Improvement: {overall_improvement:.2f}%\n{len(pruned_heads)} heads pruned", 
+                    horizontalalignment='center', verticalalignment='center', fontsize=14)
+            plt.axis('off')
+            
         plt.tight_layout()
-        plt.savefig(f"{config.output_dir}/training_history.png")
+        plt.savefig(f"{config.output_dir}/pruning_results.png")
+        print(f"Saved visualization to {config.output_dir}/pruning_results.png")
     except Exception as e:
-        print(f"Error plotting training history: {e}")
+        print(f"Error plotting results: {e}")
+        print("Continuing without plotting")
     
     return model, tokenizer, summary

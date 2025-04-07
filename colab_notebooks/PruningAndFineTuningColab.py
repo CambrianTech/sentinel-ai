@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 
 """
-Pruning and Fine-Tuning Colab (v0.0.49)
+Pruning and Fine-Tuning Colab (v0.0.50)
 
 This script demonstrates making a GPT-2 model smaller and more powerful by:
 1. Applying pruning to remove less important attention heads
@@ -11,14 +11,25 @@ This script demonstrates making a GPT-2 model smaller and more powerful by:
 
 It's designed to be run in Google Colab using real-world data (Wikitext).
 
+## Key Parameters
+- MODEL_NAME = "distilgpt2"
+- PRUNING_STRATEGY = "entropy"
+- PRUNING_PERCENT = 0.3
+- NUM_EPOCHS = 100
+- BATCH_SIZE = 4
+- LEARNING_RATE = 5e-6
+- MAX_LENGTH = 256
+- DATASET = "wikitext-2-raw-v1"
+
 # Text Generation Prompt (edit this to change the generation prompt)
-DEFAULT_PROMPT = "Once upon a time"
+generation_prompt = "Once upon a time"
 
 IMPORTANT USAGE NOTE:
 For quick testing of the modular API, use:
     python PruningAndFineTuningColab.py --test_mode --super_simple
 
 Version History:
+- v0.0.50 (April 2025): Add key parameters at top and use meaningful values
 - v0.0.49 (April 2025): Remove start button and simplify notebook
 - v0.0.48 (April 2025): Add customizable text prompt and fix metrics handling
 - v0.0.47 (April 2025): Fix data preparation and improve error handling
