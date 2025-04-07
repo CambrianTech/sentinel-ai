@@ -105,6 +105,19 @@ def prune_head_in_model(
         k_idx = hidden_size + head_idx * head_size
         v_idx = 2 * hidden_size + head_idx * head_size
         
+        # Check for out of bounds indices 
+        if q_idx + head_size > hidden_size or v_idx + head_size > 3 * hidden_size:
+            if verbose:
+                print(f"Head index {head_idx} out of bounds for layer {layer_idx}")
+            return False
+        
+        # Verify that we're accessing the correct parts of the weight matrix
+        # Do a simple check to ensure our indices are reasonable
+        if head_idx >= n_heads:
+            if verbose:
+                print(f"Invalid head index {head_idx} (max allowed: {n_heads-1})")
+            return False
+            
         if mode == PruningMode.COMPRESSED:
             # Permanent pruning using PyTorch's pruning utilities
             try:
@@ -115,6 +128,23 @@ def prune_head_in_model(
                 mask[q_idx:q_idx+head_size, :] = 0.0
                 mask[k_idx:k_idx+head_size, :] = 0.0
                 mask[v_idx:v_idx+head_size, :] = 0.0
+                
+                # Run a dummy forward pass to ensure parameters are properly initialized
+                # This avoids issues with prune.remove() failing if weight_orig isn't set
+                if not hasattr(attn_module.c_attn, 'weight_orig'):
+                    # We need to ensure a forward pass has been done
+                    if verbose:
+                        print("Running dummy forward pass to initialize pruning parameters")
+                    try:
+                        # Try to run a simple forward pass
+                        device = next(model.parameters()).device
+                        sample_input = torch.ones((1, 8), dtype=torch.long, device=device)
+                        with torch.no_grad():
+                            _ = model(sample_input)
+                    except Exception as e:
+                        # If forward pass fails, just warn and continue
+                        if verbose:
+                            print(f"Dummy forward pass failed, but continuing: {e}")
                 
                 # Apply mask
                 prune.custom_from_mask(attn_module.c_attn, 'weight', mask)
@@ -127,39 +157,55 @@ def prune_head_in_model(
                     bias_mask[v_idx:v_idx+head_size] = 0.0
                     prune.custom_from_mask(attn_module.c_attn, 'bias', bias_mask)
                 
-                # Make pruning permanent
-                prune.remove(attn_module.c_attn, 'weight')
-                if hasattr(attn_module.c_attn, 'bias') and attn_module.c_attn.bias is not None:
-                    prune.remove(attn_module.c_attn, 'bias')
-                    
+                # Make pruning permanent - this directly modifies the weight tensor
+                # and removes the weight_mask/weight_orig attributes
+                try:
+                    prune.remove(attn_module.c_attn, 'weight')
+                    if hasattr(attn_module.c_attn, 'bias') and attn_module.c_attn.bias is not None:
+                        prune.remove(attn_module.c_attn, 'bias')
+                except Exception as e:
+                    # Fallback to direct zeroing if remove fails
+                    if verbose:
+                        print(f"Permanent pruning failed: {e}")
+                        print("Falling back to manual zeroing")
+                    with torch.no_grad():
+                        attn_module.c_attn.weight.data[q_idx:q_idx+head_size, :] = 0.0
+                        attn_module.c_attn.weight.data[k_idx:k_idx+head_size, :] = 0.0
+                        attn_module.c_attn.weight.data[v_idx:v_idx+head_size, :] = 0.0
+                        if hasattr(attn_module.c_attn, 'bias') and attn_module.c_attn.bias is not None:
+                            attn_module.c_attn.bias.data[q_idx:q_idx+head_size] = 0.0
+                            attn_module.c_attn.bias.data[k_idx:k_idx+head_size] = 0.0
+                            attn_module.c_attn.bias.data[v_idx:v_idx+head_size] = 0.0
+                
                 if verbose:
                     print(f"Permanently pruned head {head_idx} in layer {layer_idx} (Compressed mode)")
-            except ImportError:
-                warnings.warn("PyTorch pruning utilities not available. Falling back to adaptive mode.")
+            except ImportError as e:
+                warnings.warn(f"PyTorch pruning utilities not available: {e}. Falling back to adaptive mode.")
                 # Fallback to adaptive mode
                 with torch.no_grad():
-                    attn_module.c_attn.weight[q_idx:q_idx+head_size, :] = 0.0
-                    attn_module.c_attn.weight[k_idx:k_idx+head_size, :] = 0.0
-                    attn_module.c_attn.weight[v_idx:v_idx+head_size, :] = 0.0
+                    attn_module.c_attn.weight.data[q_idx:q_idx+head_size, :] = 0.0
+                    attn_module.c_attn.weight.data[k_idx:k_idx+head_size, :] = 0.0
+                    attn_module.c_attn.weight.data[v_idx:v_idx+head_size, :] = 0.0
                     
                     if hasattr(attn_module.c_attn, 'bias') and attn_module.c_attn.bias is not None:
-                        attn_module.c_attn.bias[q_idx:q_idx+head_size] = 0.0
-                        attn_module.c_attn.bias[k_idx:k_idx+head_size] = 0.0
-                        attn_module.c_attn.bias[v_idx:v_idx+head_size] = 0.0
+                        attn_module.c_attn.bias.data[q_idx:q_idx+head_size] = 0.0
+                        attn_module.c_attn.bias.data[k_idx:k_idx+head_size] = 0.0
+                        attn_module.c_attn.bias.data[v_idx:v_idx+head_size] = 0.0
                 if verbose:
                     print(f"Temporarily pruned head {head_idx} in layer {layer_idx} (Adaptive mode fallback)")
         else:
             # Adaptive mode - temporary zeroing
             with torch.no_grad():
-                attn_module.c_attn.weight[q_idx:q_idx+head_size, :] = 0.0
-                attn_module.c_attn.weight[k_idx:k_idx+head_size, :] = 0.0
-                attn_module.c_attn.weight[v_idx:v_idx+head_size, :] = 0.0
+                # Use .data to avoid tracking history in autograd
+                attn_module.c_attn.weight.data[q_idx:q_idx+head_size, :] = 0.0
+                attn_module.c_attn.weight.data[k_idx:k_idx+head_size, :] = 0.0
+                attn_module.c_attn.weight.data[v_idx:v_idx+head_size, :] = 0.0
                 
                 # Zero out bias if present
                 if hasattr(attn_module.c_attn, 'bias') and attn_module.c_attn.bias is not None:
-                    attn_module.c_attn.bias[q_idx:q_idx+head_size] = 0.0
-                    attn_module.c_attn.bias[k_idx:k_idx+head_size] = 0.0
-                    attn_module.c_attn.bias[v_idx:v_idx+head_size] = 0.0
+                    attn_module.c_attn.bias.data[q_idx:q_idx+head_size] = 0.0
+                    attn_module.c_attn.bias.data[k_idx:k_idx+head_size] = 0.0
+                    attn_module.c_attn.bias.data[v_idx:v_idx+head_size] = 0.0
                     
             if verbose:
                 print(f"Temporarily pruned head {head_idx} in layer {layer_idx} (Adaptive mode)")
@@ -184,10 +230,38 @@ def prune_head_in_model(
         start_idx = head_idx * head_size
         end_idx = start_idx + head_size
         
+        # Check for out of bounds
+        if head_idx >= num_heads:
+            if verbose:
+                print(f"Invalid head index {head_idx} (max allowed: {num_heads-1}) for layer {layer_idx}")
+            return False
+            
+        if start_idx + head_size > attn_module.q_proj.weight.size(0):
+            if verbose:
+                print(f"Head index {head_idx} out of bounds for layer {layer_idx}")
+            return False
+        
         if mode == PruningMode.COMPRESSED:
             try:
                 import torch.nn.utils.prune as prune
                 
+                # Run a dummy forward pass to ensure parameters are properly initialized
+                # This avoids issues with prune.remove() failing if weight_orig isn't set
+                if not hasattr(attn_module.q_proj, 'weight_orig'):
+                    # We need to ensure a forward pass has been done
+                    if verbose:
+                        print("Running dummy forward pass to initialize pruning parameters")
+                    try:
+                        # Try to run a simple forward pass
+                        device = next(model.parameters()).device
+                        sample_input = torch.ones((1, 8), dtype=torch.long, device=device)
+                        with torch.no_grad():
+                            _ = model(sample_input)
+                    except Exception as e:
+                        # If forward pass fails, just warn and continue
+                        if verbose:
+                            print(f"Dummy forward pass failed, but continuing: {e}")
+                            
                 # Create masks (1 = keep, 0 = prune)
                 q_mask = torch.ones_like(attn_module.q_proj.weight)
                 k_mask = torch.ones_like(attn_module.k_proj.weight)
@@ -217,43 +291,59 @@ def prune_head_in_model(
                     prune.custom_from_mask(attn_module.v_proj, 'bias', v_bias_mask)
                 
                 # Make pruning permanent
-                prune.remove(attn_module.q_proj, 'weight')
-                prune.remove(attn_module.k_proj, 'weight')
-                prune.remove(attn_module.v_proj, 'weight')
-                
-                if hasattr(attn_module.q_proj, 'bias') and attn_module.q_proj.bias is not None:
-                    prune.remove(attn_module.q_proj, 'bias')
-                    prune.remove(attn_module.k_proj, 'bias')
-                    prune.remove(attn_module.v_proj, 'bias')
+                try:
+                    prune.remove(attn_module.q_proj, 'weight')
+                    prune.remove(attn_module.k_proj, 'weight')
+                    prune.remove(attn_module.v_proj, 'weight')
+                    
+                    if hasattr(attn_module.q_proj, 'bias') and attn_module.q_proj.bias is not None:
+                        prune.remove(attn_module.q_proj, 'bias')
+                        prune.remove(attn_module.k_proj, 'bias')
+                        prune.remove(attn_module.v_proj, 'bias')
+                except Exception as e:
+                    # Fallback to direct zeroing if remove fails
+                    if verbose:
+                        print(f"Permanent pruning failed: {e}")
+                        print("Falling back to manual zeroing")
+                    with torch.no_grad():
+                        attn_module.q_proj.weight.data[start_idx:end_idx, :] = 0.0
+                        attn_module.k_proj.weight.data[start_idx:end_idx, :] = 0.0
+                        attn_module.v_proj.weight.data[start_idx:end_idx, :] = 0.0
+                        
+                        if hasattr(attn_module.q_proj, 'bias') and attn_module.q_proj.bias is not None:
+                            attn_module.q_proj.bias.data[start_idx:end_idx] = 0.0
+                            attn_module.k_proj.bias.data[start_idx:end_idx] = 0.0
+                            attn_module.v_proj.bias.data[start_idx:end_idx] = 0.0
                 
                 if verbose:
                     print(f"Permanently pruned head {head_idx} in layer {layer_idx} (Compressed mode, separate QKV)")
-            except ImportError:
-                warnings.warn("PyTorch pruning utilities not available. Falling back to adaptive mode.")
+            except ImportError as e:
+                warnings.warn(f"PyTorch pruning utilities not available: {e}. Falling back to adaptive mode.")
                 # Fallback to adaptive mode
                 with torch.no_grad():
-                    attn_module.q_proj.weight[start_idx:end_idx, :] = 0.0
-                    attn_module.k_proj.weight[start_idx:end_idx, :] = 0.0
-                    attn_module.v_proj.weight[start_idx:end_idx, :] = 0.0
+                    attn_module.q_proj.weight.data[start_idx:end_idx, :] = 0.0
+                    attn_module.k_proj.weight.data[start_idx:end_idx, :] = 0.0
+                    attn_module.v_proj.weight.data[start_idx:end_idx, :] = 0.0
                     
                     if hasattr(attn_module.q_proj, 'bias') and attn_module.q_proj.bias is not None:
-                        attn_module.q_proj.bias[start_idx:end_idx] = 0.0
-                        attn_module.k_proj.bias[start_idx:end_idx] = 0.0
-                        attn_module.v_proj.bias[start_idx:end_idx] = 0.0
+                        attn_module.q_proj.bias.data[start_idx:end_idx] = 0.0
+                        attn_module.k_proj.bias.data[start_idx:end_idx] = 0.0
+                        attn_module.v_proj.bias.data[start_idx:end_idx] = 0.0
                 
                 if verbose:
                     print(f"Temporarily pruned head {head_idx} in layer {layer_idx} (Adaptive mode fallback, separate QKV)")
         else:
             # Adaptive mode - temporary zeroing
             with torch.no_grad():
-                attn_module.q_proj.weight[start_idx:end_idx, :] = 0.0
-                attn_module.k_proj.weight[start_idx:end_idx, :] = 0.0
-                attn_module.v_proj.weight[start_idx:end_idx, :] = 0.0
+                # Use .data to avoid tracking history in autograd
+                attn_module.q_proj.weight.data[start_idx:end_idx, :] = 0.0
+                attn_module.k_proj.weight.data[start_idx:end_idx, :] = 0.0
+                attn_module.v_proj.weight.data[start_idx:end_idx, :] = 0.0
                 
                 if hasattr(attn_module.q_proj, 'bias') and attn_module.q_proj.bias is not None:
-                    attn_module.q_proj.bias[start_idx:end_idx] = 0.0
-                    attn_module.k_proj.bias[start_idx:end_idx] = 0.0
-                    attn_module.v_proj.bias[start_idx:end_idx] = 0.0
+                    attn_module.q_proj.bias.data[start_idx:end_idx] = 0.0
+                    attn_module.k_proj.bias.data[start_idx:end_idx] = 0.0
+                    attn_module.v_proj.bias.data[start_idx:end_idx] = 0.0
             
             if verbose:
                 print(f"Temporarily pruned head {head_idx} in layer {layer_idx} (Adaptive mode, separate QKV)")
@@ -292,11 +382,6 @@ def apply_pruning_hooks(
     Returns:
         List of hooks (store to prevent garbage collection)
     """
-    if mode != PruningMode.COMPRESSED:
-        if verbose:
-            print("Skipping pruning hooks for adaptive mode")
-        return []
-    
     hooks = []
     head_masks = {}  # Store masks for each layer
     
@@ -306,6 +391,73 @@ def apply_pruning_hooks(
             head_masks[layer_idx] = []
         head_masks[layer_idx].append(head_idx)
     
+    # For adaptive mode, we can optionally apply a hook that zeroes gradients,
+    # or a forward hook that re-zeroes weights after each forward pass
+    if mode == PruningMode.ADAPTIVE:
+        # Skip hooks if explicitly requested
+        if verbose:
+            print(f"Applying hooks for adaptive mode (re-zeroing after parameter updates)")
+        
+        def forward_pre_hook(module, input):
+            """Re-zero weights for pruned heads before each forward pass"""
+            # Get layer index from stored attribute
+            layer_idx = getattr(module, '_layer_idx', -1)
+            if layer_idx == -1 or layer_idx not in head_masks:
+                return
+            
+            # Handle GPT-2 style models
+            if hasattr(module, 'c_attn'):
+                # Calculate dimensions
+                n_heads = getattr(module, 'n_head', 
+                                 getattr(module, 'num_heads', 
+                                       getattr(module, 'num_attention_heads', 12)))
+                hidden_size = module.c_attn.weight.size(0)
+                head_size = hidden_size // n_heads
+                
+                # Re-zero weights for pruned heads
+                with torch.no_grad():
+                    for head_idx in head_masks[layer_idx]:
+                        q_idx = head_idx * head_size
+                        k_idx = hidden_size + head_idx * head_size
+                        v_idx = 2 * hidden_size + head_idx * head_size
+                        
+                        # Zero query/key/value weights
+                        module.c_attn.weight.data[q_idx:q_idx+head_size, :] = 0.0
+                        module.c_attn.weight.data[k_idx:k_idx+head_size, :] = 0.0
+                        module.c_attn.weight.data[v_idx:v_idx+head_size, :] = 0.0
+                        
+                        # Zero bias if present
+                        if hasattr(module.c_attn, 'bias') and module.c_attn.bias is not None:
+                            module.c_attn.bias.data[q_idx:q_idx+head_size] = 0.0
+                            module.c_attn.bias.data[k_idx:k_idx+head_size] = 0.0
+                            module.c_attn.bias.data[v_idx:v_idx+head_size] = 0.0
+            
+            # Handle models with separate QKV projections
+            elif (hasattr(module, 'q_proj') and hasattr(module, 'k_proj') and hasattr(module, 'v_proj')):
+                # Calculate dimensions
+                num_heads = getattr(module, 'num_heads', 
+                                  getattr(module, 'num_attention_heads',
+                                         getattr(module, 'n_head', 12)))
+                head_size = module.q_proj.weight.size(0) // num_heads
+                
+                # Re-zero weights for pruned heads
+                with torch.no_grad():
+                    for head_idx in head_masks[layer_idx]:
+                        start_idx = head_idx * head_size
+                        end_idx = start_idx + head_size
+                        
+                        # Zero query/key/value weights
+                        module.q_proj.weight.data[start_idx:end_idx, :] = 0.0
+                        module.k_proj.weight.data[start_idx:end_idx, :] = 0.0
+                        module.v_proj.weight.data[start_idx:end_idx, :] = 0.0
+                        
+                        # Zero bias if present
+                        if hasattr(module.q_proj, 'bias') and module.q_proj.bias is not None:
+                            module.q_proj.bias.data[start_idx:end_idx] = 0.0
+                            module.k_proj.bias.data[start_idx:end_idx] = 0.0
+                            module.v_proj.bias.data[start_idx:end_idx] = 0.0
+    
+    # Function to zero gradients during backprop
     def zero_grad_hook(module, grad_input, grad_output):
         """Zero out gradients for pruned heads during backprop"""
         # Get layer index from stored attribute
@@ -372,12 +524,27 @@ def apply_pruning_hooks(
         if layer_idx in head_masks:
             # Store layer index as an attribute
             layer.attn._layer_idx = layer_idx
-            # Register backward hook
-            hook = layer.attn.register_full_backward_hook(zero_grad_hook)
-            hooks.append(hook)
+            
+            # For compressed mode, we block gradients
+            if mode == PruningMode.COMPRESSED:
+                # Register backward hook to zero gradients
+                hook = layer.attn.register_full_backward_hook(zero_grad_hook)
+                hooks.append(hook)
+            else:
+                # For adaptive mode, we can either:
+                # 1. Register forward pre-hook to re-zero weights before forward pass
+                # 2. Register backward hook to zero gradients
+                # Option 1 is more reliable but might be more expensive
+                hook = layer.attn.register_forward_pre_hook(forward_pre_hook)
+                hooks.append(hook)
     
     if verbose:
-        print(f"Applied {len(hooks)} pruning hooks to maintain pruned state during fine-tuning")
+        if mode == PruningMode.COMPRESSED:
+            print(f"Applied {len(hooks)} gradient zeroing hooks for compressed mode")
+        else:
+            print(f"Applied {len(hooks)} weight re-zeroing hooks for adaptive mode")
+            print("Note: Heads can still learn to recover if re-zeroing hooks are removed")
+    
     return hooks
 
 
