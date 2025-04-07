@@ -8,6 +8,8 @@ Notebook for demonstrating and benchmarking transformer model pruning and fine-t
 
 ### Features
 - Minimal and reliable implementation that works in all environments
+- Interactive UI with customizable text prompt input widget
+- Execution control with start button that pauses until user is ready
 - Uses modular API components from the repository
 - Focuses on GPT-2 models (distilgpt2, gpt2, gpt2-medium)
 - Uses entropy-based pruning to identify less important attention heads
@@ -21,10 +23,13 @@ Notebook for demonstrating and benchmarking transformer model pruning and fine-t
 1. Upload to Colab with File > Upload notebook
 2. Select GPU runtime (recommended)
 3. Run cells sequentially 
-4. Use the interactive generation cell to test your model
+4. Enter your desired text prompt in the text box
+5. Click the "Start Experiment" button when ready to proceed
+6. Wait for the model to be pruned and fine-tuned
+7. Use the interactive generation cell to test your model
 
 ### Version History
-- v0.0.48 (April 2025): Add customizable text prompt and fix metrics handling
+- v0.0.48 (April 2025): Add interactive text prompt widget, start button, and execution control
 - v0.0.47 (April 2025): Fix data preparation and improve error handling
 - v0.0.46 (April 2025): Simplified notebook to use modular repository API
 - v0.0.45 (April 2025): Made notebook self-contained without requiring complex imports
