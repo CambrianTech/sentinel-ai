@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 try:
     # First, try the modular API
     from .api.data import load_wikitext, prepare_data, prepare_test_data
-    from .api.pruning import compute_head_importance, prune_heads, fine_tune, evaluate_model
+    from .api.pruning import compute_head_importance, prune_heads, fine_tune, evaluate_model, warmup_fine_tune
     from .api.entropy import collect_attention_distributions, entropy_based_pruning
     USING_FULL_MODULAR_API = True
     logger.info("Using full modular API")
@@ -28,7 +28,7 @@ except ImportError:
     # Fall back to simplified imports if needed
     try:
         from utils.pruning.api.data import load_wikitext, prepare_data, prepare_test_data
-        from utils.pruning.api.pruning import compute_head_importance, prune_heads, fine_tune, evaluate_model
+        from utils.pruning.api.pruning import compute_head_importance, prune_heads, fine_tune, evaluate_model, warmup_fine_tune
         # If we don't have entropy module, we'll use simplified implementation
         try:
             from utils.pruning.api.entropy import collect_attention_distributions, entropy_based_pruning
@@ -242,8 +242,18 @@ def run_experiment(config):
         train_dataloader = prepare_data(tokenizer, split="train", batch_size=config.batch_size, max_length=config.max_length)
         eval_dataloader = prepare_data(tokenizer, split="validation", batch_size=config.batch_size, max_length=config.max_length)
     
-    # 3. Evaluate baseline model
-    print("\nEvaluating baseline model...")
+    # 3. Short warmup fine-tuning to get more realistic baseline
+    print("\nPerforming short warmup fine-tuning (1 epoch)...")
+    warmup_fine_tune(
+        model, 
+        train_dataloader, 
+        eval_dataloader, 
+        num_epochs=1,
+        learning_rate=config.learning_rate
+    )
+    
+    # Now evaluate baseline model after warmup
+    print("\nEvaluating baseline model (after warmup)...")
     baseline_metrics = evaluate_model(model, eval_dataloader)
     print(f"Baseline metrics: {baseline_metrics}")
     
