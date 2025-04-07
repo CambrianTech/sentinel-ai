@@ -307,13 +307,41 @@ def run_experiment(config):
     # 6. Fine-tune the pruned model
     print(f"\nFine-tuning pruned model for {config.num_epochs} epochs...")
     
+    # Create storage for epoch samples
+    epoch_samples = []
+    
+    # Create callbacks for epoch tracking
+    def epoch_callback(epoch, train_loss):
+        # Generate text at specific epochs (start, 25%, 50%, 75%, end)
+        epoch_checkpoints = [0, 
+                            config.num_epochs // 4, 
+                            config.num_epochs // 2,
+                            config.num_epochs * 3 // 4,
+                            config.num_epochs - 1]
+        
+        if epoch in epoch_checkpoints or config.num_epochs <= 5:
+            # Generate sample at this epoch
+            sample_text = generate_text(model, tokenizer, prompt, max_length=50)
+            epoch_samples.append({
+                "epoch": epoch + 1,
+                "text": sample_text,
+                "loss": train_loss
+            })
+            print(f"Epoch {epoch+1} sample: {sample_text}")
+    
+    # Define callbacks dictionary
+    callbacks = {
+        'on_epoch': epoch_callback
+    }
+    
     # Fine-tune the model
     training_history = fine_tune(
         model, 
         train_dataloader, 
         eval_dataloader, 
         num_epochs=config.num_epochs,
-        learning_rate=config.learning_rate
+        learning_rate=config.learning_rate,
+        callbacks=callbacks
     )
     
     # 7. Evaluate fine-tuned model
@@ -383,6 +411,7 @@ def run_experiment(config):
             "pruned": pruned_text,
             "finetuned": finetuned_text
         },
+        "epoch_samples": epoch_samples,  # Add epoch samples to summary
         "training_history": training_history,
         "pruned_heads": len(pruned_heads)
     }
