@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 
 """
-Pruning and Fine-Tuning Colab (v0.0.46)
+Pruning and Fine-Tuning Colab (v0.0.47)
 
 This script demonstrates making a GPT-2 model smaller and more powerful by:
 1. Applying pruning to remove less important attention heads
@@ -16,6 +16,7 @@ For quick testing of the modular API, use:
     python PruningAndFineTuningColab.py --test_mode --super_simple
 
 Version History:
+- v0.0.47 (April 2025): Fix data preparation and improve error handling
 - v0.0.46 (April 2025): Simplified implementation using modular API components
 - v0.0.45 (April 2025): Made notebook self-contained without requiring complex imports
 - v0.0.44 (April 2025): Fixed Colab repository URL and branch selection for reliable execution

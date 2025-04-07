@@ -187,10 +187,7 @@ def run_experiment(config):
     Returns:
         Tuple of (model, tokenizer, summary_dict)
     """
-    # Disable deprecation warnings
-    import warnings
-    warnings.filterwarnings("ignore", category=FutureWarning)
-    warnings.filterwarnings("ignore", category=UserWarning)
+    # We should address deprecation warnings properly rather than suppressing them
     
     print(f"Starting experiment with config: {config}")
     
@@ -200,16 +197,14 @@ def run_experiment(config):
     # 1. Load model and tokenizer
     print(f"Loading model: {config.model_name}")
     try:
-        # Load model with caching enabled and without token warnings
+        # Load model with caching enabled (improves performance)
         model = AutoModelForCausalLM.from_pretrained(
             config.model_name, 
-            use_cache=True, 
-            token=None  # Don't prompt for token
+            use_cache=True
         ).to(config.device)
         
         tokenizer = AutoTokenizer.from_pretrained(
-            config.model_name,
-            token=None  # Don't prompt for token
+            config.model_name
         )
         
         # Ensure pad token is set
