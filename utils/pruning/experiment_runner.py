@@ -187,6 +187,11 @@ def run_experiment(config):
     Returns:
         Tuple of (model, tokenizer, summary_dict)
     """
+    # Disable deprecation warnings
+    import warnings
+    warnings.filterwarnings("ignore", category=FutureWarning)
+    warnings.filterwarnings("ignore", category=UserWarning)
+    
     print(f"Starting experiment with config: {config}")
     
     # Create output directory
@@ -195,8 +200,17 @@ def run_experiment(config):
     # 1. Load model and tokenizer
     print(f"Loading model: {config.model_name}")
     try:
-        model = AutoModelForCausalLM.from_pretrained(config.model_name).to(config.device)
-        tokenizer = AutoTokenizer.from_pretrained(config.model_name)
+        # Load model with caching enabled and without token warnings
+        model = AutoModelForCausalLM.from_pretrained(
+            config.model_name, 
+            use_cache=True, 
+            token=None  # Don't prompt for token
+        ).to(config.device)
+        
+        tokenizer = AutoTokenizer.from_pretrained(
+            config.model_name,
+            token=None  # Don't prompt for token
+        )
         
         # Ensure pad token is set
         if tokenizer.pad_token is None:
@@ -211,12 +225,11 @@ def run_experiment(config):
     print("Preparing data...")
     if config.use_test_data:
         # Use simple synthetic data for testing
-        train_dataloader = prepare_test_data(tokenizer, config.batch_size, config.max_length)
-        eval_dataloader = prepare_test_data(tokenizer, config.batch_size, config.max_length, is_train=False)
+        train_dataloader, eval_dataloader = prepare_test_data(tokenizer, max_length=config.max_length, batch_size=config.batch_size)
     else:
         # Use real data for full experiments
-        train_dataloader = prepare_data(tokenizer, "train", config.batch_size, config.max_length)
-        eval_dataloader = prepare_data(tokenizer, "validation", config.batch_size, config.max_length)
+        train_dataloader = prepare_data(tokenizer, split="train", batch_size=config.batch_size, max_length=config.max_length)
+        eval_dataloader = prepare_data(tokenizer, split="validation", batch_size=config.batch_size, max_length=config.max_length)
     
     # 3. Evaluate baseline model
     print("\nEvaluating baseline model...")
