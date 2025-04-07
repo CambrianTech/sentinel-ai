@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 
 """
-Pruning and Fine-Tuning Colab (v0.0.42)
+Pruning and Fine-Tuning Colab (v0.0.43)
 
 This script demonstrates making a GPT-2 model smaller and more powerful by:
 1. Applying pruning to remove less important attention heads
@@ -20,6 +20,7 @@ ready and functional, running the complete pruning pipeline still requires
 additional debugging.
 
 Version History:
+- v0.0.43 (April 2025): Fixed entropy pruning implementation to handle API availability gracefully
 - v0.0.42 (April 2025): Added super_simple test mode and improved error handling
 - v0.0.41 (April 2025): Modularized code using sentinel.pruning package
 - v0.0.40 (April 2025): Improve robustness for different model architectures
@@ -154,6 +155,8 @@ def main(args):
     
     # Run the full experiment
     try:
+        print("\nRunning experiment with modular API and improved error handling...")
+        print("Note: Entropy pruning will gracefully fall back to alternative methods if needed")
         model, tokenizer, summary = run_experiment(config)
         
         # Interactive generation if requested
@@ -170,6 +173,12 @@ def main(args):
         print(f"\nError in experiment: {e}")
         import traceback
         traceback.print_exc()
+        
+        if "collect_attention_distributions" in str(e) or "entropy_based_pruning" in str(e):
+            print("\nNOTE: If you're seeing an error with entropy pruning functions, make sure")
+            print("you're using the latest version of the benchmark_with_metrics.py script that")
+            print("has the fix for handling different API availability scenarios.")
+        
         return 1
 
 
