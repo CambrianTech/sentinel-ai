@@ -42,27 +42,19 @@ from pathlib import Path
 # First, import non-datasets-related modules
 from tqdm import tqdm
 
-# Prevent circular imports by using the new modular API
-try:
-    from sentinel.pruning.experiment_runner import ExperimentConfig
-    from sentinel.pruning.text_generator import generate_text
-    # Try to import the entropy_magnitude module
-    try:
-        from sentinel.pruning.entropy_magnitude import (
-            collect_attention_distributions,
-            entropy_based_pruning,
-            magnitude_based_pruning
-        )
-        print("Using modular sentinel.pruning API with entropy_magnitude - this will avoid circular imports")
-        USING_FULL_MODULAR_API = True
-    except ImportError:
-        print("Could not import entropy_magnitude from sentinel.pruning, using partial modular API")
-        USING_FULL_MODULAR_API = False
-    USING_MODULAR_API = True
-except ImportError:
-    print("Could not import sentinel.pruning API, falling back to mock datasets approach")
-    USING_MODULAR_API = False
-    USING_FULL_MODULAR_API = False
+# Define global flags
+# These will be updated after we import sentinel properly
+USING_MODULAR_API = False
+USING_FULL_MODULAR_API = False
+
+# Define functions to update the flags
+def set_using_modular_api(value):
+    global USING_MODULAR_API
+    USING_MODULAR_API = value
+    
+def set_using_full_modular_api(value):
+    global USING_FULL_MODULAR_API
+    USING_FULL_MODULAR_API = value
 
 # Now import necessary HuggingFace modules WITHOUT datasets
 import transformers
@@ -271,6 +263,56 @@ def get_gate_tensor(attention_module):
 script_dir = os.path.dirname(os.path.abspath(__file__))
 project_root = os.path.dirname(script_dir)
 sys.path.insert(0, project_root)
+
+# Ensure sentinel package is properly importable
+sentinel_pkg_path = os.path.join(project_root, 'sentinel')
+if os.path.exists(sentinel_pkg_path) and os.path.isdir(sentinel_pkg_path):
+    print(f"Found sentinel package at {sentinel_pkg_path}")
+    # Make sure it's in the path
+    if project_root not in sys.path:
+        sys.path.insert(0, project_root)
+    
+    # Ensure the sentinel module is properly initialized
+    try:
+        import sentinel
+        print(f"Successfully imported sentinel module (version {sentinel.__version__})")
+        
+        # Now try to import the pruning modules - this must be after sentinel import
+        try:
+            # First try importing the module itself to check if it exists
+            import sentinel.pruning
+            print(f"Successfully imported sentinel.pruning module")
+            
+            from sentinel.pruning.experiment_runner import ExperimentConfig
+            from sentinel.pruning.text_generator import generate_text
+            
+            # Try to import the entropy_magnitude module
+            try:
+                from sentinel.pruning.entropy_magnitude import (
+                    collect_attention_distributions,
+                    entropy_based_pruning,
+                    magnitude_based_pruning
+                )
+                print("Using modular sentinel.pruning API with entropy_magnitude - this will avoid circular imports")
+                # Both modules are available
+                set_using_full_modular_api(True)
+                set_using_modular_api(True)
+            except ImportError as ee:
+                print(f"Could not import entropy_magnitude from sentinel.pruning: {ee}")
+                # Only partial API is available
+                set_using_full_modular_api(False)
+                set_using_modular_api(True)
+            
+        except ImportError as e:
+            print(f"Could not import sentinel.pruning API: {e}")
+            # No API is available
+            set_using_modular_api(False)
+            set_using_full_modular_api(False)
+            
+    except ImportError as e:
+        print(f"Warning: Failed to import sentinel module: {e}")
+else:
+    print("Warning: Could not find sentinel package directory")
 
 # Disable Hugging Face datasets import that causes the circular reference
 # This must come before anything else is imported
@@ -1286,98 +1328,98 @@ def benchmark_model(model, dataloader, tokenizer, collector, args, strategy=None
                     else:
                         # Define magnitude pruning function inline
                         def magnitude_based_pruning(model, prune_ratio=0.1, safe_update_tensor_fn=None):
-                        """Prune heads based on weight magnitudes."""
-                        # Get blocks
-                        blocks = get_model_blocks(model)
-                        
-                        # Store head information with magnitudes
-                        head_magnitudes = []
-                        
-                        # Calculate magnitude for each head
-                        for layer_idx, block in enumerate(blocks):
-                            attn_module = get_attention_module(block)
+                            """Prune heads based on weight magnitudes."""
+                            # Get blocks
+                            blocks = get_model_blocks(model)
                             
-                            if attn_module is None:
-                                continue
-                                
-                            # Get number of heads
-                            gate_tensor = get_gate_tensor(attn_module)
-                            if gate_tensor is None:
-                                continue
-                                
-                            num_heads = len(gate_tensor)
+                            # Store head information with magnitudes
+                            head_magnitudes = []
                             
-                            # Find query, key, value weights
-                            q_weights = None
-                            k_weights = None 
-                            v_weights = None
-                            
-                            # For GPT-2 style models with combined QKV
-                            if hasattr(attn_module, 'c_attn') and hasattr(attn_module.c_attn, 'weight'):
-                                qkv_weights = attn_module.c_attn.weight
-                                dim = qkv_weights.shape[0] // (3 * num_heads)
-                                
-                                # For each head
-                                for head_idx in range(num_heads):
-                                    # Extract weights for this head
-                                    magnitude = 0.0
-                                    
-                                    # Query weights
-                                    start = head_idx * dim
-                                    end = (head_idx + 1) * dim
-                                    q_weight = qkv_weights[start:end]
-                                    magnitude += torch.norm(q_weight).item()
-                                    
-                                    # Key weights
-                                    start = num_heads * dim + head_idx * dim
-                                    end = num_heads * dim + (head_idx + 1) * dim
-                                    k_weight = qkv_weights[start:end]
-                                    magnitude += torch.norm(k_weight).item()
-                                    
-                                    # Value weights
-                                    start = 2 * num_heads * dim + head_idx * dim
-                                    end = 2 * num_heads * dim + (head_idx + 1) * dim
-                                    v_weight = qkv_weights[start:end]
-                                    magnitude += torch.norm(v_weight).item()
-                                    
-                                    head_magnitudes.append((layer_idx, head_idx, magnitude))
-                            else:
-                                # Fallback for other model types - use random magnitudes
-                                for head_idx in range(num_heads):
-                                    magnitude = np.random.random()  # Random magnitude
-                                    head_magnitudes.append((layer_idx, head_idx, magnitude))
-                        
-                        # Sort by magnitude (lower magnitude = less important)
-                        head_magnitudes.sort(key=lambda x: x[2])
-                        
-                        # Determine number of heads to prune
-                        num_to_prune = int(len(head_magnitudes) * prune_ratio)
-                        heads_to_prune = head_magnitudes[:num_to_prune]
-                        
-                        print(f"Pruning {num_to_prune} heads with lowest magnitude")
-                        
-                        # Apply pruning
-                        pruned_heads = []
-                        
-                        for layer_idx, head_idx, _ in heads_to_prune:
-                            # Find the attention module
-                            if layer_idx < len(blocks):
-                                block = blocks[layer_idx]
+                            # Calculate magnitude for each head
+                            for layer_idx, block in enumerate(blocks):
                                 attn_module = get_attention_module(block)
                                 
-                                if attn_module is not None:
-                                    gate_tensor = get_gate_tensor(attn_module)
+                                if attn_module is None:
+                                    continue
                                     
-                                    if gate_tensor is not None and head_idx < len(gate_tensor):
-                                        if safe_update_tensor_fn:
-                                            safe_update_tensor_fn(gate_tensor, 0.0, index=head_idx)
-                                        else:
-                                            with torch.no_grad():
-                                                gate_tensor[head_idx] = 0.0
-                                                
-                                        pruned_heads.append((layer_idx, head_idx))
-                        
-                        return pruned_heads
+                                # Get number of heads
+                                gate_tensor = get_gate_tensor(attn_module)
+                                if gate_tensor is None:
+                                    continue
+                                    
+                                num_heads = len(gate_tensor)
+                                
+                                # Find query, key, value weights
+                                q_weights = None
+                                k_weights = None 
+                                v_weights = None
+                                
+                                # For GPT-2 style models with combined QKV
+                                if hasattr(attn_module, 'c_attn') and hasattr(attn_module.c_attn, 'weight'):
+                                    qkv_weights = attn_module.c_attn.weight
+                                    dim = qkv_weights.shape[0] // (3 * num_heads)
+                                    
+                                    # For each head
+                                    for head_idx in range(num_heads):
+                                        # Extract weights for this head
+                                        magnitude = 0.0
+                                        
+                                        # Query weights
+                                        start = head_idx * dim
+                                        end = (head_idx + 1) * dim
+                                        q_weight = qkv_weights[start:end]
+                                        magnitude += torch.norm(q_weight).item()
+                                        
+                                        # Key weights
+                                        start = num_heads * dim + head_idx * dim
+                                        end = num_heads * dim + (head_idx + 1) * dim
+                                        k_weight = qkv_weights[start:end]
+                                        magnitude += torch.norm(k_weight).item()
+                                        
+                                        # Value weights
+                                        start = 2 * num_heads * dim + head_idx * dim
+                                        end = 2 * num_heads * dim + (head_idx + 1) * dim
+                                        v_weight = qkv_weights[start:end]
+                                        magnitude += torch.norm(v_weight).item()
+                                        
+                                        head_magnitudes.append((layer_idx, head_idx, magnitude))
+                                else:
+                                    # Fallback for other model types - use random magnitudes
+                                    for head_idx in range(num_heads):
+                                        magnitude = np.random.random()  # Random magnitude
+                                        head_magnitudes.append((layer_idx, head_idx, magnitude))
+                            
+                            # Sort by magnitude (lower magnitude = less important)
+                            head_magnitudes.sort(key=lambda x: x[2])
+                            
+                            # Determine number of heads to prune
+                            num_to_prune = int(len(head_magnitudes) * prune_ratio)
+                            heads_to_prune = head_magnitudes[:num_to_prune]
+                            
+                            print(f"Pruning {num_to_prune} heads with lowest magnitude")
+                            
+                            # Apply pruning
+                            pruned_heads = []
+                            
+                            for layer_idx, head_idx, _ in heads_to_prune:
+                                # Find the attention module
+                                if layer_idx < len(blocks):
+                                    block = blocks[layer_idx]
+                                    attn_module = get_attention_module(block)
+                                    
+                                    if attn_module is not None:
+                                        gate_tensor = get_gate_tensor(attn_module)
+                                        
+                                        if gate_tensor is not None and head_idx < len(gate_tensor):
+                                            if safe_update_tensor_fn:
+                                                safe_update_tensor_fn(gate_tensor, 0.0, index=head_idx)
+                                            else:
+                                                with torch.no_grad():
+                                                    gate_tensor[head_idx] = 0.0
+                                                    
+                                            pruned_heads.append((layer_idx, head_idx))
+                            
+                            return pruned_heads
                     
                     # Apply magnitude pruning
                     pruned_heads = magnitude_based_pruning(
@@ -1413,148 +1455,171 @@ def benchmark_model(model, dataloader, tokenizer, collector, args, strategy=None
                     if USING_FULL_MODULAR_API:
                         # Use the modular API implementation
                         print("Using entropy functions from sentinel.pruning.entropy_magnitude")
+                        
+                        # Directly import the needed functions
+                        from sentinel.pruning.entropy_magnitude import (
+                            collect_attention_distributions,
+                            entropy_based_pruning
+                        )
                     else:
                         # Define simpler entropy-based pruning functions inline
-                        def collect_attention_distributions(model, dataloader, num_batches=5, device="cuda"):
-                        """Collect attention outputs from model."""
-                        print("Collecting attention distributions...")
-                        
-                        # Dictionary to store attention weights
-                        attention_data = {}
-                        
-                        # Register hooks to capture attention weights
-                        hooks = []
-                        
-                        def attention_hook(module, inputs, outputs):
-                            # Check for attention outputs
-                            if isinstance(outputs, tuple) and len(outputs) > 1:
-                                attention_weights = outputs[1]  # Usually the second output is attention weights
-                                
-                                # Process each head
-                                for head_idx in range(attention_weights.size(1)):
-                                    head_weights = attention_weights[:, head_idx, :, :]
-                                    
-                                    # Store by layer and head
-                                    layer_idx = int(module._get_name().split('_')[-1]) if hasattr(module, '_get_name') else 0
-                                    key = (layer_idx, head_idx)
-                                    
-                                    if key not in attention_data:
-                                        attention_data[key] = []
-                                    
-                                    attention_data[key].append(head_weights.detach())
-                        
-                        # Get transformer blocks
-                        blocks = get_model_blocks(model)
-                        
-                        # Register hooks
-                        for idx, block in enumerate(blocks):
-                            attn_module = get_attention_module(block)
-                            if attn_module is not None:
-                                hook = attn_module.register_forward_hook(attention_hook)
-                                hooks.append(hook)
-                        
-                        # Process batches
-                        model.eval()
-                        with torch.no_grad():
-                            for batch_idx, batch in enumerate(dataloader):
-                                if batch_idx >= num_batches:
-                                    break
-                                
-                                # Extract inputs from batch
-                                if isinstance(batch, tuple) and len(batch) >= 2:
-                                    input_ids, attention_mask = batch[0], batch[1]
-                                elif isinstance(batch, dict):
-                                    input_ids = batch["input_ids"]
-                                    attention_mask = batch.get("attention_mask", None)
-                                else:
-                                    continue
-                                
-                                # Move to device
-                                input_ids = input_ids.to(device)
-                                if attention_mask is not None:
-                                    attention_mask = attention_mask.to(device)
-                                
-                                # Forward pass
-                                _ = model(input_ids=input_ids, attention_mask=attention_mask, output_attentions=True)
-                        
-                        # Remove hooks
-                        for hook in hooks:
-                            hook.remove()
-                        
-                        return attention_data
-                    
-                    def entropy_based_pruning(model, attention_data, prune_ratio=0.1, safe_update_tensor_fn=None):
-                        """Prune heads based on attention entropy."""
-                        # Calculate entropy for each head
-                        head_entropies = []
-                        
-                        for (layer_idx, head_idx), head_data in attention_data.items():
-                            # Calculate entropy (lower entropy = more focused = more important)
-                            entropy = 0.0
-                            count = 0
+                        def local_collect_attention_distributions(model, dataloader, num_batches=5, device="cuda"):
+                            """Collect attention outputs from model."""
+                            print("Collecting attention distributions...")
                             
-                            for attn_weights in head_data:
-                                # Avoid log(0)
-                                eps = 1e-10
-                                weights = attn_weights + eps
-                                weights = weights / weights.sum(dim=-1, keepdim=True)
-                                
-                                # Calculate entropy: -sum(p * log(p))
-                                ent = -torch.sum(weights * torch.log(weights), dim=-1).mean().item()
-                                entropy += ent
-                                count += 1
+                            # Dictionary to store attention weights
+                            attention_data = {}
                             
-                            if count > 0:
-                                entropy /= count
-                                head_entropies.append((layer_idx, head_idx, entropy))
-                        
-                        # Sort by entropy (higher entropy = less focused = less important)
-                        head_entropies.sort(key=lambda x: -x[2])
-                        
-                        # Determine number of heads to prune
-                        num_to_prune = int(len(head_entropies) * prune_ratio)
-                        heads_to_prune = head_entropies[:num_to_prune]
-                        
-                        print(f"Pruning {num_to_prune} heads with highest entropy")
-                        
-                        # Apply pruning
-                        pruned_heads = []
-                        blocks = get_model_blocks(model)
-                        
-                        for layer_idx, head_idx, _ in heads_to_prune:
-                            # Find the attention module
-                            if layer_idx < len(blocks):
-                                block = blocks[layer_idx]
+                            # Register hooks to capture attention weights
+                            hooks = []
+                            
+                            def attention_hook(module, inputs, outputs):
+                                # Check for attention outputs
+                                if isinstance(outputs, tuple) and len(outputs) > 1:
+                                    attention_weights = outputs[1]  # Usually the second output is attention weights
+                                    
+                                    # Process each head
+                                    for head_idx in range(attention_weights.size(1)):
+                                        head_weights = attention_weights[:, head_idx, :, :]
+                                        
+                                        # Store by layer and head
+                                        layer_idx = int(module._get_name().split('_')[-1]) if hasattr(module, '_get_name') else 0
+                                        key = (layer_idx, head_idx)
+                                        
+                                        if key not in attention_data:
+                                            attention_data[key] = []
+                                        
+                                        attention_data[key].append(head_weights.detach())
+                            
+                            # Get transformer blocks
+                            blocks = get_model_blocks(model)
+                            
+                            # Register hooks
+                            for idx, block in enumerate(blocks):
                                 attn_module = get_attention_module(block)
-                                
                                 if attn_module is not None:
-                                    gate_tensor = get_gate_tensor(attn_module)
+                                    hook = attn_module.register_forward_hook(attention_hook)
+                                    hooks.append(hook)
+                            
+                            # Process batches
+                            model.eval()
+                            with torch.no_grad():
+                                for batch_idx, batch in enumerate(dataloader):
+                                    if batch_idx >= num_batches:
+                                        break
+                                
+                                    # Extract inputs from batch
+                                    if isinstance(batch, tuple) and len(batch) >= 2:
+                                        input_ids, attention_mask = batch[0], batch[1]
+                                    elif isinstance(batch, dict):
+                                        input_ids = batch["input_ids"]
+                                        attention_mask = batch.get("attention_mask", None)
+                                    else:
+                                        continue
                                     
-                                    if gate_tensor is not None and head_idx < len(gate_tensor):
-                                        if safe_update_tensor_fn:
-                                            safe_update_tensor_fn(gate_tensor, 0.0, index=head_idx)
-                                        else:
-                                            with torch.no_grad():
-                                                gate_tensor[head_idx] = 0.0
-                                                
-                                        pruned_heads.append((layer_idx, head_idx))
-                        
-                        return pruned_heads
+                                    # Move to device
+                                    input_ids = input_ids.to(device)
+                                    if attention_mask is not None:
+                                        attention_mask = attention_mask.to(device)
+                                    
+                                    # Forward pass
+                                    _ = model(input_ids=input_ids, attention_mask=attention_mask, output_attentions=True)
+                            
+                            # Remove hooks
+                            for hook in hooks:
+                                hook.remove()
+                            
+                            return attention_data
+                    
+                        def local_entropy_based_pruning(model, attention_data, prune_ratio=0.1, safe_update_tensor_fn=None):
+                            """Prune heads based on attention entropy."""
+                            # Calculate entropy for each head
+                            head_entropies = []
+                            
+                            for (layer_idx, head_idx), head_data in attention_data.items():
+                                # Calculate entropy (lower entropy = more focused = more important)
+                                entropy = 0.0
+                                count = 0
+                                
+                                for attn_weights in head_data:
+                                    # Avoid log(0)
+                                    eps = 1e-10
+                                    weights = attn_weights + eps
+                                    weights = weights / weights.sum(dim=-1, keepdim=True)
+                                    
+                                    # Calculate entropy: -sum(p * log(p))
+                                    ent = -torch.sum(weights * torch.log(weights), dim=-1).mean().item()
+                                    entropy += ent
+                                    count += 1
+                                
+                                if count > 0:
+                                    entropy /= count
+                                    head_entropies.append((layer_idx, head_idx, entropy))
+                            
+                            # Sort by entropy (higher entropy = less focused = less important)
+                            head_entropies.sort(key=lambda x: -x[2])
+                            
+                            # Determine number of heads to prune
+                            num_to_prune = int(len(head_entropies) * prune_ratio)
+                            heads_to_prune = head_entropies[:num_to_prune]
+                            
+                            print(f"Pruning {num_to_prune} heads with highest entropy")
+                            
+                            # Apply pruning
+                            pruned_heads = []
+                            blocks = get_model_blocks(model)
+                            
+                            for layer_idx, head_idx, _ in heads_to_prune:
+                                # Find the attention module
+                                if layer_idx < len(blocks):
+                                    block = blocks[layer_idx]
+                                    attn_module = get_attention_module(block)
+                                    
+                                    if attn_module is not None:
+                                        gate_tensor = get_gate_tensor(attn_module)
+                                        
+                                        if gate_tensor is not None and head_idx < len(gate_tensor):
+                                            if safe_update_tensor_fn:
+                                                safe_update_tensor_fn(gate_tensor, 0.0, index=head_idx)
+                                            else:
+                                                with torch.no_grad():
+                                                    gate_tensor[head_idx] = 0.0
+                                                    
+                                            pruned_heads.append((layer_idx, head_idx))
+                            
+                            return pruned_heads
                     
                     # Collect attention distributions (sample a few batches)
-                    distributions = collect_attention_distributions(
-                        model,
-                        dataloader,
-                        num_batches=5  # Adjust based on dataset size
-                    )
-                    
-                    # Apply entropy-based pruning
-                    pruned_heads = entropy_based_pruning(
-                        model,
-                        distributions,
-                        prune_ratio=pruning_level,
-                        safe_update_tensor_fn=safe_update_tensor
-                    )
+                    if USING_FULL_MODULAR_API:
+                        # Use the imported functions from the modular API
+                        distributions = collect_attention_distributions(
+                            model,
+                            dataloader,
+                            num_batches=5  # Adjust based on dataset size
+                        )
+                        
+                        # Apply entropy-based pruning using the modular API implementation
+                        pruned_heads = entropy_based_pruning(
+                            model,
+                            distributions,
+                            prune_ratio=pruning_level,
+                            safe_update_tensor_fn=safe_update_tensor
+                        )
+                    else:
+                        # Use the locally defined functions
+                        distributions = local_collect_attention_distributions(
+                            model,
+                            dataloader,
+                            num_batches=5  # Adjust based on dataset size
+                        )
+                        
+                        # Apply entropy-based pruning using the local implementation
+                        pruned_heads = local_entropy_based_pruning(
+                            model,
+                            distributions,
+                            prune_ratio=pruning_level,
+                            safe_update_tensor_fn=safe_update_tensor
+                        )
                     num_pruned = len(pruned_heads)
                 except Exception as e:
                     print(f"Error in entropy pruning implementation: {e}")
