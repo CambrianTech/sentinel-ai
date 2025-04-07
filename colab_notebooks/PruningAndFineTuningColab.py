@@ -122,19 +122,26 @@ def main(args):
         print("\nRunning in super simple test mode to verify imports and API")
         
         try:
+            print("\nStarting super_simple test mode...")
+            
             # Load model and tokenizer
+            print("Loading model and tokenizer...")
             from sentinel.pruning.model_manager import load_model
             model, tokenizer = load_model(config.model_name, device=config.device)
+            print(f"Successfully loaded {config.model_name} model")
             
             # Generate text
+            print("\nGenerating text...")
             from sentinel.pruning.text_generator import generate_text
             text = generate_text(model, tokenizer, "The quick brown fox", max_length=50)
-            print(f"\nGenerated text: {text}")
+            print(f"Generated text: {text}")
             
             # Create a progress tracker
+            print("\nTesting progress tracker...")
             from sentinel.pruning.visualization import ProgressTracker
             tracker = ProgressTracker(disable_plotting=True)
             tracker.update(0, 5.0, 150.0, text)
+            print("Progress tracker test successful")
             
             print("\nAPI test completed successfully!")
             return 0

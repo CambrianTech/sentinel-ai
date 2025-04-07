@@ -72,7 +72,14 @@ class AdaptiveOptimizerConfig:
     
     def to_dict(self) -> Dict[str, Any]:
         """Convert config to dictionary."""
-        return {k: v for k, v in self.__dict__.items()}
+        config_dict = {}
+        for k, v in self.__dict__.items():
+            # Convert torch.device to string if needed
+            if k == "device" and isinstance(v, torch.device):
+                config_dict[k] = str(v)
+            else:
+                config_dict[k] = v
+        return config_dict
     
     @classmethod
     def from_dict(cls, config_dict: Dict[str, Any]) -> 'AdaptiveOptimizerConfig':
