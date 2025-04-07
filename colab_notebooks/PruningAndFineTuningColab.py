@@ -120,6 +120,7 @@ def main(args):
     # If in test mode, use a super-simplified workflow just to verify imports
     if args.test_mode and args.super_simple:
         print("\nRunning in super simple test mode to verify imports and API")
+        print("Args:", args)
         
         try:
             print("\nStarting super_simple test mode...")

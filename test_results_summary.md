@@ -115,17 +115,17 @@ The pruning strategies needed better error handling for edge cases:
 ## Command Reference
 
 ```bash
-# Test dataset loading
-python test_dataset_loading.py
+# Test dataset loading (use -u for unbuffered output)
+python -u test_dataset_loading.py
 
-# Test experiment runner
-python test_run_experiment.py
+# Test experiment runner (use -u for unbuffered output)
+python -u test_run_experiment.py
 
-# Test notebook integration
-python colab_notebooks/PruningAndFineTuningColab.py --test_mode --super_simple --model_name distilgpt2
+# Test notebook integration (use -u for unbuffered output)
+python -u colab_notebooks/PruningAndFineTuningColab.py --test_mode --super_simple --model_name distilgpt2
 
 # Run experiment (when fixed)
-python sentinel/scripts/run_experiment.py --model_name distilgpt2 --pruning_ratio 0.2 --strategy random --max_cycles 1 --epochs 1 --device cpu
+python -u sentinel/scripts/run_experiment.py --model_name distilgpt2 --pruning_ratio 0.2 --strategy random --max_cycles 1 --epochs 1 --device cpu
 ```
 
 🤖 Generated with [Claude Code](https://claude.ai/code)
