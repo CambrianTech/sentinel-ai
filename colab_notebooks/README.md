@@ -2,27 +2,28 @@
 
 This directory contains Jupyter notebooks designed to run in Google Colab.
 
-## PruningAndFineTuningColab.ipynb (v0.0.36)
+## PruningAndFineTuningColab.ipynb (v0.0.37)
 
 Notebook for demonstrating and benchmarking transformer model pruning and fine-tuning recovery.
 
 ### Features
-- Supports multiple model architectures (GPT-2, OPT, Pythia)
-- Implements three pruning strategies (random, magnitude, entropy)
+- Minimal and reliable implementation that works in all environments
+- Focuses on GPT-2 models (distilgpt2, gpt2, gpt2-medium)
+- Simple head masking approach to pruning
 - Fine-tunes pruned models to recover performance
-- Real-time visualization of experiments with improved readability
-- Memory-efficient implementation for Colab environments
-- Uses real-world Wikitext data (not tiny Shakespeare)
-- Robust CUDA error handling for reliable Colab execution
-- Advanced model compatibility detection and attribute handling
+- Real-time visualization of experiments
+- Uses real-world Wikitext data for training and evaluation
+- Comprehensive metrics and visualizations
+- Interactive text generation with the fine-tuned model
 
 ### Usage
 1. Upload to Colab with File > Upload notebook
-2. Select GPU or TPU runtime
+2. Select GPU runtime (recommended)
 3. Run cells sequentially 
-4. Run the visualize_ongoing_experiments() cell anytime to see progress
+4. Use the interactive generation cell to test your model
 
 ### Version History
+- v0.0.37 (April 2025): Complete rewrite with minimal dependencies for reliability
 - v0.0.36 (April 2025): Simplified pruning implementation for better reliability
 - v0.0.35 (April 2025): Fixed in-place operation error in apply_head_pruning function
 - v0.0.34 (April 2025): Fixed undefined variable error, visualization issues and enhanced CUDA error handling
