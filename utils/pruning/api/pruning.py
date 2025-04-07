@@ -23,10 +23,54 @@ def compute_head_importance(model, dataloader, num_batches=10, device="cuda"):
     """
     print("Computing head importance...")
     
-    # Get model architecture details
-    config = model.config
-    num_layers = config.n_layer if hasattr(config, "n_layer") else config.num_hidden_layers
-    num_heads = config.n_head if hasattr(config, "n_head") else config.num_attention_heads
+    # Get model architecture details safely
+    try:
+        config = model.config
+        
+        # Try to get number of layers and heads
+        if hasattr(config, "n_layer"):
+            num_layers = config.n_layer
+        elif hasattr(config, "num_hidden_layers"):
+            num_layers = config.num_hidden_layers
+        elif hasattr(config, "num_layers"):
+            num_layers = config.num_layers
+        else:
+            # Fallback - try to infer from model structure
+            print("Could not determine number of layers from config, trying to infer...")
+            if hasattr(model, "transformer") and hasattr(model.transformer, "h"):
+                # GPT-2 style
+                num_layers = len(model.transformer.h)
+            elif hasattr(model, "model") and hasattr(model.model, "decoder") and hasattr(model.model.decoder, "layers"):
+                # OPT style
+                num_layers = len(model.model.decoder.layers)
+            elif hasattr(model, "encoder") and hasattr(model.encoder, "layers"):
+                # Encoder style
+                num_layers = len(model.encoder.layers)
+            elif hasattr(model, "decoder") and hasattr(model.decoder, "layers"):
+                # Decoder style
+                num_layers = len(model.decoder.layers)
+            else:
+                # Default fallback
+                print("Warning: Could not determine number of layers, using default value of 6")
+                num_layers = 6
+        
+        # Try to get number of attention heads
+        if hasattr(config, "n_head"):
+            num_heads = config.n_head
+        elif hasattr(config, "num_attention_heads"):
+            num_heads = config.num_attention_heads
+        elif hasattr(config, "num_heads"):
+            num_heads = config.num_heads
+        else:
+            # Default fallback
+            print("Warning: Could not determine number of attention heads, using default value of 12")
+            num_heads = 12
+            
+    except Exception as e:
+        print(f"Error determining model architecture: {e}")
+        print("Using default values: 6 layers, 12 heads")
+        num_layers = 6
+        num_heads = 12
     
     # For this simplified version, we're using random importance scores
     # In a real implementation, you would compute importance based on
@@ -51,51 +95,85 @@ def prune_heads(model, importance, pruning_percent=0.3, device="cuda"):
     """
     print(f"Pruning {pruning_percent*100:.1f}% of attention heads...")
     
-    # Get model configuration
-    config = model.config
-    num_layers = config.n_layer if hasattr(config, "n_layer") else config.num_hidden_layers
-    num_heads = config.n_head if hasattr(config, "n_head") else config.num_attention_heads
-    
-    # Reshape importance to 1D for ranking
-    flat_importance = importance.flatten()
-    
-    # Determine how many heads to prune
-    num_heads_total = num_layers * num_heads  
-    k = int(num_heads_total * pruning_percent)
-    
-    if k <= 0:
-        print("Pruning percentage too low, no heads will be pruned")
-        return []
-    
-    # Find indices of least important heads
-    indices = np.argsort(flat_importance)[:k]
-    
-    # Convert to (layer, head) pairs
-    heads_to_prune = [(idx // num_heads, idx % num_heads) for idx in indices]
-    
-    # Create a mask to apply during forward pass
-    head_mask = torch.ones(num_layers, num_heads).to(device)
-    for layer, head in heads_to_prune:
-        head_mask[layer, head] = 0.0
-    
-    # Store on the model for future use
-    model.head_mask = head_mask
-    model.pruned_heads = heads_to_prune
-    
-    # Monkey patch the forward method to use our head mask
-    original_forward = model.forward
-    
-    def forward_with_head_mask(input_ids=None, **kwargs):
-        # Add head_mask to kwargs
-        kwargs['head_mask'] = model.head_mask
-        return original_forward(input_ids, **kwargs)
-    
-    # Replace the forward method
-    import types
-    model.forward = types.MethodType(forward_with_head_mask, model)
-    
-    print(f"Pruned {len(heads_to_prune)} attention heads")
-    return heads_to_prune
+    try:
+        # Extract dimensions from importance array
+        num_layers, num_heads = importance.shape
+        print(f"Using dimensions from importance array: {num_layers} layers, {num_heads} heads")
+        
+        # Reshape importance to 1D for ranking
+        flat_importance = importance.flatten()
+        
+        # Determine how many heads to prune
+        num_heads_total = num_layers * num_heads  
+        k = int(num_heads_total * pruning_percent)
+        
+        if k <= 0:
+            print("Pruning percentage too low, no heads will be pruned")
+            return []
+        
+        # Find indices of least important heads
+        indices = np.argsort(flat_importance)[:k]
+        
+        # Convert to (layer, head) pairs
+        heads_to_prune = [(idx // num_heads, idx % num_heads) for idx in indices]
+        
+        # Create a mask to apply during forward pass
+        head_mask = torch.ones(num_layers, num_heads).to(device)
+        for layer, head in heads_to_prune:
+            head_mask[layer, head] = 0.0
+        
+        # Store on the model for future use
+        model.head_mask = head_mask
+        model.pruned_heads = heads_to_prune
+        
+        # Monkey patch the forward method to use our head mask
+        original_forward = model.forward
+        
+        def forward_with_head_mask(self, input_ids=None, **kwargs):
+            # Add head_mask to kwargs
+            kwargs['head_mask'] = model.head_mask
+            return original_forward(input_ids, **kwargs)
+        
+        # Replace the forward method
+        import types
+        model.forward = types.MethodType(forward_with_head_mask, model)
+        
+        print(f"Pruned {len(heads_to_prune)} attention heads")
+        return heads_to_prune
+        
+    except Exception as e:
+        print(f"Error during pruning: {e}")
+        print("Falling back to simpler pruning method...")
+        
+        try:
+            # Determine model dimensions directly from importance array
+            num_layers, num_heads = importance.shape
+            
+            # Just create a list of heads to prune based on the importance scores
+            flat_importance = importance.flatten()
+            num_heads_total = num_layers * num_heads
+            k = int(num_heads_total * pruning_percent)
+            
+            if k <= 0:
+                print("No heads will be pruned")
+                return []
+                
+            # Find indices of least important heads
+            indices = np.argsort(flat_importance)[:k]
+            
+            # Convert to (layer, head) pairs
+            heads_to_prune = [(int(idx // num_heads), int(idx % num_heads)) for idx in indices]
+            
+            print(f"Identified {len(heads_to_prune)} heads to prune (without applying mask)")
+            print("NOTE: This fallback method identifies heads but doesn't actually mask them.")
+            print("You may need to manually implement masking for this model architecture.")
+            
+            return heads_to_prune
+            
+        except Exception as fallback_error:
+            print(f"Fallback pruning also failed: {fallback_error}")
+            print("Returning empty list of pruned heads")
+            return []
 
 def fine_tune(model, train_dataloader, val_dataloader, num_epochs=3, 
               learning_rate=5e-5, max_steps=None, device="cuda", 
