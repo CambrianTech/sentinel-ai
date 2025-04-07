@@ -5,8 +5,109 @@ Contains functions for head importance calculation, pruning, and fine-tuning.
 
 import torch
 import numpy as np
-from transformers import get_linear_schedule_with_warmup
+from transformers import get_linear_schedule_with_warmup, AutoTokenizer
 from tqdm.auto import tqdm
+
+
+class PruningModule:
+    """Module for pruning attention heads in transformer models."""
+    
+    def __init__(self, model, tokenizer=None, device="cuda"):
+        """
+        Initialize pruning module.
+        
+        Args:
+            model: Model to prune
+            tokenizer: Tokenizer for the model (optional)
+            device: Device to run on
+        """
+        self.model = model
+        self.device = device
+        self.model_name = getattr(model, "name_or_path", "unknown")
+        
+        # Load tokenizer if not provided
+        if tokenizer is None:
+            if hasattr(model, "config") and hasattr(model.config, "name_or_path"):
+                self.tokenizer = AutoTokenizer.from_pretrained(model.config.name_or_path)
+            else:
+                raise ValueError("Tokenizer must be provided if model doesn't have name_or_path")
+        else:
+            self.tokenizer = tokenizer
+        
+        # Ensure model is on correct device
+        self.model.to(device)
+    
+    def generate_text(self, params=None, prompt="", max_length=30):
+        """
+        Generate text using the model.
+        
+        Args:
+            params: Model parameters (ignored in this implementation)
+            prompt: Text prompt to continue
+            max_length: Maximum length of generated text
+            
+        Returns:
+            Generated text
+        """
+        # Tokenize prompt
+        inputs = self.tokenizer(prompt, return_tensors="pt").to(self.device)
+        
+        # Generate text
+        self.model.eval()
+        with torch.no_grad():
+            try:
+                outputs = self.model.generate(
+                    inputs.input_ids,
+                    max_length=max_length,
+                    do_sample=True,
+                    temperature=0.7,
+                    top_p=0.9,
+                    num_return_sequences=1,
+                    pad_token_id=self.tokenizer.eos_token_id
+                )
+            except Exception as e:
+                print(f"Error in text generation: {e}")
+                # Try without attention_mask
+                outputs = self.model.generate(
+                    inputs.input_ids,
+                    max_length=max_length,
+                    do_sample=True,
+                    temperature=0.7,
+                    top_p=0.9,
+                    num_return_sequences=1,
+                    pad_token_id=self.tokenizer.eos_token_id
+                )
+        
+        # Decode and return
+        return self.tokenizer.decode(outputs[0], skip_special_tokens=True)
+    
+    def evaluate_perplexity(self, params=None, text=""):
+        """
+        Evaluate perplexity of the model on the given text.
+        
+        Args:
+            params: Model parameters (ignored in this implementation)
+            text: Text to evaluate
+            
+        Returns:
+            Perplexity score
+        """
+        # Tokenize text
+        encodings = self.tokenizer(text, return_tensors="pt")
+        
+        # Move to device
+        input_ids = encodings.input_ids.to(self.device)
+        
+        # Evaluate
+        self.model.eval()
+        with torch.no_grad():
+            outputs = self.model(input_ids, labels=input_ids)
+            loss = outputs.loss
+            
+        # Calculate perplexity
+        perplexity = torch.exp(loss).item()
+        
+        return perplexity
 
 def compute_head_importance(model, dataloader, num_batches=10, device="cuda"):
     """
