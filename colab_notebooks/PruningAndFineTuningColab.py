@@ -15,7 +15,7 @@ It's designed to be run in Google Colab using real-world data (Wikitext).
 - MODEL_NAME = "distilgpt2"
 - PRUNING_STRATEGY = "entropy"
 - PRUNING_PERCENT = 0.3
-- NUM_EPOCHS = 100
+- NUM_EPOCHS = 10
 - BATCH_SIZE = 4
 - LEARNING_RATE = 5e-6
 - MAX_LENGTH = 256
