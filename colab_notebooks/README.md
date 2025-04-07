@@ -2,7 +2,7 @@
 
 This directory contains Jupyter notebooks designed to run in Google Colab.
 
-## PruningAndFineTuningColab.ipynb (v0.0.51)
+## PruningAndFineTuningColab.ipynb (v0.0.52)
 
 Notebook for demonstrating and benchmarking transformer model pruning and fine-tuning recovery.
 
@@ -16,7 +16,8 @@ Notebook for demonstrating and benchmarking transformer model pruning and fine-t
 - Fine-tunes pruned models to recover performance
 - Real-time visualization of experiments
 - Uses real-world Wikitext data for training and evaluation
-- Comprehensive metrics and visualizations
+- Comprehensive metrics and visualizations with text examples
+- Text generation examples at each stage (baseline, pruned, fine-tuned)
 - Interactive text generation with the fine-tuned model
 
 ### Usage
@@ -30,6 +31,7 @@ Notebook for demonstrating and benchmarking transformer model pruning and fine-t
 8. Use the interactive generation cell to test your model
 
 ### Version History
+- v0.0.52 (April 2025): Add text generation examples at each stage and per-epoch metrics
 - v0.0.51 (April 2025): Visualization and perplexity values
 - v0.0.50 (April 2025): Add key parameters at top and use meaningful values
 - v0.0.49 (April 2025): Remove start button and simplify notebook
