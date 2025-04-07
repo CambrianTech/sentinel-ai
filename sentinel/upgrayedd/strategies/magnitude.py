@@ -12,9 +12,9 @@ from typing import List, Tuple, Dict, Optional, Union
 
 logger = logging.getLogger(__name__)
 
-def compute_head_magnitudes(model: nn.Module) -> torch.Tensor:
+def collect_weight_magnitudes(model: nn.Module) -> torch.Tensor:
     """
-    Compute magnitude of weights for each attention head.
+    Collect weight magnitudes for each attention head.
     
     Args:
         model: The transformer model
@@ -177,7 +177,7 @@ def magnitude_based_pruning(
     logger.info("Computing head importance using magnitude strategy")
     
     # Compute head magnitudes
-    magnitudes = compute_head_magnitudes(model)
+    magnitudes = collect_weight_magnitudes(model)
     
     # Flatten magnitudes
     magnitudes_flat = magnitudes.view(-1)

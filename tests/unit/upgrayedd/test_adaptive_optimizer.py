@@ -72,7 +72,7 @@ class TestAdaptiveOptimizer(unittest.TestCase):
         self.assertTrue(os.path.exists(os.path.join(self.config.output_dir, "config.json")))
     
     @patch("sentinel.upgrayedd.optimizer.adaptive_optimizer.load_model_and_tokenizer")
-    @patch("sentinel.upgrayedd.optimizer.adaptive_optimizer.load_and_prepare_data")
+    @patch("sentinel.upgrayedd.utils.data.load_and_prepare_data")
     def test_load_model_and_data(self, mock_load_data, mock_load_model):
         """Test that the optimizer loads model and data correctly."""
         # Mock model and tokenizer

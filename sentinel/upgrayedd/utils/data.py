@@ -13,40 +13,23 @@ from transformers import PreTrainedTokenizer
 
 logger = logging.getLogger(__name__)
 
-def load_and_prepare_data(
-    dataset_name: str,
-    tokenizer: PreTrainedTokenizer,
-    batch_size: int = 4,
-    max_length: int = 512,
-    dataset_path: Optional[str] = None,
-    split_ratio: float = 0.9
-) -> Tuple[torch.utils.data.DataLoader, torch.utils.data.DataLoader]:
+def load_dataset(*args, **kwargs):
     """
-    Load and prepare dataset for training and evaluation.
+    Load a dataset from the datasets library, handling circular imports.
     
-    Args:
-        dataset_name: Name of the dataset to use (wikitext, tiny_shakespeare, etc.)
-        tokenizer: Tokenizer to use for encoding text
-        batch_size: Batch size for dataloaders
-        max_length: Maximum sequence length to use
-        dataset_path: Path to dataset (if using a local dataset)
-        split_ratio: Ratio of training data (rest is used for validation)
-        
-    Returns:
-        Tuple of (train_dataloader, val_dataloader)
+    This is a wrapper around the datasets.load_dataset function that handles
+    circular import issues by using a fallback approach when necessary.
     """
-    logger.info(f"Loading dataset: {dataset_name}")
-    
-    # Import datasets library, avoiding circular imports
     try:
         # Check if datasets module is already imported
         if 'datasets' in sys.modules:
             # If it is, just get the load_dataset function from it
-            load_dataset = sys.modules['datasets'].load_dataset
+            return sys.modules['datasets'].load_dataset(*args, **kwargs)
         else:
             # First try a direct import
             try:
-                from datasets import load_dataset
+                from datasets import load_dataset as hf_load_dataset
+                return hf_load_dataset(*args, **kwargs)
             except ImportError:
                 # If that fails due to circular imports, create a more robust mock
                 import types
@@ -77,23 +60,44 @@ def load_and_prepare_data(
                         # Import key functions directly
                         from datasets.load import load_dataset as real_load_dataset
                         mock_datasets.load_dataset = real_load_dataset
-                        load_dataset = real_load_dataset
+                        return real_load_dataset(*args, **kwargs)
                     except ImportError as e:
                         logger.error(f"Failed to import load_dataset: {e}")
                         raise
                 else:
                     logger.error("datasets package not found in the environment")
                     raise ImportError("datasets package not found")
-        
-        # Now we have load_dataset, let's try to use it
-        logger.info(f"Successfully imported datasets.load_dataset")
     except Exception as e:
         logger.error(f"Cannot import datasets: {e}")
-        # Provide fallback for testing
-        return _create_dummy_dataloaders(tokenizer, batch_size)
+        raise
+
+def load_and_prepare_data(
+    dataset_name: str,
+    tokenizer: PreTrainedTokenizer,
+    batch_size: int = 4,
+    max_length: int = 512,
+    dataset_path: Optional[str] = None,
+    split_ratio: float = 0.9
+) -> Tuple[torch.utils.data.DataLoader, torch.utils.data.DataLoader]:
+    """
+    Load and prepare dataset for training and evaluation.
     
-    # Load dataset based on name
+    Args:
+        dataset_name: Name of the dataset to use (wikitext, tiny_shakespeare, etc.)
+        tokenizer: Tokenizer to use for encoding text
+        batch_size: Batch size for dataloaders
+        max_length: Maximum sequence length to use
+        dataset_path: Path to dataset (if using a local dataset)
+        split_ratio: Ratio of training data (rest is used for validation)
+        
+    Returns:
+        Tuple of (train_dataloader, val_dataloader)
+    """
+    logger.info(f"Loading dataset: {dataset_name}")
+    
+    # Try to load the dataset, with fallback for testing
     try:
+        # Load dataset based on name
         if dataset_name.lower() == "wikitext":
             # Load WikiText dataset
             raw_datasets = load_dataset("wikitext", "wikitext-2-raw-v1")

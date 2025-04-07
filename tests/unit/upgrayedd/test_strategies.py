@@ -18,7 +18,7 @@ if __name__ == "__main__":
 
 # Import strategies to be tested
 from sentinel.upgrayedd.strategies.entropy import entropy_based_pruning, compute_attention_entropy
-from sentinel.upgrayedd.strategies.magnitude import magnitude_based_pruning, compute_head_magnitudes  
+from sentinel.upgrayedd.strategies.magnitude import magnitude_based_pruning, collect_weight_magnitudes  
 from sentinel.upgrayedd.strategies.random import random_pruning
 
 
