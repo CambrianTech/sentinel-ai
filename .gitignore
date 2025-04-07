@@ -112,3 +112,4 @@ benchmark_test/
 # Test output directories
 /test_output/
 /test_outputs/
+archive/
