@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 
 """
-Pruning and Fine-Tuning Colab (v0.0.41)
+Pruning and Fine-Tuning Colab (v0.0.42)
 
 This script demonstrates making a GPT-2 model smaller and more powerful by:
 1. Applying pruning to remove less important attention heads
@@ -11,7 +11,16 @@ This script demonstrates making a GPT-2 model smaller and more powerful by:
 
 It's designed to be run in Google Colab using real-world data (Wikitext).
 
+IMPORTANT USAGE NOTE:
+For quick testing of the modular API, use:
+    python PruningAndFineTuningColab.py --test_mode --super_simple
+
+The full experiment workflow is under development - while the modular API is
+ready and functional, running the complete pruning pipeline still requires
+additional debugging.
+
 Version History:
+- v0.0.42 (April 2025): Added super_simple test mode and improved error handling
 - v0.0.41 (April 2025): Modularized code using sentinel.pruning package
 - v0.0.40 (April 2025): Improve robustness for different model architectures
 - v0.0.39 (April 2025): Fix TypeError in run_experiment function call
@@ -40,19 +49,38 @@ try:
     import numpy
 except ImportError:
     print("Installing required packages...")
-    !pip install -q transformers==4.38.0 datasets==2.17.0 torch matplotlib tqdm
+    import subprocess
+    subprocess.check_call(["pip", "install", "-q", "transformers==4.38.0", "datasets==2.17.0", "torch", "matplotlib", "tqdm"])
 
 # Add project root to path for imports
-if not any(p.endswith('sentinel-ai') for p in sys.path):
-    # For Google Colab - handle case where the notebook is running in a different directory
-    if os.path.exists('/content'):
-        # Clone the repo if running in Colab and not already cloned
-        if not os.path.exists('/content/sentinel-ai'):
-            !git clone https://github.com/your-username/sentinel-ai.git /content/sentinel-ai
-        sys.path.append('/content/sentinel-ai')
+# First determine the project root directory
+if os.path.exists('/content'):
+    # We're in Colab
+    project_root = '/content/sentinel-ai'
+    # Clone the repo if running in Colab and not already cloned
+    if not os.path.exists(project_root):
+        import subprocess
+        subprocess.check_call(["git", "clone", "https://github.com/your-username/sentinel-ai.git", project_root])
+else:
+    # We're running locally - find the project root
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    if current_dir.endswith('colab_notebooks'):
+        # We're in the colab_notebooks directory
+        project_root = os.path.dirname(current_dir)
     else:
-        # Add parent directory to path if running locally
-        sys.path.append(os.path.abspath(os.path.join(os.getcwd(), '..')))
+        # Not sure where we are - use the working directory
+        project_root = os.getcwd()
+        # Check if we're in the sentinel-ai directory
+        if not os.path.basename(project_root) == 'sentinel-ai':
+            # Try the parent directory
+            parent_dir = os.path.dirname(project_root)
+            if os.path.basename(parent_dir) == 'sentinel-ai':
+                project_root = parent_dir
+
+# Add the project root to the Python path
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
+    print(f"Added {project_root} to Python path")
 
 # Import the modular sentinel.pruning API
 try:
@@ -89,19 +117,52 @@ def main(args):
         device=device
     )
     
-    # Run the experiment
-    model, tokenizer, summary = run_experiment(config)
+    # If in test mode, use a super-simplified workflow just to verify imports
+    if args.test_mode and args.super_simple:
+        print("\nRunning in super simple test mode to verify imports and API")
+        
+        try:
+            # Load model and tokenizer
+            from sentinel.pruning.model_manager import load_model
+            model, tokenizer = load_model(config.model_name, device=config.device)
+            
+            # Generate text
+            from sentinel.pruning.text_generator import generate_text
+            text = generate_text(model, tokenizer, "The quick brown fox", max_length=50)
+            print(f"\nGenerated text: {text}")
+            
+            # Create a progress tracker
+            from sentinel.pruning.visualization import ProgressTracker
+            tracker = ProgressTracker(disable_plotting=True)
+            tracker.update(0, 5.0, 150.0, text)
+            
+            print("\nAPI test completed successfully!")
+            return 0
+        except Exception as e:
+            print(f"\nError in simplified test: {e}")
+            import traceback
+            traceback.print_exc()
+            return 1
     
-    # Interactive generation if requested
-    if args.interactive:
-        print("\nEntering interactive generation mode. Type 'exit' to quit.")
-        while True:
-            prompt = input("\nEnter a prompt (or 'exit' to quit): ")
-            if prompt.lower() == 'exit':
-                break
-            interactive_generate(model, tokenizer, prompt)
-    
-    return 0
+    # Run the full experiment
+    try:
+        model, tokenizer, summary = run_experiment(config)
+        
+        # Interactive generation if requested
+        if args.interactive:
+            print("\nEntering interactive generation mode. Type 'exit' to quit.")
+            while True:
+                prompt = input("\nEnter a prompt (or 'exit' to quit): ")
+                if prompt.lower() == 'exit':
+                    break
+                interactive_generate(model, tokenizer, prompt)
+        
+        return 0
+    except Exception as e:
+        print(f"\nError in experiment: {e}")
+        import traceback
+        traceback.print_exc()
+        return 1
 
 
 def parse_args():
@@ -122,6 +183,9 @@ def parse_args():
     
     parser.add_argument("--test_mode", action="store_true",
                         help="Use small test dataset for quick validation")
+    
+    parser.add_argument("--super_simple", action="store_true",
+                        help="Run a super simplified test of the API (must be used with --test_mode)")
     
     parser.add_argument("--interactive", action="store_true",
                         help="Enable interactive text generation after training")
