@@ -19,6 +19,8 @@
 - Test model support: `python test_model_support.py --device {cpu,cuda} --verbose`
 - Run unit tests: `pytest` or `python -m pytest`
 - Run specific test: `pytest utils/pruning/api/tests/test_pruning_impl.py -v`
+- Run all pruning tests: `./scripts/run_pruning_tests.sh`
+- Run standalone pruning test: `python tests/run_all_pruning_tests.py`
 - Run comprehensive benchmark: `python scripts/benchmark_with_metrics.py --model_name distilgpt2 --eval_dataset gutenberg --use_real_data`
 
 ## Multi-Model Support
