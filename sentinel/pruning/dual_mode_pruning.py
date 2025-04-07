@@ -651,10 +651,12 @@ def apply_pruning_hooks(
                 hook = layer.attn.register_forward_pre_hook(forward_pre_hook)
                 hooks.append(hook)
                 
-                # 2. Add a note about using the optimizer_step_hook
-                if verbose:
+                # 2. Add a note about using the optimizer_step_hook (only if verbose)
+                if verbose and not hasattr(model, '_optimizer_hook_message_shown'):
                     print("Note: For complete zeroing during training, wrap optimizer.step with the returned hook function")
                     print("Example: optimizer.orig_step = optimizer.step; optimizer.step = lambda *a, **kw: hook({'args': a, 'kwargs': kw})")
+                    # Mark that we've shown this message
+                    model._optimizer_hook_message_shown = True
                     
                 # Store the optimizer hook for potential use
                 layer.attn._optimizer_hook = adaptive_optimizer_post_hook
@@ -664,7 +666,9 @@ def apply_pruning_hooks(
             print(f"Applied {len(hooks)} gradient zeroing hooks for compressed mode")
         else:
             print(f"Applied {len(hooks)} weight re-zeroing hooks for adaptive mode")
-            print("Note: Heads can still learn to recover if re-zeroing hooks are removed")
+            if not hasattr(model, '_recovery_message_shown'):
+                print("Note: Heads can still learn to recover if re-zeroing hooks are removed")
+                model._recovery_message_shown = True
     
     return hooks
 

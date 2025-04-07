@@ -13,6 +13,7 @@ from enum import Enum
 from collections import defaultdict
 from typing import Dict, List, Tuple, Union, Optional
 from sentinel.pruning.dual_mode_pruning import prune_head_in_model, apply_pruning_hooks, PruningMode, get_model_info
+from utils.pruning.visualization import plot_head_gradients_with_overlays
 
 
 class PlasticityDecision(Enum):
@@ -266,14 +267,14 @@ class PlasticityController:
         
         # Update hooks if there were changes
         if pruned_heads or revived_heads:
-            self._update_pruning_hooks()
+            self._update_pruning_hooks(verbose=verbose)
             
         # Increment epoch counter
         self.epoch += 1
         
         return pruned_heads, revived_heads
     
-    def step(self, dataloader, num_batches=1, verbose=False):
+    def step(self, dataloader, num_batches=1, verbose=False, output_dir=None):
         """
         Perform a complete plasticity step: collect metrics and apply pruning decisions.
         
@@ -281,6 +282,7 @@ class PlasticityController:
             dataloader: DataLoader for evaluation
             num_batches: Number of batches to process
             verbose: Whether to print verbose output
+            output_dir: Optional directory to save visualizations
             
         Returns:
             Tuple of (pruned_heads, revived_heads, metrics)
@@ -290,6 +292,25 @@ class PlasticityController:
         
         # Apply plasticity decisions
         pruned_heads, revived_heads = self.apply_plasticity(entropy_values, grad_norm_values, verbose)
+        
+        # Generate and save visualizations if output_dir is provided
+        if output_dir is not None:
+            import os
+            os.makedirs(output_dir, exist_ok=True)
+            
+            # Save gradient visualization with pruning/revival overlay
+            viz_path = os.path.join(output_dir, f"head_gradients_epoch_{self.epoch}.png")
+            self.visualize_gradients_with_status(
+                grad_norm_values=grad_norm_values,
+                save_path=viz_path
+            )
+            
+            # Also save standard visualizations
+            entropy_viz_path = os.path.join(output_dir, f"head_entropy_epoch_{self.epoch}.png")
+            self.visualize_head_dynamics(metric='entropy', save_path=entropy_viz_path)
+            
+            decision_viz_path = os.path.join(output_dir, f"head_decisions_epoch_{self.epoch}.png")
+            self.visualize_head_dynamics(metric='decision', save_path=decision_viz_path)
         
         # Get current model info
         model_info = get_model_info(self.model)
@@ -674,9 +695,12 @@ class PlasticityController:
             print(f"Error computing gradient norm for head [{layer_idx},{head_idx}]: {e}")
             return 0.0
     
-    def _update_pruning_hooks(self):
+    def _update_pruning_hooks(self, verbose=False):
         """
         Update pruning hooks to maintain pruned state during training.
+        
+        Args:
+            verbose: Whether to print verbose output from pruning hooks
         """
         # Remove old hooks
         for hook in self.hooks:
@@ -692,7 +716,7 @@ class PlasticityController:
         
         # Apply new hooks for all pruned heads
         if pruned_heads:
-            self.hooks = apply_pruning_hooks(self.model, pruned_heads, mode=self.mode)
+            self.hooks = apply_pruning_hooks(self.model, pruned_heads, mode=self.mode, verbose=verbose)
     
     def _count_pruned_heads(self):
         """Count how many heads are currently pruned."""
@@ -826,6 +850,63 @@ class PlasticityController:
             "sparsity": model_info["sparsity"],
             "model_size_mb": model_info["size_mb"]
         }
+        
+    def visualize_gradients_with_status(self, grad_norm_values=None, figsize=(12, 6), save_path=None, vulnerable_threshold=0.01):
+        """
+        Visualize head gradient norms with overlay of pruning/revival status.
+        
+        This provides an intuitive visualization that combines gradient activity
+        with the current pruning/revival decisions, making it easy to see which
+        heads have been pruned, revived, or might be vulnerable.
+        
+        Args:
+            grad_norm_values: Tensor or array of gradient norms [layer, head].
+                             If None, will use the most recent gradients from stats.
+            figsize: Figure size (width, height) in inches
+            save_path: Optional path to save the figure
+            vulnerable_threshold: Threshold below which unpruned heads are considered vulnerable
+            
+        Returns:
+            Matplotlib figure
+        """
+        # If grad_norms not provided, use the most recent gradient data from stats
+        if grad_norm_values is None:
+            grad_norm_values = np.zeros((self.total_layers, self.heads_per_layer))
+            for layer_idx in range(self.total_layers):
+                for head_idx in range(self.heads_per_layer):
+                    s = self.stats[layer_idx][head_idx]
+                    if s['grad_norm'] and len(s['grad_norm']) > 0:
+                        grad_norm_values[layer_idx, head_idx] = s['grad_norm'][-1]
+        
+        # Get lists of pruned and revived heads
+        pruned_heads = []
+        revived_heads = []
+        
+        # Get the status of each head from the controller's state
+        for layer_idx in range(self.total_layers):
+            for head_idx in range(self.heads_per_layer):
+                s = self.stats[layer_idx][head_idx]
+                
+                if s['is_zeroed']:
+                    pruned_heads.append((layer_idx, head_idx))
+                elif len(s['decision_history']) > 0 and s['decision_history'][-1] == PlasticityDecision.REVIVE:
+                    revived_heads.append((layer_idx, head_idx))
+        
+        # Generate the visualization using the utility function
+        fig = plot_head_gradients_with_overlays(
+            grad_norms=grad_norm_values,
+            pruned_heads=pruned_heads,
+            revived_heads=revived_heads,
+            vulnerable_threshold=vulnerable_threshold,
+            figsize=figsize,
+            title=f"Attention Head Gradient Norms and Plasticity Status (Epoch {self.epoch})"
+        )
+        
+        # Save if path provided
+        if save_path:
+            plt.savefig(save_path, dpi=300, bbox_inches='tight')
+        
+        return fig
 
 
 def create_plasticity_controller(model, mode=PruningMode.ADAPTIVE, 
@@ -917,6 +998,11 @@ if __name__ == "__main__":
     from transformers import AutoModelForCausalLM, AutoTokenizer, default_data_collator
     from torch.utils.data import DataLoader
     from datasets import load_dataset
+    import os
+    
+    # Create output directory for visualizations
+    output_dir = "plasticity_visualizations"
+    os.makedirs(output_dir, exist_ok=True)
     
     # Load model and tokenizer
     model_name = "distilgpt2"
@@ -954,14 +1040,32 @@ if __name__ == "__main__":
         grad_threshold=1e-4
     )
     
-    # Run a few plasticity steps
+    # Run a few plasticity steps with automatic visualization
     for i in range(5):
-        pruned, revived, metrics = controller.step(dataloader, num_batches=1, verbose=True)
+        # Pass output_dir to automatically generate and save visualizations
+        pruned, revived, metrics = controller.step(
+            dataloader, 
+            num_batches=1, 
+            verbose=True,
+            output_dir=output_dir
+        )
+        
         print(f"Epoch {i}:")
         print(f"  Pruned: {len(pruned)} heads, Revived: {len(revived)} heads")
         print(f"  Total pruned: {metrics['total_pruned']} heads")
         print(f"  Model sparsity: {metrics['sparsity']:.4f}")
+        print(f"  Visualizations saved to: {output_dir}")
     
-    # Visualize head dynamics
-    controller.visualize_head_dynamics(metric='entropy', save_path="entropy_dynamics.png")
-    controller.visualize_head_dynamics(metric='decision', save_path="decision_dynamics.png")
+    # Generate a final custom visualization
+    print("\nGenerating final combined visualization...")
+    fig = controller.visualize_gradients_with_status(
+        figsize=(14, 8),
+        save_path=os.path.join(output_dir, "final_gradient_overlay.png"),
+        vulnerable_threshold=0.005  # Custom threshold for vulnerable heads
+    )
+    
+    print(f"Final visualization saved to: {os.path.join(output_dir, 'final_gradient_overlay.png')}")
+    print("\nVisualization types available:")
+    print("1. Head gradient norms with pruning overlays (new): Shows gradients with ❌, ➕, and ⚠️ markers")
+    print("2. Entropy dynamics: Shows attention entropy over time")
+    print("3. Decision dynamics: Shows pruning/revival decisions over time")
