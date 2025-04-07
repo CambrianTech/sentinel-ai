@@ -25,10 +25,11 @@ from pathlib import Path
 from datetime import datetime
 import torch
 
-# Add parent directory to path to ensure imports work
+# Add project root to path to ensure imports work
 script_dir = os.path.dirname(os.path.abspath(__file__))
-parent_dir = os.path.dirname(script_dir)
-sys.path.append(parent_dir)
+parent_dir = os.path.dirname(script_dir)  # sentinel dir
+project_root = os.path.dirname(parent_dir)  # project root
+sys.path.insert(0, project_root)
 
 # Import the adaptive optimizer
 from sentinel.upgrayedd.optimizer.adaptive_optimizer import AdaptiveOptimizer, AdaptiveOptimizerConfig

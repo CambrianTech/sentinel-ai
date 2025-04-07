@@ -7,6 +7,7 @@ and evaluation of transformer models.
 
 import torch
 import logging
+import sys
 from typing import Dict, List, Optional, Tuple, Any, Union
 from transformers import PreTrainedTokenizer
 
@@ -36,11 +37,58 @@ def load_and_prepare_data(
     """
     logger.info(f"Loading dataset: {dataset_name}")
     
-    # Import datasets library
+    # Import datasets library, avoiding circular imports
     try:
-        from datasets import load_dataset
-    except ImportError:
-        logger.error("datasets library not found. Please install it with: pip install datasets")
+        # Check if datasets module is already imported
+        if 'datasets' in sys.modules:
+            # If it is, just get the load_dataset function from it
+            load_dataset = sys.modules['datasets'].load_dataset
+        else:
+            # First try a direct import
+            try:
+                from datasets import load_dataset
+            except ImportError:
+                # If that fails due to circular imports, create a more robust mock
+                import types
+                import importlib.util
+                
+                logger.warning("Using mock datasets module to avoid circular imports")
+                
+                # Check if datasets package is installed
+                datasets_spec = importlib.util.find_spec('datasets')
+                
+                if datasets_spec:
+                    # If datasets package exists, load it with a custom loader
+                    # that breaks the circular import chain
+                    
+                    # First create a basic mock module
+                    mock_datasets = types.ModuleType('datasets')
+                    mock_datasets.ArrowBasedBuilder = type('ArrowBasedBuilder', (), {})
+                    mock_datasets.GeneratorBasedBuilder = type('GeneratorBasedBuilder', (), {})
+                    mock_datasets.Value = lambda *args, **kwargs: None
+                    mock_datasets.Features = lambda *args, **kwargs: {}
+                    mock_datasets.__path__ = []
+                    
+                    # Install the mock module
+                    sys.modules['datasets'] = mock_datasets
+                    
+                    # Now try to load core functionality only
+                    try:
+                        # Import key functions directly
+                        from datasets.load import load_dataset as real_load_dataset
+                        mock_datasets.load_dataset = real_load_dataset
+                        load_dataset = real_load_dataset
+                    except ImportError as e:
+                        logger.error(f"Failed to import load_dataset: {e}")
+                        raise
+                else:
+                    logger.error("datasets package not found in the environment")
+                    raise ImportError("datasets package not found")
+        
+        # Now we have load_dataset, let's try to use it
+        logger.info(f"Successfully imported datasets.load_dataset")
+    except Exception as e:
+        logger.error(f"Cannot import datasets: {e}")
         # Provide fallback for testing
         return _create_dummy_dataloaders(tokenizer, batch_size)
     
