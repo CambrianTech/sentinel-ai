@@ -29,22 +29,27 @@ Inspired by neuroscience, it integrates entropy tracking, memory consolidation, 
 └─────────────────────┘             └───────────────────┘
 ```
 
-## 🚀 Quickstart
+## 🧠 Making Transformers More Like Human Brains
 
-Transform any HuggingFace model into an adaptive, self-optimizing neural network with just one command:
+Sentinel-AI doesn’t just mimic *machine learning* — it draws deeply from neuroscience to mimic *learning itself*. Each component of the system is inspired by biological mechanisms:
 
-```bash
-# Basic usage
-python scripts/upgrayedd.py --model distilgpt2 --dataset tiny_shakespeare
+- **Neurons With Agency**:  
+  Just like biological neurons signal fatigue or specialize, Sentinel-AI’s attention heads can express *withdrawal, overload, misalignment,* or *activation* states. This isn’t just gating — it’s a communication system within the model, much like inter-neuronal signaling.
 
-# With custom pruning and growth parameters
-python scripts/upgrayedd.py --model gpt2 --pruning-level 0.3 --growth-ratio 0.5
+- **Plasticity Cycles Inspired by Sleep and Defragmentation**:  
+  We modeled a *sleep-like defrag* phase, where the model stops acquiring new data and instead reorganizes its structure. This mirrors how sleep consolidates memory and reorganizes neural connections — making room for growth, pruning noise, and optimizing layout.
 
-# Run inference with the upgraded model
-python scripts/upgrayedd.py --model facebook/opt-125m --run-inference --prompt "The future of AI is"
-```
+- **Entropy-Guided Pruning**:  
+  Like synaptic pruning in human development, Sentinel-AI continuously removes low-information heads and pathways. The use of entropy isn’t just a heuristic — it's a stand-in for metabolic cost and information utility.
 
-For complete documentation, see [upgrayedd usage guide](docs/upgrayedd_usage.md).
+- **Regrowth Through Cortical-Like Rewiring**:  
+  Heads grow back based on performance gaps and attention entropy, with gradual ramp-up and mentorship from skip-connected pathways. This mirrors how neurons regrow and integrate during recovery, guided by cortical feedback and task-based utility.
+
+- **Resilience to Damage**:  
+  Even after major architectural changes (like 50% pruning), Sentinel-AI can recover its function — like brain regions compensating after injury, thanks to distributed computation and emergent specialization.
+
+These principles aren’t decorative. They allow us to **scale models down without degrading**, **recover faster**, and **build a more ethical, explainable AI system** that exhibits natural learning cycles. Sentinel-AI *forgets*, *remembers*, *gets tired*, *recovers*, and *improves over time* — just like you do.
+
 
 ## 💡 Key Features
 
