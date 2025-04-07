@@ -43,6 +43,8 @@ def collect_attention_distributions(model, dataloader, num_batches=10, device="c
                 # Handle different batch formats
                 if isinstance(batch, tuple) and len(batch) >= 2:
                     input_ids, attention_mask = batch[0], batch[1]
+                elif isinstance(batch, list) and len(batch) >= 2:
+                    input_ids, attention_mask = batch[0], batch[1]
                 elif isinstance(batch, dict):
                     input_ids = batch["input_ids"]
                     attention_mask = batch.get("attention_mask", None)
@@ -208,6 +210,8 @@ def _collect_attention_fallback(model, dataloader, num_batches=10, device="cuda"
                 
                 # Handle different batch formats
                 if isinstance(batch, tuple) and len(batch) >= 2:
+                    input_ids, attention_mask = batch[0], batch[1]
+                elif isinstance(batch, list) and len(batch) >= 2:
                     input_ids, attention_mask = batch[0], batch[1]
                 elif isinstance(batch, dict):
                     input_ids = batch["input_ids"]

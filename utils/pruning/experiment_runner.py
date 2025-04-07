@@ -56,6 +56,7 @@ class ExperimentConfig:
     output_dir: str = "pruning_results"
     use_test_data: bool = False
     num_samples: int = 100
+    prompt: str = "Once upon a time"
     
     def __post_init__(self):
         # Set device if not provided
@@ -103,13 +104,28 @@ def local_collect_attention_distributions(model, dataloader, num_batches=5):
     
     # Collect attention patterns from batches
     with torch.no_grad():
-        for i, (input_ids, attention_mask, _) in enumerate(dataloader):
+        for i, batch in enumerate(dataloader):
             if i >= num_batches:
                 break
+            
+            # Handle different batch formats
+            if isinstance(batch, tuple) and len(batch) >= 2:
+                input_ids, attention_mask = batch[0], batch[1]
+            elif isinstance(batch, list) and len(batch) >= 2:
+                input_ids, attention_mask = batch[0], batch[1]
+            elif isinstance(batch, dict):
+                input_ids = batch["input_ids"]
+                attention_mask = batch.get("attention_mask", None)
+            else:
+                # Skip this batch if format is unsupported
+                print(f"Skipping unsupported batch format: {type(batch)}")
+                continue
                 
             # Forward pass to get attention weights
-            input_ids = input_ids.to(model.device)
-            attention_mask = attention_mask.to(model.device)
+            device = model.device if hasattr(model, 'device') else next(model.parameters()).device
+            input_ids = input_ids.to(device)
+            if attention_mask is not None:
+                attention_mask = attention_mask.to(device)
             outputs = model(input_ids=input_ids, 
                            attention_mask=attention_mask, 
                            output_attentions=True)
@@ -233,7 +249,11 @@ def run_experiment(config):
     
     # Generate sample text with baseline model
     from .text_generator import generate_text
-    baseline_text = generate_text(model, tokenizer, "Once upon a time", max_length=50)
+    
+    # Get the default prompt from the config or use a fallback
+    prompt = getattr(config, 'prompt', "Once upon a time")
+    
+    baseline_text = generate_text(model, tokenizer, prompt, max_length=50)
     print(f"Baseline generated text: {baseline_text}")
     
     # 4. Apply pruning strategy
@@ -281,7 +301,7 @@ def run_experiment(config):
     print(f"Pruned metrics: {pruned_metrics}")
     
     # Generate sample text with pruned model
-    pruned_text = generate_text(model, tokenizer, "Once upon a time", max_length=50)
+    pruned_text = generate_text(model, tokenizer, prompt, max_length=50)
     print(f"Pruned generated text: {pruned_text}")
     
     # 6. Fine-tune the pruned model
@@ -302,13 +322,36 @@ def run_experiment(config):
     print(f"Fine-tuned metrics: {finetuned_metrics}")
     
     # Generate sample text with fine-tuned model
-    finetuned_text = generate_text(model, tokenizer, "Once upon a time", max_length=50)
+    finetuned_text = generate_text(model, tokenizer, prompt, max_length=50)
     print(f"Fine-tuned generated text: {finetuned_text}")
     
     # 8. Calculate improvement
-    baseline_loss = baseline_metrics["loss"]
-    pruned_loss = pruned_metrics["loss"]
-    finetuned_loss = finetuned_metrics["loss"]
+    # IMPORTANT: Handle different return formats from evaluate_model
+    # It might return a tuple of (loss, perplexity) or a dict with keys "loss" and "perplexity"
+    # This code is unit tested in utils/pruning/tests_metrics.py to prevent regressions
+    if isinstance(baseline_metrics, tuple) and len(baseline_metrics) == 2:
+        baseline_loss, baseline_perplexity = baseline_metrics
+    elif isinstance(baseline_metrics, dict):
+        baseline_loss = baseline_metrics["loss"]
+        baseline_perplexity = baseline_metrics["perplexity"]
+    else:
+        raise ValueError(f"Unsupported metrics format: {type(baseline_metrics)}")
+        
+    if isinstance(pruned_metrics, tuple) and len(pruned_metrics) == 2:
+        pruned_loss, pruned_perplexity = pruned_metrics
+    elif isinstance(pruned_metrics, dict):
+        pruned_loss = pruned_metrics["loss"]
+        pruned_perplexity = pruned_metrics["perplexity"]
+    else:
+        raise ValueError(f"Unsupported metrics format: {type(pruned_metrics)}")
+        
+    if isinstance(finetuned_metrics, tuple) and len(finetuned_metrics) == 2:
+        finetuned_loss, finetuned_perplexity = finetuned_metrics
+    elif isinstance(finetuned_metrics, dict):
+        finetuned_loss = finetuned_metrics["loss"]
+        finetuned_perplexity = finetuned_metrics["perplexity"]
+    else:
+        raise ValueError(f"Unsupported metrics format: {type(finetuned_metrics)}")
     
     loss_change_pruning = pruned_loss - baseline_loss
     loss_change_finetuning = finetuned_loss - pruned_loss
@@ -318,9 +361,18 @@ def run_experiment(config):
     
     # 9. Create summary dictionary
     summary = {
-        "baseline": baseline_metrics,
-        "pruned": pruned_metrics,
-        "finetuned": finetuned_metrics,
+        "baseline": {
+            "loss": baseline_loss,
+            "perplexity": baseline_perplexity
+        },
+        "pruned": {
+            "loss": pruned_loss,
+            "perplexity": pruned_perplexity
+        },
+        "finetuned": {
+            "loss": finetuned_loss,
+            "perplexity": finetuned_perplexity
+        },
         "improvement": {
             "overall_percent": float(overall_improvement),
             "loss_change_pruning": float(loss_change_pruning),

@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 
 """
-Pruning and Fine-Tuning Colab (v0.0.47)
+Pruning and Fine-Tuning Colab (v0.0.48)
 
 This script demonstrates making a GPT-2 model smaller and more powerful by:
 1. Applying pruning to remove less important attention heads
@@ -11,11 +11,15 @@ This script demonstrates making a GPT-2 model smaller and more powerful by:
 
 It's designed to be run in Google Colab using real-world data (Wikitext).
 
+# Text Generation Prompt (edit this to change the generation prompt)
+DEFAULT_PROMPT = "Once upon a time"
+
 IMPORTANT USAGE NOTE:
 For quick testing of the modular API, use:
     python PruningAndFineTuningColab.py --test_mode --super_simple
 
 Version History:
+- v0.0.48 (April 2025): Add customizable text prompt and fix metrics handling
 - v0.0.47 (April 2025): Fix data preparation and improve error handling
 - v0.0.46 (April 2025): Simplified implementation using modular API components
 - v0.0.45 (April 2025): Made notebook self-contained without requiring complex imports
@@ -382,7 +386,8 @@ def main(args):
         num_epochs=args.epochs,
         batch_size=args.batch_size,
         use_test_data=args.test_mode,
-        device=device
+        device=device,
+        prompt=DEFAULT_PROMPT  # Use the default prompt defined at the top
     )
     
     # If in test mode, use a super-simplified workflow just to verify imports
@@ -489,7 +494,8 @@ else:
         num_epochs=NUM_EPOCHS,
         batch_size=BATCH_SIZE,
         device=device,
-        output_dir="pruning_results"
+        output_dir="pruning_results",
+        prompt=DEFAULT_PROMPT  # Use the default prompt defined at the top
     )
     
     # Run the experiment
