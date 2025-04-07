@@ -1,0 +1,48 @@
+# YAML configuration for Upgrayedd optimization of BLOOM model
+# with magnitude-based pruning strategy
+
+# Model settings
+model_name: "bigscience/bloom-560m"
+dataset: "wikitext"
+output_dir: "./upgrayedd_output/bloom_magnitude"
+
+# Pruning strategy
+strategy: "magnitude"
+pruning_ratio: 0.25
+growth_ratio: 0.15
+weight_threshold: 0.01
+
+# Training parameters
+epochs: 1
+cycles: 3
+batch_size: 2
+learning_rate: 2e-5
+max_length: 128
+eval_batch_size: 4
+gradient_accumulation_steps: 4
+
+# Hardware settings
+device: "cuda"  # Change to "cpu" if running without GPU
+
+# Runtime settings
+seed: 42
+log_level: "INFO"
+use_differential_learning_rates: true
+save_checkpoints: true
+checkpoint_steps: 1000
+
+# Visualization settings
+visualization:
+  enabled: true
+  plot_attention_heatmaps: true
+  plot_metrics: true
+  plot_head_importance: true
+  plot_attention_patterns: false
+  
+# Advanced settings
+advanced:
+  use_mixed_precision: true
+  use_8bit_quantization: false
+  optimizer: "adamw"
+  scheduler: "linear"
+  warmup_steps: 100

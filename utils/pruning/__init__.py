@@ -9,13 +9,20 @@ from .environment import Environment
 from .results_manager import ResultsManager
 from .pruning_module import PruningModule
 # Original fine tuner implementations - using one or both depending on what's available
+# Skip the consolidated version to avoid datasets circular import
 try:
-    # Try to import from the consolidated version first
-    from .fine_tuner_consolidated import FineTuner, ImprovedFineTuner
-except ImportError:
-    # Fall back to original implementations
+    # Use original implementations
     from .fine_tuner import FineTuner
     from .fine_tuner_improved import ImprovedFineTuner
+except ImportError:
+    # Define placeholders if imports fail
+    class FineTuner:
+        def __init__(self, *args, **kwargs):
+            raise NotImplementedError("FineTuner not available")
+    
+    class ImprovedFineTuner:
+        def __init__(self, *args, **kwargs):
+            raise NotImplementedError("ImprovedFineTuner not available")
 from .strategies import (
     PruningStrategy,
     RandomStrategy,

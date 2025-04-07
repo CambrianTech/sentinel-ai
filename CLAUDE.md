@@ -1,5 +1,14 @@
 # CLAUDE.md - AI Agent Guidelines
 
+## Claude Notes - Sentinel-AI Project
+- ALWAYS increment version numbers when fixing bugs (e.g., v0.0.33 → v0.0.34)
+- Version numbers go in file content, NOT in filenames (we use git for versioning)
+- When loading notebooks in Colab, always load from the current branch, not main
+- Only switch back to main branch after PR is merged 
+- Always test notebook functionality in both CPU and GPU (T4) environments
+- Always evaluate pruned model to define variables before fine-tuning
+- When fixing colab notebooks, create the corresponding .ipynb from the .py file
+
 ## Build Commands
 - Train model: `python train.py --model_name MODEL --dataset DATASET --epochs N --batch_size B --lr LR --device {cpu,cuda}`
 - Run inference: `python main.py --model_name MODEL --prompt "text" --max_length L --device {cpu,cuda} --temperature T`
