@@ -38,9 +38,53 @@ import time
 import json
 from datetime import datetime
 from pathlib import Path
+
+# First, import non-datasets-related modules
 from tqdm import tqdm
+
+# Prevent circular imports by using the new modular API
+try:
+    from sentinel.pruning.experiment_runner import ExperimentConfig
+    from sentinel.pruning.text_generator import generate_text
+    # Try to import the entropy_magnitude module
+    try:
+        from sentinel.pruning.entropy_magnitude import (
+            collect_attention_distributions,
+            entropy_based_pruning,
+            magnitude_based_pruning
+        )
+        print("Using modular sentinel.pruning API with entropy_magnitude - this will avoid circular imports")
+        USING_FULL_MODULAR_API = True
+    except ImportError:
+        print("Could not import entropy_magnitude from sentinel.pruning, using partial modular API")
+        USING_FULL_MODULAR_API = False
+    USING_MODULAR_API = True
+except ImportError:
+    print("Could not import sentinel.pruning API, falling back to mock datasets approach")
+    USING_MODULAR_API = False
+    USING_FULL_MODULAR_API = False
+
+# Now import necessary HuggingFace modules WITHOUT datasets
+import transformers
 from transformers import AutoTokenizer, AutoModelForCausalLM
 
+# Only AFTER HF imports, create mock datasets to avoid circular imports
+if not USING_MODULAR_API:
+    import types
+    # Remove existing datasets module if it exists
+    if 'datasets' in sys.modules:
+        del sys.modules['datasets']
+    # Create a mock datasets module to avoid imports from datasets.packaged_modules.arrow
+    mock_datasets = types.ModuleType('datasets')
+    # Add required functionality
+    mock_datasets.ArrowBasedBuilder = type('ArrowBasedBuilder', (), {})
+    mock_datasets.GeneratorBasedBuilder = type('GeneratorBasedBuilder', (), {})
+    mock_datasets.Value = lambda *args, **kwargs: None
+    mock_datasets.Features = lambda *args, **kwargs: {}
+    mock_datasets.Sequence = lambda *args, **kwargs: None
+    mock_datasets.ClassLabel = lambda *args, **kwargs: None
+    # Install the mock module
+    sys.modules['datasets'] = mock_datasets
 # Add project root to Python path
 script_dir = os.path.dirname(os.path.abspath(__file__))
 project_root = os.path.dirname(script_dir)
@@ -1232,12 +1276,16 @@ def benchmark_model(model, dataloader, tokenizer, collector, args, strategy=None
                         prune_bar.write(f"Warning: Could not find gate tensor in layer {layer_idx}, head {head_idx}")
                     
             elif strategy == "magnitude":
-                # Implement magnitude pruning directly
+                # Use magnitude pruning from modular API if available
                 try:
                     print("Applying magnitude-based pruning using weight magnitudes...")
                     
-                    # Define magnitude pruning function
-                    def magnitude_based_pruning(model, prune_ratio=0.1, safe_update_tensor_fn=None):
+                    if USING_FULL_MODULAR_API:
+                        # Use the modular API implementation
+                        print("Using magnitude_based_pruning from sentinel.pruning.entropy_magnitude")
+                    else:
+                        # Define magnitude pruning function inline
+                        def magnitude_based_pruning(model, prune_ratio=0.1, safe_update_tensor_fn=None):
                         """Prune heads based on weight magnitudes."""
                         # Get blocks
                         blocks = get_model_blocks(model)
@@ -1358,12 +1406,16 @@ def benchmark_model(model, dataloader, tokenizer, collector, args, strategy=None
                                 prune_bar.write(f"Warning: Could not find gate tensor in layer {layer_idx}, head {head_idx}")
                 
             elif strategy == "entropy":
-                # Import the proper entropy pruning implementation
+                # Use entropy pruning from modular API if available
                 try:
                     print("Collecting attention distributions for entropy-based pruning...")
                     
-                    # Define simpler entropy-based pruning functions
-                    def collect_attention_distributions(model, dataloader, num_batches=5, device="cuda"):
+                    if USING_FULL_MODULAR_API:
+                        # Use the modular API implementation
+                        print("Using entropy functions from sentinel.pruning.entropy_magnitude")
+                    else:
+                        # Define simpler entropy-based pruning functions inline
+                        def collect_attention_distributions(model, dataloader, num_batches=5, device="cuda"):
                         """Collect attention outputs from model."""
                         print("Collecting attention distributions...")
                         
