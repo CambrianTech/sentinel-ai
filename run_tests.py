@@ -92,17 +92,109 @@ def run_colab_tests(args):
     """Run tests for colab notebooks."""
     print("\n=== Running Colab Notebook Tests ===\n")
     
-    colab_script = "colab_notebooks/PruningAndFineTuningColab.py"
-    if os.path.exists(colab_script):
-        print(f"Testing {colab_script} with super_simple mode...")
-        command = [
-            sys.executable, "-u", colab_script,
-            "--test_mode", "--super_simple", "--model_name", "distilgpt2"
-        ]
-        return run_command(command, verbose=args.verbose)
-    else:
-        print(f"Warning: Colab script {colab_script} not found")
-        return 0
+    # List of supported colab scripts with command-line arguments
+    colab_scripts_with_args = [
+        # Test PruningAndFineTuningColab.py with super_simple mode
+        {
+            "path": "colab_notebooks/PruningAndFineTuningColab.py",
+            "args": ["--test_mode", "--super_simple", "--model_name", "distilgpt2"],
+            "description": "with super_simple mode"
+        }
+    ]
+    
+    # Test scripts with arguments
+    success = True
+    for script in colab_scripts_with_args:
+        if os.path.exists(script["path"]):
+            print(f"\nTesting {script['path']} {script['description']}...")
+            command = [sys.executable, "-u", script["path"]] + script["args"]
+            result = run_command(command, verbose=args.verbose)
+            if result != 0:
+                success = False
+                print(f"❌ Test failed for {script['path']}")
+            else:
+                print(f"✅ Test passed for {script['path']}")
+        else:
+            print(f"⚠️ Warning: Colab script {script['path']} not found")
+    
+    # Create a test module for scripts without command-line arguments
+    scripts_without_args = [
+        {
+            "path": "colab_notebooks/UpgrayeddAPI.py",
+            "description": "by monkey patching for testing"
+        }
+    ]
+    
+    print("\nTesting notebooks without command-line support:")
+    for script in scripts_without_args:
+        if os.path.exists(script["path"]):
+            # Create a temporary test script
+            test_script = f"""
+import os
+import sys
+import unittest
+from unittest.mock import patch, MagicMock
+
+# Add project root to path
+project_root = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, project_root)
+
+# Monkey patch functions that require user input or slow operations
+with patch('torch.cuda.is_available', return_value=False), \\
+     patch('transformers.AutoModelForCausalLM.from_pretrained', return_value=MagicMock()), \\
+     patch('transformers.AutoTokenizer.from_pretrained', return_value=MagicMock()):
+    
+    # Import the module (will use the monkey patched functions)
+    try:
+        import {script["path"].replace("/", ".").replace(".py", "")}
+        print("✅ Successfully imported {script["path"]}")
+        sys.exit(0)
+    except Exception as e:
+        print(f"❌ Error importing {script["path"]}: {{e}}")
+        sys.exit(1)
+"""
+            
+            # Write the test script to a temporary file
+            with tempfile.NamedTemporaryFile(suffix='.py', mode='w', delete=False) as f:
+                f.write(test_script)
+                temp_script = f.name
+            
+            try:
+                # Run the test script
+                print(f"\nTesting {script['path']} {script['description']}...")
+                command = [sys.executable, "-u", temp_script]
+                result = run_command(command, verbose=args.verbose)
+                if result != 0:
+                    success = False
+                    print(f"❌ Test failed for {script['path']}")
+                else:
+                    print(f"✅ Test passed for {script['path']}")
+            finally:
+                # Clean up
+                os.unlink(temp_script)
+        else:
+            print(f"⚠️ Warning: Colab script {script['path']} not found")
+    
+    # If we need to test notebook conversion and execution
+    notebook_files = [
+        "colab_notebooks/UpgrayeddColab.ipynb",
+        "colab_notebooks/UpgrayeddContinuous.ipynb", 
+        "colab_notebooks/PruningAndFineTuningColab.ipynb"
+    ]
+    
+    # Just count how many notebook files we have
+    notebook_count = sum(1 for nb in notebook_files if os.path.exists(nb))
+    print(f"\nFound {notebook_count}/{len(notebook_files)} Jupyter notebooks")
+    
+    if args.verbose:
+        print("\nChecking Jupyter notebook files:")
+        for notebook in notebook_files:
+            if os.path.exists(notebook):
+                print(f"  ✅ {notebook} exists")
+            else:
+                print(f"  ❌ {notebook} not found")
+    
+    return 0 if success else 1
 
 
 def run_coverage(args):
@@ -125,11 +217,13 @@ def run_coverage(args):
 source =
     sentinel/upgrayedd
     sentinel/pruning
+    colab_notebooks
 
 omit =
     */tests/*
     */test_*
     */__pycache__/*
+    colab_notebooks/*.ipynb
 
 [report]
 exclude_lines =
