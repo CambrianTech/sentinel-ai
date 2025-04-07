@@ -17,6 +17,8 @@
 - Test pruning: `python scripts/inference_with_pruning.py --strategy entropy --pruning_level 0.5 --prompt "Your text"`
 - Test improved fine-tuner: `python scripts/test_improved_fine_tuner.py --model MODEL --strategy entropy --pruning_level 0.3 --epochs 2`
 - Test model support: `python test_model_support.py --device {cpu,cuda} --verbose`
+- Run unit tests: `pytest` or `python -m pytest`
+- Run specific test: `pytest utils/pruning/api/tests/test_pruning_impl.py -v`
 - Run comprehensive benchmark: `python scripts/benchmark_with_metrics.py --model_name distilgpt2 --eval_dataset gutenberg --use_real_data`
 
 ## Multi-Model Support
