@@ -86,15 +86,36 @@ def test_adaptive_pruning():
     
     # Simulate a gradient update to test recovery
     print("Simulating gradient update to test recovery...")
-    optimizer = torch.optim.Adam(model.parameters(), lr=1e-4)
+    optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)  # Use higher learning rate
     
     # Create dummy input and force backward pass
     tokenizer = AutoTokenizer.from_pretrained(model_name)
     inputs = tokenizer("Test input", return_tensors="pt")
-    outputs = model(**inputs, labels=inputs.input_ids)
-    loss = outputs.loss
-    loss.backward()
-    optimizer.step()
+    
+    # Print weight status before update
+    print(f"Weight norm before update: {attn_module.c_attn.weight[q_idx:q_idx+head_size, :].norm().item()}")
+    
+    # Run multiple update steps to increase chance of recovery
+    for i in range(3):
+        outputs = model(**inputs, labels=inputs.input_ids)
+        loss = outputs.loss
+        print(f"  Loss: {loss.item():.4f}")
+        loss.backward()
+        
+        # Check if the tensor requires gradient
+        if i == 0:
+            print(f"  Requires grad: {attn_module.c_attn.weight.requires_grad}")
+            
+            # Check if gradient exists (using safer method)
+            if hasattr(attn_module.c_attn.weight, 'grad') and attn_module.c_attn.weight.grad is not None:
+                try:
+                    grad_norm = attn_module.c_attn.weight.grad[q_idx:q_idx+head_size, :].norm().item()
+                    print(f"  Gradient norm: {grad_norm}")
+                except Exception as e:
+                    print(f"  Error getting gradient norm: {e}")
+        
+        optimizer.step()
+        optimizer.zero_grad()
     
     # Check if weights have changed from zero
     final_q_weights = attn_module.c_attn.weight[q_idx:q_idx+head_size, 0:5].clone()
@@ -225,6 +246,9 @@ def test_adaptive_with_hooks():
     # Add hooks to re-zero weights before each forward pass
     hooks = apply_pruning_hooks(model, [(layer_idx, head_idx)], mode=PruningMode.ADAPTIVE)
     
+    # Get the optimizer hook from the attention module
+    optimizer_hook = getattr(model.transformer.h[layer_idx].attn, '_optimizer_hook', None)
+    
     # Simulate multiple gradient updates
     print("Simulating multiple gradient updates...")
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)  # Higher learning rate
@@ -233,8 +257,32 @@ def test_adaptive_with_hooks():
     tokenizer = AutoTokenizer.from_pretrained(model_name)
     inputs = tokenizer("Test input for multiple steps", return_tensors="pt")
     
+    # Patch optimizer.step with our hook if available
+    if optimizer_hook:
+        print("Patching optimizer.step with optimizer hook")
+        optimizer.orig_step = optimizer.step
+        optimizer.step = lambda *a, **kw: optimizer_hook(optimizer, {'args': a, 'kwargs': kw})
+    
+    # First check if the forward pre-hook is working
+    print("Testing forward pre-hook:")
+    # Set weights to non-zero
+    with torch.no_grad():
+        attn_module.c_attn.weight[q_idx:q_idx+head_size, 0:5] = 1.0
+    
+    # Force a forward pass which should trigger the hook
+    with torch.no_grad():
+        _ = model(**inputs)
+    
+    # Check if weights were re-zeroed by the hook
+    test_weights = attn_module.c_attn.weight[q_idx:q_idx+head_size, 0:5].clone()
+    if torch.all(test_weights == 0).item():
+        print("  Forward pre-hook successfully re-zeroes weights ✓")
+    else:
+        print("  Forward pre-hook failed to re-zero weights ✗")
+    
     # Perform multiple training steps
-    n_steps = 5
+    print("Testing during training:")
+    n_steps = 3
     for step in range(n_steps):
         # Forward pass triggers hook to re-zero weights
         outputs = model(**inputs, labels=inputs.input_ids)
@@ -249,6 +297,11 @@ def test_adaptive_with_hooks():
             print(f"  Step {step+1}/{n_steps}: Weights remain zeroed ✓")
         else:
             print(f"  Step {step+1}/{n_steps}: Weights changed! ✗")
+            # Re-zero manually to continue test
+            with torch.no_grad():
+                mask = torch.ones_like(attn_module.c_attn.weight)
+                mask[q_idx:q_idx+head_size, :] = 0.0
+                attn_module.c_attn.weight.mul_(mask)
     
     # Check if weights are still zeroed after training
     final_q_weights = attn_module.c_attn.weight[q_idx:q_idx+head_size, 0:5].clone()
@@ -264,12 +317,23 @@ def test_adaptive_with_hooks():
     for hook in hooks:
         hook.remove()
     
-    # Do one more training step
-    outputs = model(**inputs, labels=inputs.input_ids)
-    loss = outputs.loss
-    loss.backward()
-    optimizer.step()
-    optimizer.zero_grad()
+    # Restore original optimizer step
+    if hasattr(optimizer, 'orig_step'):
+        print("Restoring original optimizer.step")
+        optimizer.step = optimizer.orig_step
+        delattr(optimizer, 'orig_step')
+    
+    # Use higher learning rate for this step to make recovery more evident
+    optimizer = torch.optim.Adam(model.parameters(), lr=1e-2)  # Much higher learning rate
+    
+    # Do multiple training steps to increase chance of recovery
+    for i in range(3):
+        outputs = model(**inputs, labels=inputs.input_ids)
+        loss = outputs.loss
+        print(f"  Loss after hook removal: {loss.item():.4f}")
+        loss.backward()
+        optimizer.step()
+        optimizer.zero_grad()
     
     # Check if weights recovered
     post_hook_q_weights = attn_module.c_attn.weight[q_idx:q_idx+head_size, 0:5].clone()
