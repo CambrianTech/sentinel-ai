@@ -180,6 +180,11 @@ class TestAdaptiveOptimizer(unittest.TestCase):
         
         # Create optimizer
         optimizer = AdaptiveOptimizer(self.config)
+        
+        # Manually set the model and tokenizer since we're not actually loading
+        optimizer.model = mock_model
+        optimizer.tokenizer = mock_tokenizer
+        
         optimizer.current_cycle = 1
         optimizer.pruned_heads = [(0, 1), (1, 2)]
         optimizer.baseline_metrics = {"loss": 2.5, "perplexity": 12.18}
@@ -203,7 +208,9 @@ class TestAdaptiveOptimizer(unittest.TestCase):
         with open(state_path, "r") as f:
             state = json.load(f)
             self.assertEqual(state["cycle"], 1)
-            self.assertEqual(state["pruned_heads"], [(0, 1), (1, 2)])
+            # When saved to JSON, tuples become lists
+            heads_as_lists = [[h[0], h[1]] for h in [(0, 1), (1, 2)]]
+            self.assertEqual(state["pruned_heads"], heads_as_lists)
             self.assertEqual(state["baseline_metrics"]["loss"], 2.5)
             self.assertEqual(state["current_metrics"]["perplexity"], 7.38)
 

@@ -37,6 +37,9 @@ class TestModelUtils(unittest.TestCase):
         mock_model_cls.from_pretrained.return_value = mock_model
         mock_tokenizer_cls.from_pretrained.return_value = mock_tokenizer
         
+        # Configure mocks for method chaining
+        mock_model.to.return_value = mock_model
+        
         # Test loading
         model, tokenizer = load_model_and_tokenizer(
             "distilgpt2",
