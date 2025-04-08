@@ -1,5 +1,7 @@
 #!/bin/bash
-# Run the benchmark_with_metrics.py script with the fixed mock imports
+# Run the benchmark_with_metrics.py script with the modular pruning API
+# This script uses the improved benchmark_with_metrics.py which avoids circular imports
+# by using either the modular sentinel.pruning API or a mock datasets approach
 
 # Capture start time
 START_TIME=$(date +%s)

@@ -6,11 +6,11 @@ This module handles loading, saving, and managing transformer models for pruning
 
 import os
 import torch
-from typing import Tuple, Dict, Any, Optional
+from typing import Tuple, Dict, Any, Optional, Union
 from transformers import AutoTokenizer, AutoModelForCausalLM
 
 
-def load_model(model_name: str, device: str = "cuda") -> Tuple[torch.nn.Module, Any]:
+def load_model(model_name: str, device: Union[str, torch.device] = "cuda") -> Tuple[torch.nn.Module, Any]:
     """
     Load model and tokenizer from HuggingFace.
     
@@ -33,8 +33,11 @@ def load_model(model_name: str, device: str = "cuda") -> Tuple[torch.nn.Module, 
     # Load model
     model = AutoModelForCausalLM.from_pretrained(model_name)
     
+    # Convert device to torch.device if it's a string
+    if isinstance(device, str):
+        device = torch.device(device if torch.cuda.is_available() and device == "cuda" else "cpu")
+    
     # Move model to device
-    device = torch.device(device if torch.cuda.is_available() and device == "cuda" else "cpu")
     model.to(device)
     
     # Count parameters

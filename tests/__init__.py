@@ -1,1 +1,1 @@
-# Tests package for Sentinel-AI
+# Tests package

@@ -7,13 +7,14 @@ This module provides visualization and progress tracking for pruning experiments
 import matplotlib.pyplot as plt
 import numpy as np
 import json
+import torch
 from typing import Dict, Any, List, Tuple, Optional
 
 
 class ProgressTracker:
     """Track metrics throughout the pruning and fine-tuning process."""
     
-    def __init__(self):
+    def __init__(self, disable_plotting=False):
         """Initialize the progress tracker."""
         self.metrics = {
             "loss": [],
@@ -24,8 +25,15 @@ class ProgressTracker:
             "generation_samples": []
         }
         
-        # Create visualizations
-        self.fig, self.axes = plt.subplots(1, 2, figsize=(15, 5))
+        self.disable_plotting = disable_plotting
+        
+        if not disable_plotting:
+            try:
+                # Create visualizations
+                self.fig, self.axes = plt.subplots(1, 2, figsize=(15, 5))
+            except Exception as e:
+                print(f"Warning: Could not create visualization plots: {e}")
+                self.disable_plotting = True
         
     def update(self, step: int, loss: float, perplexity: float, generation_sample: Optional[str] = None) -> None:
         """
@@ -48,7 +56,12 @@ class ProgressTracker:
             })
         
         # Update visualization
-        self._update_plots()
+        if not self.disable_plotting:
+            try:
+                self._update_plots()
+            except Exception as e:
+                print(f"Warning: Failed to update plots: {e}")
+                self.disable_plotting = True
         
     def set_pruning_info(self, level: float, pruned_heads: List[Tuple[int, int]]) -> None:
         """
@@ -63,6 +76,9 @@ class ProgressTracker:
         
     def _update_plots(self) -> None:
         """Update visualization plots."""
+        if self.disable_plotting:
+            return
+            
         steps = self.metrics["steps"]
         loss = self.metrics["loss"]
         ppl = self.metrics["perplexity"]
@@ -70,27 +86,34 @@ class ProgressTracker:
         if not steps:
             return
             
-        # Clear previous plots
-        self.axes[0].clear()
-        self.axes[1].clear()
-        
-        # Plot loss
-        self.axes[0].plot(steps, loss, 'b-')
-        self.axes[0].set_title('Loss')
-        self.axes[0].set_xlabel('Step')
-        self.axes[0].set_ylabel('Loss')
-        self.axes[0].grid(True)
-        
-        # Plot perplexity
-        self.axes[1].plot(steps, ppl, 'r-')
-        self.axes[1].set_title('Perplexity (lower is better)')
-        self.axes[1].set_xlabel('Step')
-        self.axes[1].set_ylabel('Perplexity')
-        self.axes[1].grid(True)
-        
-        self.fig.tight_layout()
-        plt.draw()
-        plt.pause(0.001)
+        try:
+            # Clear previous plots
+            self.axes[0].clear()
+            self.axes[1].clear()
+            
+            # Plot loss
+            self.axes[0].plot(steps, loss, 'b-')
+            self.axes[0].set_title('Loss')
+            self.axes[0].set_xlabel('Step')
+            self.axes[0].set_ylabel('Loss')
+            self.axes[0].grid(True)
+            
+            # Plot perplexity
+            self.axes[1].plot(steps, ppl, 'r-')
+            self.axes[1].set_title('Perplexity (lower is better)')
+            self.axes[1].set_xlabel('Step')
+            self.axes[1].set_ylabel('Perplexity')
+            self.axes[1].grid(True)
+            
+            self.fig.tight_layout()
+            plt.draw()
+            
+            # Only pause if interactive mode is enabled
+            if plt.isinteractive():
+                plt.pause(0.001)
+        except Exception as e:
+            print(f"Warning: Error updating plots: {e}")
+            self.disable_plotting = True
         
     def save_plots(self, path: str) -> None:
         """
@@ -99,8 +122,15 @@ class ProgressTracker:
         Args:
             path: Path to save the plots to
         """
-        plt.savefig(path)
-        print(f"Plots saved to: {path}")
+        if self.disable_plotting:
+            print(f"Warning: Plotting is disabled, cannot save plots to {path}")
+            return
+            
+        try:
+            plt.savefig(path)
+            print(f"Plots saved to: {path}")
+        except Exception as e:
+            print(f"Error saving plots to {path}: {e}")
         
     def save_metrics(self, path: str) -> None:
         """
@@ -109,9 +139,22 @@ class ProgressTracker:
         Args:
             path: Path to save the metrics to
         """
-        with open(path, 'w') as f:
-            json.dump(self.metrics, f, indent=2)
-        print(f"Metrics saved to: {path}")
+        try:
+            # Convert any non-serializable objects to strings
+            metrics_to_save = self.metrics.copy()
+            
+            # Convert tensors to regular Python values if needed
+            if "loss" in metrics_to_save:
+                metrics_to_save["loss"] = [float(x) if hasattr(x, "item") else float(x) for x in metrics_to_save["loss"]]
+            if "perplexity" in metrics_to_save:
+                metrics_to_save["perplexity"] = [float(x) if hasattr(x, "item") else float(x) for x in metrics_to_save["perplexity"]]
+            
+            # Save to file
+            with open(path, 'w') as f:
+                json.dump(metrics_to_save, f, indent=2)
+            print(f"Metrics saved to: {path}")
+        except Exception as e:
+            print(f"Error saving metrics to {path}: {e}")
             
     def get_summary(self) -> Dict[str, Any]:
         """

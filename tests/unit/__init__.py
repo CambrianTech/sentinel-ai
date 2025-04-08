@@ -1,1 +1,1 @@
-# Unit tests package for Sentinel-AI
+# Unit tests package

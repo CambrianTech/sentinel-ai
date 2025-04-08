@@ -114,6 +114,23 @@ We've added comprehensive compatibility features to handle architecture-specific
    - Comprehensive model compatibility testing suite
    - Validation across different model architectures
    - Cross-architecture comparison of pruning effects
+   - Unit tests for metrics handling (tuple vs dictionary format)
+   - Automatic regression detection for common issues
+
+## Running Tests
+
+To run the test suite for the pruning API:
+
+```bash
+# Run the comprehensive test suite
+cd utils/pruning/api/tests
+python run_tests.py
+
+# Run the simplified metrics handling test
+python utils/pruning/tests_metrics.py
+```
+
+The simplified metrics test is specifically designed to verify the fix for the tuple vs dictionary metrics issue we encountered. It ensures proper handling of different metric formats to prevent regressions.
 
 ## Platform Support
 

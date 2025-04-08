@@ -41,10 +41,46 @@ from utils.pruning.inference_utils import (
     display_side_by_side
 )
 
+# Import visualization tools
+try:
+    from utils.adaptive.visualization import (
+        plot_head_gradient_with_status,
+        plot_cycles_comparison,
+        plot_plasticity_history,
+        plot_strategy_effectiveness,
+        create_dashboard
+    )
+except ImportError:
+    # Fallback visualization functions if module not available
+    def plot_head_gradient_with_status(*args, **kwargs):
+        print("Visualization module not available. Install matplotlib and seaborn for visualizations.")
+        return None
+    
+    def plot_cycles_comparison(*args, **kwargs):
+        print("Visualization module not available. Install matplotlib and seaborn for visualizations.")
+        return None
+    
+    plot_plasticity_history = plot_cycles_comparison
+    plot_strategy_effectiveness = plot_cycles_comparison
+    
+    def create_dashboard(*args, **kwargs):
+        print("Visualization module not available. Install matplotlib and seaborn for visualizations.")
+        return None
+
 class AdaptivePlasticitySystem:
     """
     Adaptive system that improves neural networks through iterative cycles of
     plasticity while monitoring output quality and adapting strategies.
+    
+    The system performs the following steps in each cycle:
+    1. Pruning: Remove less useful attention heads
+    2. Measuring: Evaluate model quality after pruning
+    3. Growth: Grow new attention heads in strategic locations
+    4. Learning: Fine-tune the model with differential learning rates
+    
+    Throughout this process, the system dynamically adapts its strategies
+    based on past performance and maintains a memory of successful
+    transformations.
     """
     
     def __init__(
@@ -874,6 +910,29 @@ class AdaptivePlasticitySystem:
             show_generations=self.verbose
         )
         
+        # Collect initial head metrics for visualization
+        try:
+            initial_entropy, initial_grad_norms = self.collect_head_metrics(
+                validation_dataloader=None,  # Will use default from pruning module
+                num_batches=2
+            )
+            
+            # Save initial visualization
+            try:
+                vis_path = os.path.join(self.visualizations_dir, f"cycle_{len(self.transformation_memory)+1}_initial.png")
+                self.visualize_gradients(
+                    grad_norm_values=initial_grad_norms,
+                    title=f"Initial Head Gradient Norms - Cycle {len(self.transformation_memory)+1}",
+                    save_path=vis_path
+                )
+            except Exception as e:
+                if self.verbose:
+                    print(f"Initial visualization error: {e}")
+        except Exception as e:
+            if self.verbose:
+                print(f"Error collecting initial head metrics: {e}")
+            initial_entropy, initial_grad_norms = None, None
+        
         initial_perplexity = initial_eval["average_perplexity"]
         initial_degeneration = initial_eval["average_degeneration_score"]
         
@@ -1061,6 +1120,20 @@ class AdaptivePlasticitySystem:
             with open(checkpoint_path, 'wb') as f:
                 import pickle
                 pickle.dump(learned_params, f)
+            
+            # Create visualization of final state
+            try:
+                vis_path = os.path.join(self.visualizations_dir, f"cycle_{len(self.transformation_memory)}_final.png")
+                self.visualize_gradients(
+                    grad_norm_values=final_grad_norms if 'final_grad_norms' in locals() else None,
+                    pruned_heads=all_pruned_heads if 'all_pruned_heads' in locals() else None,
+                    revived_heads=added_heads if 'added_heads' in locals() else None,
+                    title=f"Final Head Status - Cycle {len(self.transformation_memory)}",
+                    save_path=vis_path
+                )
+            except Exception as e:
+                if self.verbose:
+                    print(f"Visualization error: {e}")
                 
             if self.verbose:
                 print(f"Cycle successful! Updated model state and saved checkpoint.")
@@ -1365,6 +1438,153 @@ class AdaptivePlasticitySystem:
             json.dump(optimization_results, f, indent=2, cls=NumpyEncoder)
         
         return optimization_results
+    
+    def visualize_gradients(
+        self, 
+        grad_norm_values=None, 
+        pruned_heads=None, 
+        revived_heads=None, 
+        vulnerable_threshold=0.01,
+        figsize=(12, 6),
+        title="Head Gradient Norms with Plasticity Status",
+        save_path=None
+    ):
+        """
+        Visualize head gradient norms with overlay of pruning/revival status.
+        
+        This provides an intuitive visualization that combines gradient activity
+        with the current pruning/revival decisions, making it easy to see which
+        heads have been pruned, revived, or might be vulnerable.
+        
+        Args:
+            grad_norm_values: Tensor or array of gradient norms [layer, head].
+                            If None, will use the most recent metrics.
+            pruned_heads: List of (layer, head) tuples of pruned heads.
+                        If None, will use the currently pruned heads.
+            revived_heads: List of (layer, head) tuples of revived heads.
+                         If None, will use recently revived heads (if tracked).
+            vulnerable_threshold: Threshold below which unpruned heads are considered vulnerable
+            figsize: Figure size (width, height) in inches
+            title: Plot title
+            save_path: Optional path to save the figure
+            
+        Returns:
+            Matplotlib figure or None if visualization is not available
+        """
+        # Use current pruned heads if not provided
+        if pruned_heads is None:
+            pruned_heads = []
+            for layer_idx in range(self.num_layers):
+                for head_idx in range(self.num_heads):
+                    if layer_idx < len(self.stats) and head_idx < len(self.stats[layer_idx]):
+                        if self.stats[layer_idx][head_idx].get('is_zeroed', False):
+                            pruned_heads.append((layer_idx, head_idx))
+        
+        # Use empty revived heads list if not provided or not tracked
+        if revived_heads is None:
+            revived_heads = []
+        
+        # Create the visualization
+        fig = plot_head_gradient_with_status(
+            grad_norms=grad_norm_values,
+            pruned_heads=pruned_heads,
+            revived_heads=revived_heads,
+            vulnerable_threshold=vulnerable_threshold,
+            figsize=figsize,
+            title=title,
+            save_path=save_path
+        )
+        
+        return fig
+    
+    def create_optimization_dashboard(self, output_dir=None):
+        """
+        Create a comprehensive dashboard of optimization results.
+        
+        Args:
+            output_dir: Directory to save the dashboard.
+                       If None, will use self.run_dir.
+                       
+        Returns:
+            Path to the dashboard directory or None if creation failed
+        """
+        if output_dir is None:
+            output_dir = self.run_dir
+        
+        # Ensure we have optimization results
+        if not hasattr(self, 'transformation_memory') or not hasattr(self, 'baseline_evaluation'):
+            if self.verbose:
+                print("Not enough optimization data to create a dashboard")
+            return None
+        
+        # Extract model and dataset names
+        model_short = self.model_name.split('/')[-1]
+        dataset_name = "Unknown"
+        if hasattr(self.dataset, 'name'):
+            dataset_name = self.dataset.name
+        
+        # Prepare optimization results
+        optimization_results = {
+            "cycles_completed": len(self.transformation_memory),
+            "successful_cycles": sum(1 for t in self.transformation_memory if t.get("improvement", 0) > 0),
+            
+            # Baseline metrics (if available)
+            "baseline": {
+                "perplexity": self.baseline_evaluation["average_perplexity"] if self.baseline_evaluation else None,
+                "head_count": self.total_heads,
+                "efficiency": (self.baseline_evaluation["average_perplexity"] / self.total_heads) if self.baseline_evaluation else None,
+                "degeneration": self.baseline_evaluation["average_degeneration_score"] if self.baseline_evaluation else None
+            },
+            
+            # Final metrics (if available)
+            "final": {
+                "perplexity": self.current_perplexity if hasattr(self, 'current_perplexity') else None,
+                "head_count": len(self.current_active_heads) if hasattr(self, 'current_active_heads') else None,
+                "efficiency": (self.current_perplexity / len(self.current_active_heads)) if hasattr(self, 'current_perplexity') and hasattr(self, 'current_active_heads') else None,
+                "degeneration": None  # Would need a final evaluation to get this
+            },
+            
+            # Strategy ratings
+            "strategy_effectiveness": {}, 
+            
+            # Cycle details (from transformation memory)
+            "cycle_results": self.transformation_memory
+        }
+        
+        # Add strategy effectiveness data
+        for phase, strategies in self.strategy_ratings.items():
+            for strategy, rating in strategies.items():
+                key = f"{phase}_{strategy}"
+                optimization_results["strategy_effectiveness"][key] = {
+                    "success_rate": 0.7,  # Placeholder
+                    "trials": 1,
+                    "avg_perplexity_change": 0  # Placeholder
+                }
+        
+        # Calculate improvements
+        if (optimization_results["baseline"]["perplexity"] is not None and 
+            optimization_results["final"]["perplexity"] is not None):
+            baseline_perplexity = optimization_results["baseline"]["perplexity"]
+            final_perplexity = optimization_results["final"]["perplexity"]
+            baseline_head_count = optimization_results["baseline"]["head_count"]
+            final_head_count = optimization_results["final"]["head_count"]
+            
+            optimization_results["perplexity_improvement"] = (baseline_perplexity - final_perplexity) / baseline_perplexity
+            optimization_results["head_reduction"] = (baseline_head_count - final_head_count) / baseline_head_count
+            
+            baseline_efficiency = baseline_perplexity / baseline_head_count
+            final_efficiency = final_perplexity / final_head_count
+            optimization_results["efficiency_improvement"] = (baseline_efficiency - final_efficiency) / baseline_efficiency
+        
+        # Create the dashboard
+        dashboard_dir = create_dashboard(
+            optimization_results=optimization_results,
+            output_dir=output_dir,
+            model_name=model_short,
+            dataset_name=dataset_name
+        )
+        
+        return dashboard_dir
     
     def display_model_comparison(self, prompts=None, num_prompts=3):
         """

@@ -27,16 +27,31 @@ def generate_text(model: torch.nn.Module, tokenizer: Any, prompt: str, max_lengt
     
     # Tokenize prompt
     inputs = tokenizer(prompt, return_tensors="pt").to(device)
+    input_ids = inputs["input_ids"]
     
-    # Generate - don't pass attention_mask to generate method to avoid issues
-    with torch.no_grad():
-        outputs = model.generate(
-            inputs["input_ids"],
-            max_length=max_length,
-            do_sample=True,
-            top_p=0.95,
-            temperature=0.7,
-        )
+    # Generation parameters
+    try:
+        # Try with pad_token_id explicitly set
+        with torch.no_grad():
+            outputs = model.generate(
+                input_ids,
+                max_length=max_length,
+                do_sample=True,
+                top_p=0.95,
+                temperature=0.7,
+                pad_token_id=tokenizer.pad_token_id,
+                attention_mask=inputs.get("attention_mask"),
+            )
+    except Exception as e:
+        print(f"First generation attempt failed: {e}. Trying with simplified parameters...")
+        # Fallback with minimal parameters
+        with torch.no_grad():
+            outputs = model.generate(
+                input_ids,
+                max_length=max_length,
+                do_sample=True,
+                pad_token_id=tokenizer.eos_token_id,  # Use EOS token as fallback
+            )
     
     # Decode
     generated_text = tokenizer.decode(outputs[0], skip_special_tokens=True)
