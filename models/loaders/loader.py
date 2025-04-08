@@ -42,19 +42,20 @@ except ImportError:
     load_adaptive_model_llama = None
 
 
-def load_baseline_model(model_name, device):
+def load_baseline_model(model_name, device, from_tf=False):
     """
     Load a baseline Hugging Face language model.
     
     Args:
         model_name: Name of the model to load (e.g., 'distilgpt2', 'gpt2')
         device: Torch device to load the model onto
+        from_tf: Whether to load from TensorFlow checkpoint (for some models)
     
     Returns:
         Loaded baseline model
     """
     try:
-        model = AutoModelForCausalLM.from_pretrained(model_name).to(device)
+        model = AutoModelForCausalLM.from_pretrained(model_name, from_tf=from_tf).to(device)
         model.eval()
         print(f"✅ Loaded baseline model: {model_name} with {sum(p.numel() for p in model.parameters()):,} parameters")
         return model
