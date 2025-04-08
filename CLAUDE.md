@@ -8,6 +8,11 @@
 - Always test notebook functionality in both CPU and GPU (T4) environments
 - Always evaluate pruned model to define variables before fine-tuning
 - When fixing colab notebooks, create the corresponding .ipynb from the .py file
+- Always create unit tests for new modules and classes
+- Modularize visualizations and utilities into reusable components
+- Add type hints to all function signatures for better code quality
+- Keep notebook outputs clean using persistent display widgets
+- Use consistent visualization styles across all notebooks
 
 ## Build Commands
 - Train model: `python train.py --model_name MODEL --dataset DATASET --epochs N --batch_size B --lr LR --device {cpu,cuda}`
@@ -46,6 +51,18 @@
 - Parameters: Provide sensible defaults where appropriate
 - Documentation: Add comments for complex logic, use argparse with helpful descriptions
 - Organization: Keep functions single-purpose and modular
+- Testing: Write unit tests for all new modules and functions
+- Type hints: Add proper type annotations to all function signatures
+- Docstrings: Use consistent docstring format with Args, Returns, and Raises sections
+
+## Modularity Guidelines
+- Refactor common functionality into separate utility modules
+- Create classes for related functionality rather than using loose functions
+- Prefer composition over inheritance for flexibility
+- Make visualization code independent of model code
+- Factor out data processing logic from training loops
+- Break large functions into smaller, testable components
+- Keep notebook-specific code minimal by importing from modules
 
 ## Project Structure
 - Models in `models/`, with model loaders for different architectures in `models/loaders/`
@@ -54,6 +71,17 @@
 - Notebooks in `notebooks/` demonstrate various model behaviors and visualizations
 - Scripts in `scripts/` provide benchmarking, fine-tuning, and specialized tools
 - Documentation in `docs/` includes methodology, fine-tuning guides, and technical details
+- Visualization utilities in `utils/colab/` for interactive displays and dashboards
+- Unit tests in `tests/unit/` organized to mirror the project structure
+
+## Visualization Standards
+- Use persistent display widgets from `utils/colab/visualizations.py` for all notebooks
+- Prefer updating displays in-place rather than creating new output cells
+- Standardize on common color schemes for metrics (red for loss, green for accuracy)
+- Use consistent figure sizes and layouts across notebooks
+- Add proper axis labels, titles, and colorbars to all visualizations
+- Include captions explaining the significance of key visualizations
+- Set reasonable y-limits on plots to avoid excessive scaling
 
 ## Branch Management
 1. Always create feature or bug branches from main:
@@ -102,3 +130,23 @@ Co-Authored-By: Claude <noreply@anthropic.com>"
 git push -u origin feature/my-feature
 gh pr create --title "Add my feature" --body "..."
 ```
+
+## Testing Guidelines
+- Create unit tests for all new functionality
+- Organize tests to mirror the module structure (`tests/unit/module_name/test_file.py`)
+- Test both happy paths and error cases
+- Use parameterized tests for checking multiple inputs
+- Mock external dependencies (models, datasets) for faster testing
+- Include tests for edge cases and numerical stability
+- Run tests in CI for both CPU and GPU environments
+
+## Lessons Learned
+- Use persistent widgets instead of multiple output cells in notebooks
+- Test visualization code separately from model code
+- Ensure proper error handling for common API failures
+- Use dedicated visualization modules for consistency
+- Ensure matplotlib figures have proper size limits set
+- Prefer reusable utility classes over inline code
+- Batch tool calls with BatchTool when processing multiple files
+- Keep notebook outputs clean with in-place updates
+- Test model loading with various init parameters like `from_tf`
