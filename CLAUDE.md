@@ -14,6 +14,35 @@
 - Keep notebook outputs clean using persistent display widgets
 - Use consistent visualization styles across all notebooks
 
+## Notebook Editing Protocol
+- NEVER use sed, awk, or regex tools to edit .ipynb files
+- Use the official Python SDK nbformat for all modifications to code cells, metadata, or outputs:
+  ```python
+  import nbformat
+  
+  nb = nbformat.read("notebooks/my_notebook.ipynb", as_version=4)
+  for cell in nb.cells:
+      if cell.cell_type == "code":
+          cell.source = cell.source.replace("old_fn()", "new_fn()")
+  nbformat.write(nb, "notebooks/my_notebook_fixed.ipynb")
+  ```
+- Jupyter notebooks are structured JSON and fragile - avoid regex-based edits
+- Always run `python notebooks/validate_notebook.py notebook_path` after making changes
+- Use jupytext to convert .py → .ipynb when working with script-first notebooks
+- Move all notebook code to utility functions in appropriate modules (use `utils/colab/` for visualization)
+- All notebook components (graphs, widgets, etc.) must be modular and reusable
+- All notebooks must have corresponding unit tests before submission
+- Unit test all entry points before each commit and before finishing a PR
+- Test all notebooks in both CPU and GPU (T4) Colab environments before submitting
+- Validate all visualizations and graphs manually before submission
+- Unit test notebook outputs where applicable (numerical values, metrics, text outputs)
+- Create test fixtures for visualization components to verify correct rendering
+- Use `.private` directory for sharing test data and screenshots from Colab runs
+- Compare visualization outputs with expected reference images stored in `.private`
+- Always check timestamps on reference images - old data may be outdated
+- Update reference images when visualization changes are expected and intentional
+- Every feature must work and be fully tested at all times - no exceptions
+
 ## Build Commands
 - Train model: `python train.py --model_name MODEL --dataset DATASET --epochs N --batch_size B --lr LR --device {cpu,cuda}`
 - Run inference: `python main.py --model_name MODEL --prompt "text" --max_length L --device {cpu,cuda} --temperature T`
