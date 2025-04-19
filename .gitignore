@@ -113,3 +113,4 @@ benchmark_test/
 /test_output/
 /test_outputs/
 archive/
+/package_for_aria.sh
