@@ -181,6 +181,8 @@ gh pr create --title "Add my feature" --body "..."
 - Keep notebook outputs clean with in-place updates
 - Test model loading with various init parameters like `from_tf`
 - When starting a new session, first examine README.md, paper docs, and CLAUDE.md to understand context
+- Read all relevant code thoroughly before making changes to understand dependencies and patterns
+- Review the entire notebook before making edits to understand the full flow and dependencies
 - Always run notebooks end-to-end even in CPU mode before committing changes
 - Always check tensor visualization code to ensure proper .detach().cpu().numpy() conversion
 - Verify all files are properly committed (git status) before ending a session
