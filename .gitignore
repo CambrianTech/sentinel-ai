@@ -114,3 +114,4 @@ benchmark_test/
 /test_outputs/
 archive/
 /package_for_aria.sh
+*_backup_*.ipynb
