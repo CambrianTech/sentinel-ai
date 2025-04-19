@@ -2,6 +2,7 @@
 
 ## Claude Notes - Sentinel-AI Project
 - ALWAYS increment version numbers when fixing bugs (e.g., v0.0.33 → v0.0.34)
+- ALWAYS include full timestamps in version numbers (e.g., v0.0.34 (2025-04-19 18:30:00))
 - Version numbers go in file content, NOT in filenames (we use git for versioning)
 - When loading notebooks in Colab, always load from the current branch, not main
 - Only switch back to main branch after PR is merged 

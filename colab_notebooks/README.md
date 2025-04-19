@@ -2,6 +2,34 @@
 
 This directory contains Jupyter notebooks designed to run in Google Colab.
 
+## NeuralPlasticityDemo.ipynb (v0.0.52 (2025-04-19 18:29:23))
+
+Demonstrates Sentinel AI's neural plasticity system, which allows transformer models to dynamically prune and regrow attention heads during training based on utility metrics.
+
+### Features
+- Dynamic pruning of attention heads based on entropy and gradient metrics
+- Visualization of pruning decisions and model performance
+- Adaptive recovery of pruned heads when needed
+- Complete training loop with metrics tracking
+
+### Latest Improvements in v0.0.52 (2025-04-19)
+- Fixed GPU tensor visualization errors
+- Ensured proper tensor detachment and CPU conversion for visualization
+- Integrated with utils.colab.visualizations module
+- Improved notebook stability for both CPU and GPU environments
+- Added %matplotlib inline for Colab compatibility
+- Added system dependency checks
+- Improved error handling in training loop
+- Deduplicated import statements
+- Fixed cell execution counts for better notebook flow
+
+### Usage
+1. Upload to Colab with File > Upload notebook
+2. Select GPU runtime (recommended) 
+3. Run cells sequentially
+4. Observe how the model prunes and regrows attention heads during training
+5. Review the generated text samples to see how pruning affects model output
+
 ## PruningAndFineTuningColab.ipynb (v0.0.55)
 
 Notebook for demonstrating and benchmarking transformer model pruning and fine-tuning recovery.
@@ -32,6 +60,9 @@ Notebook for demonstrating and benchmarking transformer model pruning and fine-t
 
 ### Version History
 - v0.0.55 (April 2025): Fix pruning implementation to properly zero out attention head weights
+- v0.0.52 (NeuralPlasticityDemo - 2025-04-19): Add timestamps to versioning and fix all Colab compatibility issues
+- v0.0.51 (NeuralPlasticityDemo - April 2025): Add Colab compatibility improvements and fix execution flow
+- v0.0.50 (NeuralPlasticityDemo - April 2025): Fix GPU tensor detach/visualization issues and use utils.colab visualizations
 - v0.0.54 (April 2025): Add warmup fine-tuning phase for more realistic baseline metrics
 - v0.0.53 (April 2025): Improve robustness for partial and interrupted runs
 - v0.0.52 (April 2025): Add text generation examples at each stage and per-epoch metrics
