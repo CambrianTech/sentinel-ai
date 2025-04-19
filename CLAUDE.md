@@ -187,3 +187,9 @@ gh pr create --title "Add my feature" --body "..."
 - Always check tensor visualization code to ensure proper .detach().cpu().numpy() conversion
 - Verify all files are properly committed (git status) before ending a session
 - Test notebooks in Colab to ensure they work in both CPU and GPU environments
+- Prefer standard GPT-2 over DistilGPT-2 to avoid potential crashes
+- Always manage memory carefully with strategic `del` and `gc.collect()` calls
+- Clean up disk space by removing old models and large data files when no longer needed
+- Close and release resources like matplotlib figures when done with visualizations
+- Monitor disk space usage and clean up temporary files regularly
+- Use smaller/sampled datasets for testing and demonstrations
