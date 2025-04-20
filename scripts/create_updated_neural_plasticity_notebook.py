@@ -134,7 +134,27 @@ if not ENABLE_LONG_TRAINING:
     NUM_EPOCHS = 3            # Limit epochs for demo purposes
 
 # Configure pruning mode
-from sentinel.pruning.dual_mode_pruning import PruningMode
+try:
+    # First try the new modular structure
+    from utils.neural_plasticity.core import PruningStrategy
+    # Define an enum-like class for compatibility
+    class PruningMode:
+        ADAPTIVE = "adaptive"   # Allows recovery
+        COMPRESSED = "compressed"  # Prevents recovery
+    
+    PRUNING_STRATEGY_CLASS = PruningStrategy
+except ImportError:
+    try:
+        # Fall back to the original structure if in Colab
+        from sentinel.pruning.dual_mode_pruning import PruningMode
+        PRUNING_STRATEGY_CLASS = PruningMode
+    except ImportError:
+        # If all else fails, define a simple enum for the demo
+        class PruningMode:
+            ADAPTIVE = "adaptive"
+            COMPRESSED = "compressed"
+        PRUNING_STRATEGY_CLASS = PruningMode
+        print("WARNING: Using simplified pruning mode classes")
 
 # Set pruning mode (ADAPTIVE allows recovery, COMPRESSED prevents recovery)
 PRUNING_MODE = PruningMode.ADAPTIVE  # Change to PruningMode.COMPRESSED for permanent pruning
@@ -174,9 +194,22 @@ from utils.neural_plasticity.core import (
     apply_pruning_mask,
     evaluate_model,
     IS_APPLE_SILICON,
-    IS_COLAB,
-    safe_matmul
+    IS_COLAB
 )
+
+# Import Apple Silicon optimizations
+try:
+    from utils.apple_silicon import (
+        safe_matmul, 
+        apply_tensor_patches,
+        restore_tensor_patches,
+        safe_context,
+        ensure_cpu_tensor,
+        ensure_cpu_model
+    )
+except ImportError:
+    # Fallback to core module if apple_silicon not available
+    from utils.neural_plasticity.core import safe_matmul
 
 from utils.neural_plasticity.visualization import (
     visualize_head_entropy,
