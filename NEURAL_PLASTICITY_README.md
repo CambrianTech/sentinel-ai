@@ -8,7 +8,7 @@ The Neural Plasticity module provides functionality for transformer models to dy
 - Targeted head revitalization during training
 - Visualization of model brain dynamics
 
-## Recent Fixes (v0.0.55 - 2025-04-19 21:15:00)
+## Recent Fixes (v0.0.56 - 2025-04-19 21:30:00)
 
 We've implemented comprehensive fixes for BLAS/libtorch crashes on Apple Silicon (M1/M2/M3):
 
