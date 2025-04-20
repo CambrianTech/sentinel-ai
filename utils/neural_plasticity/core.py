@@ -243,10 +243,10 @@ def safe_matmul(
 
 def calculate_head_entropy(
     attention_maps: torch.Tensor,
-    eps: float = 1e-6
+    eps: float = 1e-8
 ) -> torch.Tensor:
     """
-    Calculate entropy of attention patterns.
+    Calculate entropy of attention patterns with enhanced numerical stability.
     
     Higher entropy indicates more dispersed/unfocused attention.
     Lower entropy indicates more focused attention.
@@ -289,31 +289,77 @@ def calculate_head_entropy(
         if not attention_maps.is_contiguous():
             attention_maps = attention_maps.contiguous()
     
-    # Calculate entropy with proper numerical stability
-    # Add small epsilon to avoid log(0) issues
+    # Extract shape information for diagnostic and reshape
+    original_shape = attention_maps.shape
+    
+    # Check for valid tensor dimensions
+    if len(original_shape) not in [3, 4]:
+        # Handle unexpected dimensions by reshaping to a valid format
+        # This adds robustness for different model architectures
+        if len(original_shape) > 4:
+            # Flatten extra dimensions by taking mean
+            new_shape = (original_shape[0], original_shape[1], -1)
+            attention_maps = attention_maps.reshape(new_shape)
+        elif len(original_shape) == 2:
+            # Add batch dimension for 2D tensors (special case)
+            attention_maps = attention_maps.unsqueeze(0)
+        elif len(original_shape) == 1:
+            # Reshape 1D tensors to 2D with batch dimension
+            attention_maps = attention_maps.unsqueeze(0).unsqueeze(0)
+    
     # Handle potential NaN or Inf values first
     attn_probs = torch.where(
         torch.isfinite(attention_maps),
         attention_maps,
         torch.ones_like(attention_maps) * eps
     )
+    
+    # Apply stronger epsilon for numerical stability
     attn_probs = attn_probs.clamp(min=eps)
     
     # Normalize to ensure it's a proper probability distribution
-    attn_probs = attn_probs / attn_probs.sum(dim=-1, keepdim=True)
+    # Use dim=-1 to normalize across the attention dimension
+    attn_sum = attn_probs.sum(dim=-1, keepdim=True)
     
-    # Calculate entropy: -sum(p * log(p))
+    # Handle potential division by zero with safe_div
+    attn_probs = attn_probs / torch.max(attn_sum, torch.ones_like(attn_sum) * eps)
+    
     # Cast to float32 for better numerical stability if needed
     if attn_probs.dtype != torch.float32:
         attn_probs = attn_probs.to(torch.float32)
-    entropy = -torch.sum(attn_probs * torch.log(attn_probs), dim=-1)
+    
+    # Calculate entropy: -sum(p * log(p)) with safer log operation
+    log_probs = torch.log(attn_probs)
+    entropy = -torch.sum(attn_probs * log_probs, dim=-1)
+    
+    # Detect and fix any remaining NaN/Inf values after entropy calculation
+    entropy = torch.where(
+        torch.isfinite(entropy),
+        entropy,
+        torch.zeros_like(entropy)
+    )
     
     # Average over batch and sequence length dimensions if present
     dims_to_reduce = list(range(entropy.dim() - 2))
     if dims_to_reduce:
         entropy = entropy.mean(dim=dims_to_reduce)
     
-    return entropy
+    # Normalize by maximum possible entropy (log of sequence length)
+    # This makes entropy values more comparable across different sequence lengths
+    seq_len = original_shape[-1]  # Last dimension is sequence length
+    max_entropy = torch.log(torch.tensor(seq_len, dtype=torch.float32, device=entropy.device))
+    
+    # Apply normalization to [0,1] range
+    normalized_entropy = entropy / max_entropy
+    
+    # Final safety check for any numerical issues
+    normalized_entropy = torch.where(
+        torch.isfinite(normalized_entropy),
+        normalized_entropy,
+        torch.zeros_like(normalized_entropy)
+    )
+    
+    return normalized_entropy
 
 
 def calculate_head_gradients(
@@ -525,6 +571,60 @@ def extract_head_gradient(
     
     # Fallback to None if no appropriate gradient found
     return None
+
+
+def gradient_based_pruning(
+    grad_norm_values: torch.Tensor,
+    prune_percent: float = 0.1,
+    random_seed: Optional[int] = None
+) -> torch.Tensor:
+    """
+    Generate a pruning mask based purely on gradient norms.
+    
+    This strategy targets heads with the LOWEST gradient norms for pruning,
+    as they contribute least to model learning.
+    
+    Args:
+        grad_norm_values: Tensor of gradient norm values for all heads
+        prune_percent: Target percentage of heads to prune (0-1)
+        random_seed: Optional random seed for reproducibility
+        
+    Returns:
+        Boolean tensor where True indicates a head should be pruned
+    """
+    # Set random seed if provided
+    if random_seed is not None:
+        torch.manual_seed(random_seed)
+        np.random.seed(random_seed)
+        if grad_norm_values.is_cuda:
+            torch.cuda.manual_seed(random_seed)
+    
+    # Create pruning mask of the same shape as grad_norm_values
+    pruning_mask = torch.zeros_like(grad_norm_values, dtype=torch.bool)
+    
+    # Flatten tensor for calculating percentiles
+    flat_grad_norm = grad_norm_values.view(-1)
+    
+    # Calculate how many heads we want to prune
+    total_heads = grad_norm_values.numel()
+    target_prune_count = int(total_heads * prune_percent)
+    
+    # Safety check: limit target_prune_count to available heads
+    target_prune_count = min(target_prune_count, total_heads)
+    
+    if target_prune_count == 0:
+        # Nothing to prune
+        return pruning_mask
+    
+    # Get indices of heads with LOWEST gradient norms
+    # Use largest=False to get heads with lowest gradients
+    _, indices = torch.topk(flat_grad_norm, k=target_prune_count, largest=False)
+    
+    # Create pruning mask where True = head should be pruned
+    flat_mask = pruning_mask.view(-1)
+    flat_mask[indices] = True
+    
+    return pruning_mask
 
 
 def generate_pruning_mask(

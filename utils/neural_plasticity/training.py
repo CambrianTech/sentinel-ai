@@ -8,16 +8,19 @@ specialized optimizers, and training loops with plasticity.
 
 import torch
 import numpy as np
+import matplotlib.pyplot as plt
 from typing import Dict, List, Tuple, Optional, Union, Callable, Any
 from tqdm import tqdm
 import time
+import gc
 
 from .core import (
     calculate_head_entropy,
     calculate_head_gradients,
     generate_pruning_mask,
     apply_pruning_mask,
-    evaluate_model
+    evaluate_model,
+    IS_APPLE_SILICON
 )
 
 
@@ -608,3 +611,286 @@ def train_with_plasticity(
         eval_interval=eval_interval,
         callback=callback
     )
+
+
+def run_warmup_phase(
+    model: torch.nn.Module,
+    train_dataloader,
+    max_epochs: int = 1,
+    learning_rate: float = 5e-5,
+    warmup_steps: int = 100,
+    patience: int = 15,
+    min_warmup_steps: int = 50,
+    max_warmup_steps: int = 150,
+    device: Optional[torch.device] = None,
+    verbose: bool = True,
+    visualize: bool = True
+) -> Dict[str, Any]:
+    """
+    Run a warm-up phase until loss stabilizes.
+    
+    This function runs a short training loop to stabilize the model's
+    parameters and metrics before applying neural plasticity.
+    
+    Args:
+        model: The model to warm up
+        train_dataloader: DataLoader for training data
+        max_epochs: Maximum number of epochs to run
+        learning_rate: Learning rate for optimizer
+        warmup_steps: Number of warmup steps for scheduler
+        patience: Number of steps with no decrease to consider loss stabilized
+        min_warmup_steps: Minimum number of warm-up steps before checking stabilization
+        max_warmup_steps: Maximum number of warm-up steps per epoch
+        device: Device to run on (defaults to model's device)
+        verbose: Whether to print progress information
+        visualize: Whether to generate and return visualization
+        
+    Returns:
+        Dictionary with warmup metrics and information
+    """
+    # Automatically handle device placement (with Apple Silicon safety)
+    if device is None:
+        if IS_APPLE_SILICON:
+            device = torch.device('cpu')
+            if verbose:
+                print("🍎 Using CPU device for warmup on Apple Silicon")
+        else:
+            device = next(model.parameters()).device
+            if verbose and torch.cuda.is_available():
+                print(f"Using GPU device for warmup: {torch.cuda.get_device_name(0)}")
+    
+    # Move model to device
+    model = model.to(device)
+    
+    # Initialize optimizer and scheduler
+    optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
+    total_steps = len(train_dataloader) * max_epochs
+    scheduler = torch.optim.lr_scheduler.get_linear_schedule_with_warmup(
+        optimizer, 
+        num_warmup_steps=warmup_steps, 
+        num_training_steps=total_steps
+    )
+    
+    if verbose:
+        print(f"Running warm-up until loss stabilizes (max {max_epochs} epochs)...")
+    
+    # Warm-up training loop
+    model.train()
+    warmup_losses = []
+    warmup_step_losses = []  # For smoothed tracking
+    last_loss_decrease = 0
+    
+    # Helper function to determine if loss has stabilized
+    def is_loss_stabilized(losses, min_steps, patience_steps, window_size=5):
+        """
+        Determine if the loss has stabilized.
+        
+        Args:
+            losses: List of loss values
+            min_steps: Minimum number of steps before stabilization can be determined
+            patience_steps: Number of steps with no decrease to consider stabilized
+            window_size: Window size for rolling average comparison
+            
+        Returns:
+            Tuple of (is_stable, steps_since_decrease)
+        """
+        # Not enough steps yet
+        if len(losses) < min_steps:
+            return False, 0
+
+        # Not enough steps since last decrease
+        steps_since_decrease = len(losses) - last_loss_decrease
+        if steps_since_decrease < patience_steps:
+            return False, steps_since_decrease
+        
+        # Check if recent trend is flat or increasing using rolling average
+        if len(losses) >= window_size * 2:
+            recent_window = sum(losses[-window_size:]) / window_size
+            previous_window = sum(losses[-(window_size*2):-window_size]) / window_size
+            # If recent average is lower than previous, we're still decreasing
+            if recent_window < previous_window * 0.99:  # Allow 1% variation
+                return False, steps_since_decrease
+                
+        return True, steps_since_decrease
+    
+    # Initialize metrics collection
+    epoch_metrics = []
+    total_steps_completed = 0
+    warmup_start_time = time.time()
+    
+    try:
+        for epoch in range(max_epochs):
+            epoch_loss = 0.0
+            epoch_steps = 0
+            
+            for step, batch in enumerate(train_dataloader):
+                # Move batch to device
+                batch = {k: v.to(device) for k, v in batch.items() if isinstance(v, torch.Tensor)}
+                
+                # Forward pass
+                outputs = model(**batch)
+                loss = outputs.loss
+                
+                # Backward pass
+                loss.backward()
+                
+                # Update weights
+                optimizer.step()
+                scheduler.step()
+                optimizer.zero_grad()
+                
+                # Track loss
+                loss_val = loss.item()
+                epoch_loss += loss_val
+                epoch_steps += 1
+                warmup_losses.append(loss_val)
+                total_steps_completed += 1
+                
+                # Update loss tracking
+                if len(warmup_losses) > 1:
+                    # Track non-increasing steps
+                    if loss_val <= warmup_losses[-2]:
+                        last_loss_decrease = len(warmup_losses)
+                    
+                    # For visualization, track a smoothed version (rolling average of 5)
+                    if len(warmup_losses) % 5 == 0:
+                        avg_loss = sum(warmup_losses[-5:]) / 5
+                        warmup_step_losses.append(avg_loss)
+                
+                # Print progress every 5 steps or as requested
+                if verbose and step % 5 == 0:
+                    print(f"Warm-up Epoch {epoch+1}, Step {step}: Loss = {loss_val:.4f}", end='\r')
+                
+                # Check if loss has stabilized
+                is_stable, steps_without_decrease = is_loss_stabilized(
+                    warmup_losses, min_warmup_steps, patience
+                )
+                
+                if is_stable:
+                    if verbose:
+                        print(f"\nWarm-up loss stabilized after {len(warmup_losses)} steps")
+                        print(f"Loss has been non-decreasing for {steps_without_decrease} steps")
+                    break
+                    
+                # Stop after max_warmup_steps for faster execution in demo
+                if step >= max_warmup_steps:
+                    if verbose:
+                        print(f"\nReached maximum warm-up steps per epoch ({max_warmup_steps})")
+                    break
+            
+            # Store epoch metrics
+            if epoch_steps > 0:
+                epoch_metrics.append({
+                    "epoch": epoch + 1,
+                    "loss": epoch_loss / epoch_steps,
+                    "steps": epoch_steps
+                })
+                
+                if verbose:
+                    print(f"\nWarm-up Epoch {epoch+1} completed: Average Loss = {epoch_loss / epoch_steps:.4f}")
+            
+            # Check if loss has stabilized across epochs
+            is_stable, steps_without_decrease = is_loss_stabilized(
+                warmup_losses, min_warmup_steps, patience
+            )
+            
+            if is_stable:
+                if verbose:
+                    print(f"Loss has stabilized with {steps_without_decrease} steps without significant decrease.")
+                    print(f"Ending warm-up early after {epoch+1} epochs.")
+                break
+        
+        # Calculate warmup statistics
+        warmup_duration = time.time() - warmup_start_time
+        
+        fig = None
+        if visualize and len(warmup_losses) > 5:
+            # Create loss visualization
+            fig, axs = plt.subplots(2, 1, figsize=(12, 8))
+            
+            # Raw loss
+            axs[0].plot(warmup_losses)
+            axs[0].set_title("Warm-up Loss (Raw)")
+            axs[0].set_xlabel("Step")
+            axs[0].set_ylabel("Loss")
+            axs[0].grid(True)
+            
+            # Smoothed loss if we have enough data
+            if len(warmup_step_losses) > 1:
+                axs[1].plot(range(0, len(warmup_step_losses)*5, 5), warmup_step_losses)
+                axs[1].set_title("Warm-up Loss (5-step Rolling Average)")
+                axs[1].set_xlabel("Step")
+                axs[1].set_ylabel("Loss")
+                axs[1].grid(True)
+                
+                # Add trend line to smoothed plot
+                from scipy.stats import linregress
+                x = range(0, len(warmup_step_losses)*5, 5)
+                slope, intercept, r_value, p_value, std_err = linregress(x, warmup_step_losses)
+                axs[1].plot(x, [slope*xi + intercept for xi in x], 'r--', 
+                         label=f'Trend: slope={slope:.6f}, R²={r_value**2:.2f}')
+                axs[1].legend()
+            
+            plt.tight_layout()
+        
+        # Segment analysis - compare first third vs last third of training
+        first_avg = 0
+        last_avg = 0
+        improvement = 0
+        still_improving = False
+        
+        if len(warmup_losses) > 6:
+            segment_size = len(warmup_losses) // 3
+            first_segment = warmup_losses[:segment_size]
+            last_segment = warmup_losses[-segment_size:]
+            first_avg = sum(first_segment) / len(first_segment)
+            last_avg = sum(last_segment) / len(last_segment)
+            improvement = (1 - last_avg/first_avg) * 100
+            
+            # Calculate if still improving significantly
+            still_improving = (first_avg - last_avg) / first_avg > 0.01  # More than 1% improvement
+            
+            if verbose:
+                print(f"\nWarm-up Segment Analysis:")
+                print(f"First {segment_size} steps average loss: {first_avg:.4f}")
+                print(f"Last {segment_size} steps average loss: {last_avg:.4f}")
+                print(f"Improvement during warm-up: {improvement:.1f}%")
+                print(f"Is model still significantly improving? {'Yes' if still_improving else 'No'}")
+        
+        # Clean up CUDA memory
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+        
+        # Force garbage collection
+        gc.collect()
+        
+        # Return comprehensive warmup information
+        return {
+            "losses": warmup_losses,
+            "smoothed_losses": warmup_step_losses,
+            "epochs": epoch_metrics,
+            "total_steps": total_steps_completed,
+            "duration": warmup_duration,
+            "initial_loss": warmup_losses[0] if warmup_losses else 0,
+            "final_loss": warmup_losses[-1] if warmup_losses else 0,
+            "improvement_percent": (1 - warmup_losses[-1]/warmup_losses[0])*100 if len(warmup_losses) > 1 else 0,
+            "is_stable": is_stable if 'is_stable' in locals() else False,
+            "steps_without_decrease": steps_without_decrease if 'steps_without_decrease' in locals() else 0,
+            "segment_analysis": {
+                "first_segment_avg": first_avg,
+                "last_segment_avg": last_avg,
+                "improvement": improvement,
+                "still_improving": still_improving
+            },
+            "visualization": fig
+        }
+                
+    except Exception as e:
+        print(f"\nError during warm-up: {e}")
+        # Return partial data on error
+        return {
+            "losses": warmup_losses,
+            "error": str(e),
+            "total_steps": total_steps_completed,
+            "duration": time.time() - warmup_start_time
+        }

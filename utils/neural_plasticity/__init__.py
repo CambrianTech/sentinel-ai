@@ -25,6 +25,7 @@ from .core import (
     calculate_head_entropy,
     calculate_head_gradients,
     generate_pruning_mask,
+    gradient_based_pruning,
     apply_pruning_mask,
     evaluate_model,
     safe_matmul,
@@ -54,7 +55,8 @@ from .training import (
     create_plasticity_trainer,
     run_plasticity_loop,
     train_with_plasticity,
-    get_plasticity_optimizer
+    get_plasticity_optimizer,
+    run_warmup_phase
 )
 
 # Import experiment runner
@@ -164,6 +166,209 @@ class NeuralPlasticity:
         }
     
     @staticmethod
+    def calculate_head_importance(model, dataloader, num_batches=2, mode="combined"):
+        """
+        Calculate importance scores for each attention head.
+        
+        Args:
+            model: The transformer model
+            dataloader: DataLoader for input data
+            num_batches: Number of batches to process
+            mode: Importance metric mode - "entropy", "gradient", or "combined"
+            
+        Returns:
+            Dictionary with importance metrics for each head
+        """
+        import torch
+        
+        # Get device
+        device = next(model.parameters()).device
+        
+        # Calculate entropy values
+        with torch.no_grad():
+            batch = next(iter(dataloader))
+            # Move batch to device
+            inputs = {k: v.to(device) for k, v in batch.items() if isinstance(v, torch.Tensor)}
+            
+            # Forward pass with attention outputs
+            outputs = model(**inputs, output_attentions=True)
+            
+            # Extract attention maps
+            if hasattr(outputs, 'attentions') and outputs.attentions:
+                # Calculate entropy for each layer
+                entropy_values = torch.stack([
+                    calculate_head_entropy(layer_attn) 
+                    for layer_attn in outputs.attentions
+                ])
+            else:
+                raise ValueError("Model does not output attention maps")
+        
+        # Calculate gradient norms
+        grad_norm_values = calculate_head_gradients(model, dataloader, num_batches=num_batches)
+        
+        # Combine metrics if requested
+        if mode == "combined":
+            # Normalize entropy (higher is worse)
+            norm_entropy = (entropy_values - entropy_values.min()) / (entropy_values.max() - entropy_values.min() + 1e-8)
+            
+            # Normalize gradient norms (lower is worse)
+            norm_grad = 1.0 - (grad_norm_values - grad_norm_values.min()) / (grad_norm_values.max() - grad_norm_values.min() + 1e-8)
+            
+            # Combine metrics (higher score = less important head)
+            importance = 1.0 - (norm_entropy * 0.6 + norm_grad * 0.4)
+        elif mode == "entropy":
+            # Lower entropy = more important (focused attention)
+            max_entropy = entropy_values.max()
+            importance = 1.0 - (entropy_values / max_entropy)
+        elif mode == "gradient":
+            # Higher gradient = more important (more learning)
+            max_grad = grad_norm_values.max()
+            importance = grad_norm_values / max_grad
+        else:
+            raise ValueError(f"Unknown importance mode: {mode}")
+        
+        return {
+            "importance": importance,
+            "entropy": entropy_values,
+            "gradients": grad_norm_values
+        }
+    
+    @staticmethod
+    def create_plasticity_trainer(model, learning_rate=5e-5, use_differential_lr=True):
+        """
+        Create a plasticity trainer for fine-tuning models after pruning.
+        
+        Args:
+            model: The transformer model
+            learning_rate: Base learning rate
+            use_differential_lr: Whether to use different learning rates for pruned layers
+            
+        Returns:
+            Plasticity trainer object
+        """
+        return create_plasticity_trainer(
+            model=model,
+            learning_rate=learning_rate,
+            use_differential_lr=use_differential_lr
+        )
+    
+    @staticmethod
+    def prune_model_heads(model, pruning_mask, mode="zero_weights"):
+        """
+        Apply pruning to a model based on a mask.
+        
+        Args:
+            model: The transformer model
+            pruning_mask: Boolean tensor where True indicates heads to prune
+            mode: Pruning mode - "zero_weights", "mask_forward", or "gate"
+            
+        Returns:
+            List of (layer, head) tuples of pruned heads
+        """
+        return apply_pruning_mask(model, pruning_mask, mode)
+    
+    @staticmethod
+    def evaluate_model_performance(model, dataloader, device=None, max_eval_steps=10):
+        """
+        Evaluate model performance.
+        
+        Args:
+            model: The transformer model
+            dataloader: DataLoader for evaluation
+            device: Device to use (defaults to model's device)
+            max_eval_steps: Maximum eval steps
+            
+        Returns:
+            Dictionary with evaluation metrics
+        """
+        return evaluate_model(model, dataloader, device, max_eval_steps)
+    
+    @staticmethod
+    def train_pruned_model(model, train_dataloader, eval_dataloader, 
+                           pruned_heads=None, learning_rate=5e-5, steps=100):
+        """
+        Fine-tune a pruned model to recover performance.
+        
+        Args:
+            model: The pruned model
+            train_dataloader: DataLoader for training
+            eval_dataloader: DataLoader for evaluation
+            pruned_heads: List of (layer, head) tuples of pruned heads
+            learning_rate: Learning rate for training
+            steps: Number of training steps
+            
+        Returns:
+            Dictionary with training metrics
+        """
+        if pruned_heads is None:
+            pruned_heads = []
+            
+        return train_with_plasticity(
+            model=model,
+            train_dataloader=train_dataloader,
+            eval_dataloader=eval_dataloader,
+            pruned_heads=pruned_heads,
+            learning_rate=learning_rate,
+            training_steps=steps
+        )
+    
+    @staticmethod
+    def generate_pruning_mask(grad_values, entropy_values=None, prune_percent=0.2, 
+                             strategy="combined", random_seed=None):
+        """
+        Generate a pruning mask based on head importance metrics.
+        
+        Args:
+            grad_values: Gradient norm values tensor
+            entropy_values: Optional entropy values tensor
+            prune_percent: Percentage of heads to prune (0-1)
+            strategy: Pruning strategy - "gradient", "entropy", "random", or "combined"
+            random_seed: Optional seed for reproducibility
+            
+        Returns:
+            Boolean tensor where True indicates heads to prune
+        """
+        return generate_pruning_mask(
+            grad_norm_values=grad_values,
+            entropy_values=entropy_values,
+            prune_percent=prune_percent,
+            strategy=strategy,
+            random_seed=random_seed
+        )
+    
+    @staticmethod
+    def visualize_head_metrics(entropy_values, grad_norm_values, pruned_heads=None):
+        """
+        Create visualizations for head metrics and pruning decisions.
+        
+        Args:
+            entropy_values: Entropy values tensor
+            grad_norm_values: Gradient norm values tensor
+            pruned_heads: Optional list of (layer, head) tuples of pruned heads
+            
+        Returns:
+            Dictionary of visualization figures
+        """
+        # Create entropy visualization
+        entropy_fig = visualize_head_entropy(
+            entropy_values=entropy_values,
+            title="Attention Head Entropy",
+            annotate=True
+        )
+        
+        # Create gradient visualization
+        grad_fig = visualize_head_gradients(
+            grad_norm_values=grad_norm_values,
+            pruned_heads=pruned_heads,
+            title="Attention Head Gradient Norms"
+        )
+        
+        return {
+            "entropy": entropy_fig,
+            "gradients": grad_fig
+        }
+    
+    @staticmethod
     def run_pruning_cycle(model, train_dataloader, eval_dataloader, 
                           pruning_level=0.2, strategy="combined", 
                           learning_rate=5e-5, training_steps=100,
@@ -195,6 +400,130 @@ class NeuralPlasticity:
             callback=callback
         )
     
+    @staticmethod
+    def create_gradient_pruning_mask(grad_norm_values, prune_percent=0.1):
+        """
+        Generate a pruning mask based purely on gradient norms.
+        
+        This targets heads with the lowest gradients for pruning.
+        
+        Args:
+            grad_norm_values: Tensor of gradient norm values
+            prune_percent: Percentage of heads to prune (0-1)
+            
+        Returns:
+            Boolean tensor where True indicates heads to prune
+        """
+        return gradient_based_pruning(grad_norm_values, prune_percent)
+    
+    @staticmethod
+    def run_warmup_training(model, train_dataloader, max_epochs=1, 
+                           learning_rate=5e-5, patience=15,
+                           device=None, verbose=True):
+        """
+        Run a warmup phase until loss stabilizes.
+        
+        This pre-trains the model until metrics stabilize.
+        
+        Args:
+            model: The model to warm up
+            train_dataloader: DataLoader for training data
+            max_epochs: Maximum epochs to run
+            learning_rate: Learning rate
+            patience: Steps without improvement to consider stable
+            device: Device to run on
+            verbose: Whether to print progress info
+            
+        Returns:
+            Dictionary with warmup metrics
+        """
+        return run_warmup_phase(
+            model=model,
+            train_dataloader=train_dataloader,
+            max_epochs=max_epochs,
+            learning_rate=learning_rate,
+            patience=patience,
+            device=device,
+            verbose=verbose
+        )
+    
+    @staticmethod
+    def diagnose_attention_patterns(model, inputs, device=None):
+        """
+        Diagnose attention patterns with detailed metrics.
+        
+        Args:
+            model: The model to diagnose
+            inputs: Input data batch
+            device: Device to run on
+            
+        Returns:
+            Dictionary with diagnostic information
+        """
+        # Determine device
+        if device is None:
+            if IS_APPLE_SILICON:
+                device = torch.device('cpu')
+            else:
+                device = next(model.parameters()).device
+                
+        # Move inputs to device
+        if isinstance(inputs, dict):
+            inputs = {k: v.to(device) for k, v in inputs.items() if isinstance(v, torch.Tensor)}
+        else:
+            inputs = {"input_ids": inputs[0].to(device)}
+            if len(inputs) > 1:
+                inputs["attention_mask"] = inputs[1].to(device)
+        
+        # Run model to get attention values
+        model.eval()
+        with torch.no_grad():
+            outputs = model(**inputs, output_attentions=True)
+            
+        # Extract and analyze attention tensors
+        if not hasattr(outputs, 'attentions') or outputs.attentions is None:
+            return {"error": "Model does not output attention maps"}
+            
+        attn_tensors = outputs.attentions
+        
+        # Analyze attention statistics
+        layer_stats = []
+        total_entropy = 0
+        
+        for layer_idx, layer_attn in enumerate(attn_tensors):
+            # Basic tensor statistics
+            has_nan = torch.isnan(layer_attn).any().item()
+            has_inf = torch.isinf(layer_attn).any().item()
+            
+            # Check row sum = 1
+            row_sums = layer_attn.sum(dim=-1)
+            valid_sum = torch.allclose(row_sums, torch.ones_like(row_sums), rtol=1e-3)
+            
+            # Calculate entropy for this layer
+            layer_entropy = calculate_head_entropy(layer_attn)
+            total_entropy += layer_entropy.mean().item()
+            
+            # Store layer statistics
+            layer_stats.append({
+                "layer_idx": layer_idx,
+                "shape": list(layer_attn.shape),
+                "min": layer_attn.min().item(),
+                "max": layer_attn.max().item(),
+                "mean": layer_attn.mean().item(),
+                "has_nan": has_nan,
+                "has_inf": has_inf, 
+                "valid_sum": valid_sum,
+                "entropy": layer_entropy.detach().cpu().numpy().tolist()
+            })
+        
+        # Return comprehensive diagnostic information
+        return {
+            "layer_count": len(attn_tensors),
+            "layer_stats": layer_stats,
+            "total_entropy": total_entropy / len(attn_tensors),
+            "attention_tensors": [attn.detach().cpu() for attn in attn_tensors]
+        }
+        
     @staticmethod
     def run_full_experiment(model_name="distilgpt2", output_dir="plasticity_results",
                             pruning_strategy="entropy", prune_percent=0.2,
