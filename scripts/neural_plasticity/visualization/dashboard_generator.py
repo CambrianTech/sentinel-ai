@@ -276,64 +276,276 @@ def generate_dashboards(experiment, output_dir=None, show=True):
     return figures
 
 
+def generate_dashboard(experiment_dir, output_path, model_name="distilgpt2", pruning_strategy="entropy", pruning_level=0.2):
+    """
+    Generate a simple HTML dashboard for a neural plasticity experiment.
+    
+    Args:
+        experiment_dir: Directory containing experiment results
+        output_path: Path to save the HTML dashboard
+        model_name: Name of the model used in the experiment
+        pruning_strategy: Pruning strategy used
+        pruning_level: Pruning level used
+        
+    Returns:
+        Path to the generated dashboard HTML file
+    """
+    import json
+    import glob
+    from datetime import datetime
+    
+    # Create a simple HTML dashboard
+    html_content = f"""
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Neural Plasticity Dashboard</title>
+        <style>
+            body {{
+                font-family: Arial, sans-serif;
+                line-height: 1.6;
+                margin: 0;
+                padding: 20px;
+                color: #333;
+                max-width: 1200px;
+                margin: 0 auto;
+            }}
+            header {{
+                background-color: #f5f5f5;
+                padding: 20px;
+                border-radius: 5px;
+                margin-bottom: 20px;
+                border-left: 5px solid #3498db;
+            }}
+            h1 {{
+                margin: 0;
+                color: #2c3e50;
+            }}
+            h2 {{
+                color: #3498db;
+                border-bottom: 2px solid #eee;
+                padding-bottom: 10px;
+                margin-top: 30px;
+            }}
+            .info-box {{
+                background-color: #f9f9f9;
+                border: 1px solid #ddd;
+                border-radius: 5px;
+                padding: 15px;
+                margin-bottom: 20px;
+            }}
+            .metrics {{
+                display: flex;
+                flex-wrap: wrap;
+                gap: 20px;
+                margin-bottom: 20px;
+            }}
+            .metric-card {{
+                flex: 1;
+                min-width: 200px;
+                background-color: #fff;
+                border: 1px solid #ddd;
+                border-radius: 5px;
+                padding: 15px;
+                box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            }}
+            .metric-value {{
+                font-size: 24px;
+                font-weight: bold;
+                color: #3498db;
+                margin: 10px 0;
+            }}
+            .image-gallery {{
+                display: grid;
+                grid-template-columns: repeat(auto-fill, minmax(400px, 1fr));
+                gap: 20px;
+                margin-top: 20px;
+            }}
+            .image-container {{
+                border: 1px solid #ddd;
+                border-radius: 5px;
+                overflow: hidden;
+                box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            }}
+            .image-container img {{
+                width: 100%;
+                display: block;
+            }}
+            .image-caption {{
+                padding: 10px;
+                background-color: #f5f5f5;
+                text-align: center;
+                font-size: 14px;
+            }}
+            footer {{
+                margin-top: 40px;
+                padding-top: 20px;
+                border-top: 1px solid #eee;
+                text-align: center;
+                font-size: 14px;
+                color: #777;
+            }}
+        </style>
+    </head>
+    <body>
+        <header>
+            <h1>Neural Plasticity Experiment Dashboard</h1>
+            <p>Generated on {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
+        </header>
+        
+        <section class="info-box">
+            <h2>Experiment Configuration</h2>
+            <div class="metrics">
+                <div class="metric-card">
+                    <h3>Model</h3>
+                    <div class="metric-value">{model_name}</div>
+                </div>
+                <div class="metric-card">
+                    <h3>Pruning Strategy</h3>
+                    <div class="metric-value">{pruning_strategy}</div>
+                </div>
+                <div class="metric-card">
+                    <h3>Pruning Level</h3>
+                    <div class="metric-value">{pruning_level}</div>
+                </div>
+            </div>
+        </section>
+    """
+    
+    # Try to find metrics.json file
+    metrics_file = os.path.join(experiment_dir, "metrics.json")
+    if os.path.exists(metrics_file):
+        try:
+            with open(metrics_file, "r") as f:
+                metrics = json.load(f)
+            
+            # Add metrics section
+            html_content += """
+        <section>
+            <h2>Performance Metrics</h2>
+            <div class="metrics">
+            """
+            
+            # Baseline metrics
+            baseline = metrics.get("baseline", {})
+            if baseline:
+                html_content += f"""
+                <div class="metric-card">
+                    <h3>Baseline Perplexity</h3>
+                    <div class="metric-value">{baseline.get("perplexity", "N/A")}</div>
+                </div>
+                """
+            
+            # Final metrics
+            final = metrics.get("final", {})
+            if final:
+                html_content += f"""
+                <div class="metric-card">
+                    <h3>Final Perplexity</h3>
+                    <div class="metric-value">{final.get("perplexity", "N/A")}</div>
+                </div>
+                """
+            
+            # Improvement
+            if baseline and final and "perplexity" in baseline and "perplexity" in final:
+                baseline_perplexity = baseline["perplexity"]
+                final_perplexity = final["perplexity"]
+                if baseline_perplexity > 0 and final_perplexity > 0:
+                    improvement = (baseline_perplexity - final_perplexity) / baseline_perplexity * 100
+                    html_content += f"""
+                    <div class="metric-card">
+                        <h3>Perplexity Improvement</h3>
+                        <div class="metric-value">{improvement:.2f}%</div>
+                    </div>
+                    """
+            
+            html_content += """
+            </div>
+        </section>
+            """
+        except Exception as e:
+            print(f"Error loading metrics file: {e}")
+    
+    # Find visualization images
+    html_content += """
+        <section>
+            <h2>Visualizations</h2>
+            <div class="image-gallery">
+    """
+    
+    # Search for visualization images
+    visualization_dirs = [
+        os.path.join(experiment_dir, "visualizations"),
+        os.path.join(experiment_dir, "warmup"),
+        os.path.join(experiment_dir, "pruning"),
+        os.path.join(experiment_dir, "fine_tuning"),
+        os.path.join(experiment_dir, "dashboards")
+    ]
+    
+    found_images = False
+    for viz_dir in visualization_dirs:
+        if os.path.exists(viz_dir):
+            image_files = glob.glob(os.path.join(viz_dir, "*.png"))
+            image_files += glob.glob(os.path.join(viz_dir, "*.jpg"))
+            
+            for img_file in image_files:
+                img_name = os.path.basename(img_file)
+                # Make a relative path from output_path to img_file
+                rel_path = os.path.relpath(img_file, os.path.dirname(output_path))
+                html_content += f"""
+                <div class="image-container">
+                    <img src="{rel_path}" alt="{img_name}">
+                    <div class="image-caption">{img_name}</div>
+                </div>
+                """
+                found_images = True
+    
+    if not found_images:
+        html_content += """
+            <p>No visualization images found.</p>
+        """
+    
+    html_content += """
+            </div>
+        </section>
+        
+        <footer>
+            <p>Generated by Sentinel AI Neural Plasticity Module v0.1.0</p>
+            <p>© 2025 Sentinel AI Project</p>
+        </footer>
+    </body>
+    </html>
+    """
+    
+    # Write the HTML file
+    with open(output_path, "w") as f:
+        f.write(html_content)
+    
+    print(f"Dashboard generated at {output_path}")
+    return output_path
+
+
 def main():
     """Main function to parse arguments and generate dashboards."""
     parser = argparse.ArgumentParser(description="Generate neural plasticity dashboards")
-    parser.add_argument('--experiment_file', type=str, help='Path to experiment pickle file')
-    parser.add_argument('--output_dir', type=str, default='viz_output', help='Directory to save visualizations')
-    parser.add_argument('--no_show', action='store_true', help='Do not display plots (useful for headless environments)')
+    parser.add_argument('--experiment_dir', type=str, required=True, help='Directory containing experiment results')
+    parser.add_argument('--output_path', type=str, default='dashboard.html', help='Path to save the HTML dashboard')
+    parser.add_argument('--model_name', type=str, default='distilgpt2', help='Model name')
+    parser.add_argument('--pruning_strategy', type=str, default='entropy', help='Pruning strategy used')
+    parser.add_argument('--pruning_level', type=float, default=0.2, help='Pruning level used')
     
     args = parser.parse_args()
     
-    # Load experiment
-    if args.experiment_file:
-        try:
-            experiment = load_experiment(args.experiment_file)
-        except Exception as e:
-            print(f"Error loading experiment file: {e}")
-            return
-    else:
-        # For testing: Create a dummy experiment with synthetic data
-        experiment = {
-            'warmup': {
-                'losses': [5.0, 4.8, 4.5, 4.2, 4.0, 3.8, 3.7, 3.6, 3.55, 3.53, 3.52, 3.51, 3.50, 3.49, 3.485],
-                'is_stable': True,
-                'steps_without_decrease': 3,
-                'initial_loss': 5.0,
-                'final_loss': 3.485,
-                'segment_analysis': {
-                    'segment_size': 5,
-                    'first_segment_avg': 4.5,
-                    'last_segment_avg': 3.5,
-                    'improvement': 22.2,
-                    'still_improving': False
-                }
-            },
-            'pruning': {
-                'training_metrics': {
-                    'train_loss': [3.5, 3.55, 3.6, 3.65, 3.7, 3.65, 3.6, 3.55, 3.5, 3.45],
-                    'step': list(range(10)),
-                    'perplexity': [30.0, 32.0, 33.0, 34.0, 35.0, 34.0, 33.0, 32.0, 31.0, 30.0],
-                    'pruned_heads': [0, 2, 4, 6, 8, 10, 12, 14, 16, 16],
-                    'sparsity': [0.0, 5.0, 10.0, 15.0, 20.0, 25.0, 30.0, 35.0, 40.0, 40.0]
-                }
-            },
-            'fine_tuning': {
-                'training_metrics': {
-                    'train_loss': [3.4, 3.3, 3.2, 3.1, 3.0, 2.9, 2.8, 2.7, 2.6, 2.5],
-                    'step': list(range(10)),
-                    'perplexity': [30.0, 28.0, 26.0, 24.0, 22.0, 20.0, 18.0, 16.0, 14.0, 12.0]
-                }
-            }
-        }
-        print("No experiment file provided. Using synthetic data for demonstration.")
-    
-    # Generate dashboards
-    figures = generate_dashboards(experiment, args.output_dir, show=not args.no_show)
-    
-    # Show plots if not in headless mode
-    if not args.no_show:
-        plt.show()
+    # Generate dashboard
+    generate_dashboard(
+        experiment_dir=args.experiment_dir,
+        output_path=args.output_path,
+        model_name=args.model_name,
+        pruning_strategy=args.pruning_strategy,
+        pruning_level=args.pruning_level
+    )
 
 
 if __name__ == "__main__":
