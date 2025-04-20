@@ -7,6 +7,12 @@ These utilities assist with:
 - Managing memory for optimal training performance
 - Monitoring available resources
 - Visualizing tensors safely across CPU/GPU environments
+- Supporting decision visualization galleries
+- Generating interactive HTML reports
+- Creating modal popups for high-resolution visualizations
+- Supporting comprehensive neural plasticity experiments
+
+Version: v0.0.42 (2025-04-20 23:59:00)
 """
 
 import os

@@ -33,11 +33,15 @@
    - Optimize pruning strategies and ratios based on feedback
    - Track decision evolution across episodes
 
-6. **Interpretable Plasticity Reports** (Next Priority)
+6. **Interpretable Plasticity Reports with Decision Visualization** (Next Priority) ✅
+   - Create detailed decision visualizations explaining pruning and growing choices ✅
+   - Implement comprehensive pruning decision visualization function ✅ 
+   - Implement growing decision visualization function ✅
+   - Add Decision Visualizations tab to HTML report with modal popups ✅
+   - Add detailed JSON export of decision criteria ✅
    - Create policy entropy trace visualizations
    - Develop reward landscape analysis tools
    - Build meta-strategy evolution tracking
-   - Generate scientific reports on plasticity findings
 
 7. **Visualization Tools for Controller Learning**
    - Create real-time visualization of controller decisions
@@ -111,6 +115,14 @@
     - Fix issues with entropy-based head pruning implementation ✅
     - Add better diagnostics and reporting for pruning effectiveness ✅
     - Implement CI pipeline for automated pruning tests ✅
+    
+16.2 **End-to-End Neural Plasticity Experiment** (Current Focus)
+    - Run full experiment with the enhanced decision visualization system
+    - Generate comprehensive HTML report with decision galleries
+    - Run with real models and datasets (not simulated)
+    - Capture all phase transitions with stabilization detection
+    - Perform text generation after each pruning event
+    - Document the complete neural plasticity process
 
 ## Research Directions
 

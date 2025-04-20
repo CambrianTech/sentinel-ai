@@ -5,8 +5,13 @@ This module implements the fundamental algorithms for neural plasticity, includi
 - Entropy and gradient-based head importance calculations
 - Pruning mask generation and application
 - Model evaluation functions
+- Comprehensive pruning and growing decision process
 
-Version: v0.0.59 (2025-04-20 23:45:00)
+The neural plasticity system provides transparent decision-making through
+detailed visualizations that explain exactly why specific heads are selected 
+for pruning or growing, making the entire process interpretable.
+
+Version: v0.0.60 (2025-04-20 23:55:00)
 """
 
 import torch

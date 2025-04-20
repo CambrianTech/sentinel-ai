@@ -20,6 +20,7 @@ import base64
 from io import BytesIO
 import time
 import random
+import re
 from datetime import datetime
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from matplotlib.patches import Rectangle
@@ -2042,7 +2043,7 @@ class NeuralPlasticityExperiment:
                 <div class="metric-card">
                     <div class="metric-title">FINAL LOSS</div>
                     <div class="metric-value">{self.losses[-1]:.4f}</div>
-                    <div class="metric-improvement">↓ {(1 - self.losses[-1]/self.losses[0])*100:.1f}% improvement</div>
+                    <div class="metric-improvement">↓ {(1 - self.losses[-1]/self.losses[self.stabilization_point if hasattr(self, 'stabilization_point') else 0])*100:.1f}% improvement from stabilization</div>
                 </div>
             </div>
             
@@ -2093,7 +2094,7 @@ class NeuralPlasticityExperiment:
                 <ul>
                     <li>Initial rapid improvement during the first {self.stabilization_point if hasattr(self, 'stabilization_point') else '~30'} steps</li>
                     <li>Temporary performance drops after pruning events, followed by recovery periods that stabilize on their own</li>
-                    <li>Overall {(1 - self.losses[-1]/self.losses[0])*100:.1f}% improvement in loss from initial to final state</li>
+                    <li>Overall {(1 - self.losses[-1]/self.losses[self.stabilization_point if hasattr(self, 'stabilization_point') else 0])*100:.1f}% improvement in loss from stabilization point to final state</li>
                     <li>Final model sparsity of {self.sparsity_history[-1][1] if self.sparsity_history else 0:.1f}%</li>
                     <li>Dynamic phase transitions based on mathematical stability detection rather than fixed schedules</li>
                 </ul>
@@ -3082,17 +3083,42 @@ class NeuralPlasticityExperiment:
 
 def main():
     """Main function to run the experiment"""
+    import argparse
+    
+    # Parse command line arguments
+    parser = argparse.ArgumentParser(description="Run Neural Plasticity Experiment")
+    parser.add_argument("--model_name", type=str, default="distilgpt2", help="Model name")
+    parser.add_argument("--dataset_name", type=str, default="wikitext", help="Dataset name")
+    parser.add_argument("--warmup_steps", type=int, default=20, help="Number of warmup steps")
+    parser.add_argument("--pruning_strategy", type=str, default="combined", help="Pruning strategy (combined, entropy, gradient)")
+    parser.add_argument("--pruning_level", type=float, default=0.15, help="Pruning level (0-1)")
+    parser.add_argument("--enable_growth", type=str, default="True", help="Enable head growth/cloning")
+    parser.add_argument("--output_dir", type=str, default="dynamic_plasticity_experiment", help="Output directory")
+    parser.add_argument("--generate_report_only", action="store_true", help="Only generate the HTML report without running the experiment")
+    parser.add_argument("--seed", type=int, default=42, help="Random seed")
+    args = parser.parse_args()
+    
+    # Convert string true/false to boolean
+    enable_growth = args.enable_growth.lower() == "true"
+    
     print("Starting Dynamic Neural Plasticity Experiment")
     
     # Create experiment
     experiment = NeuralPlasticityExperiment(
-        model_name="distilgpt2",
-        output_dir="dynamic_plasticity_experiment",
-        seed=42
+        model_name=args.model_name,
+        output_dir=args.output_dir,
+        seed=args.seed
     )
     
-    # Run experiment
-    experiment.run_experiment(num_steps=150)
+    # Run experiment if not generating report only
+    if not args.generate_report_only:
+        experiment.run_experiment(num_steps=150)
+    else:
+        # For report-only mode, load the previous experiment data
+        # This would need to be implemented to load previous experiment data
+        print("Generating HTML report only without running the experiment")
+        # Just generate the HTML report
+        experiment.generate_html_report()
     
     # Open HTML report
     html_path = experiment.output_dir / "dynamic_plasticity_report.html"

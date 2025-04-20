@@ -3,9 +3,16 @@ Neural Plasticity Visualization
 
 This module provides visualization utilities for neural plasticity experiments.
 It visualizes head entropy, gradients, pruning decisions, training metrics,
-and attention patterns.
+attention patterns, and detailed decision processes.
 
-Version: v0.0.65 (2025-04-20 23:45:00)
+The visualization system includes comprehensive dashboards showing:
+- Warmup phase stabilization detection
+- Pruning decision visualizations explaining why heads were selected
+- Growing decision visualizations showing head cloning criteria
+- Complete neural plasticity process visualization across all phases
+- Interactive HTML reporting with decision galleries and modal popups
+
+Version: v0.0.66 (2025-04-20 23:55:00)
 """
 
 import torch
