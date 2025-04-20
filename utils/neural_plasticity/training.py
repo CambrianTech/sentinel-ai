@@ -1,9 +1,14 @@
 """
-Neural Plasticity Training
+Neural Plasticity Training v0.0.64 (2025-04-20 14:45:00)
 
 This module provides training utilities for neural plasticity experiments,
 including differential learning rates for pruned vs. unpruned heads,
 specialized optimizers, and training loops with plasticity.
+
+Added features:
+- Sample text generation during training for better monitoring
+- Per-token perplexity calculation and display 
+- Polynomial curve fitting for improved loss stabilization detection
 """
 
 import torch
@@ -288,17 +293,21 @@ class PlasticityTrainer:
             self.optimizer, T_max=total_steps, eta_min=self.base_lr * 0.1
         )
     
-    def train_step(self, batch):
+    def train_step(self, batch, show_samples=False, tokenizer=None, sample_step=10):
         """
         Perform a single training step.
         
         Args:
             batch: Training batch data
+            show_samples: Whether to display sample texts and predictions
+            tokenizer: Tokenizer for decoding tokens (required if show_samples=True)
+            sample_step: Only show samples every N steps
             
         Returns:
-            Loss value
+            Dictionary with loss value and optionally sample information
         """
         self.model.train()
+        result = {"loss": None, "sample": None}
         
         # Move batch to device
         if isinstance(batch, dict):
@@ -317,17 +326,29 @@ class PlasticityTrainer:
         if hasattr(outputs, "loss"):
             loss = outputs.loss
         else:
-            loss_fn = torch.nn.CrossEntropyLoss()
+            loss_fn = torch.nn.CrossEntropyLoss(reduction='none')
             
             if "labels" in inputs:
                 labels = inputs["labels"]
+                logits = outputs.logits
             else:
                 # For causal language modeling, shift labels
                 labels = inputs["input_ids"].clone()
                 labels = labels[:, 1:].contiguous()
                 logits = outputs.logits[:, :-1, :].contiguous()
             
-            loss = loss_fn(logits.view(-1, logits.size(-1)), labels.view(-1))
+            # Get per-token loss for perplexity calculation if needed
+            per_token_loss = loss_fn(logits.view(-1, logits.size(-1)), labels.view(-1))
+            loss = per_token_loss.mean()
+        
+        # Process sample text and predictions if requested
+        if show_samples and tokenizer is not None and hasattr(self, "_step_counter"):
+            self._step_counter += 1
+            if self._step_counter % sample_step == 0:
+                result["sample"] = self._process_sample(inputs, outputs, tokenizer)
+        elif show_samples and tokenizer is not None:
+            self._step_counter = 1
+            result["sample"] = self._process_sample(inputs, outputs, tokenizer)
         
         # Backward pass
         self.optimizer.zero_grad()
@@ -336,7 +357,71 @@ class PlasticityTrainer:
         self.optimizer.step()
         self.scheduler.step()
         
-        return loss.item()
+        result["loss"] = loss.item()
+        return result
+        
+    def _process_sample(self, inputs, outputs, tokenizer):
+        """
+        Process a sample from the batch to show model predictions.
+        
+        Args:
+            inputs: Input tensors
+            outputs: Model outputs
+            tokenizer: Tokenizer for decoding
+            
+        Returns:
+            Dictionary with sample information
+        """
+        try:
+            with torch.no_grad():
+                # Get input text from a random position in the batch
+                batch_size = inputs["input_ids"].shape[0]
+                sample_idx = torch.randint(0, batch_size, (1,)).item()
+                
+                # Get the input sequence
+                input_ids = inputs["input_ids"][sample_idx]
+                input_text = tokenizer.decode(input_ids)
+                
+                # Get predictions
+                logits = outputs.logits[sample_idx]
+                
+                # For each position, get the predicted next token
+                predictions = []
+                for i in range(min(len(input_ids) - 1, 10)):  # Limit to 10 positions for clarity
+                    pos_logits = logits[i]
+                    next_token_id = torch.argmax(pos_logits).item()
+                    next_token = tokenizer.decode([next_token_id])
+                    
+                    # Get probability and actual next token
+                    probs = torch.softmax(pos_logits, dim=0)
+                    next_token_prob = probs[next_token_id].item()
+                    
+                    actual_token_id = input_ids[i + 1].item()
+                    actual_token = tokenizer.decode([actual_token_id])
+                    actual_token_prob = probs[actual_token_id].item()
+                    
+                    # Calculate per-token perplexity (exp of negative log probability)
+                    token_perplexity = torch.exp(-torch.log(probs[actual_token_id])).item()
+                    
+                    predictions.append({
+                        "position": i,
+                        "context": tokenizer.decode(input_ids[:i+1]),
+                        "predicted_token": next_token,
+                        "predicted_prob": next_token_prob,
+                        "actual_token": actual_token,
+                        "actual_prob": actual_token_prob,
+                        "perplexity": token_perplexity
+                    })
+                
+                return {
+                    "input_text": input_text,
+                    "predictions": predictions
+                }
+        except Exception as e:
+            return {
+                "error": str(e),
+                "input_text": "Error processing sample"
+            }
     
     def train(
         self,
@@ -344,7 +429,11 @@ class PlasticityTrainer:
         eval_dataloader,
         steps: int,
         eval_interval: int = 50,
-        callback: Optional[Callable[[int, Dict[str, float]], None]] = None
+        callback: Optional[Callable[[int, Dict[str, float]], None]] = None,
+        show_samples: bool = False,
+        tokenizer=None,
+        sample_interval: int = 10,
+        sample_callback: Optional[Callable[[Dict], None]] = None
     ) -> Dict[str, List[float]]:
         """
         Train the model.
@@ -355,6 +444,10 @@ class PlasticityTrainer:
             steps: Number of training steps
             eval_interval: Interval for evaluation and callback
             callback: Optional callback function called after each evaluation
+            show_samples: Whether to display sample predictions during training
+            tokenizer: Tokenizer for decoding tokens (required if show_samples=True)
+            sample_interval: Interval for showing sample predictions
+            sample_callback: Optional callback for handling sample data
             
         Returns:
             Dictionary with training metrics history
@@ -374,6 +467,13 @@ class PlasticityTrainer:
             "step": []
         }
         
+        # Add sample tracking if enabled
+        if show_samples:
+            metrics_history["samples"] = []
+            if tokenizer is None:
+                print("Warning: show_samples=True but no tokenizer provided. Samples will not be shown.")
+                show_samples = False
+        
         # Training loop
         self.model.train()
         global_step = 0
@@ -388,12 +488,36 @@ class PlasticityTrainer:
                 train_iterator = iter(train_dataloader)
                 batch = next(train_iterator)
             
-            # Train step
-            loss = self.train_step(batch)
+            # Train step with sample processing if enabled
+            step_result = self.train_step(
+                batch,
+                show_samples=show_samples,
+                tokenizer=tokenizer,
+                sample_step=sample_interval
+            )
+            
+            loss = step_result["loss"]
+            sample_data = step_result.get("sample")
             
             # Update progress bar
             progress_bar.update(1)
             progress_bar.set_postfix(loss=f"{loss:.4f}", lr=f"{self.scheduler.get_last_lr()[0]:.2e}")
+            
+            # Handle sample data if available
+            if sample_data is not None:
+                # Store sample in history
+                if "samples" in metrics_history:
+                    metrics_history["samples"].append({
+                        "step": global_step,
+                        "data": sample_data
+                    })
+                
+                # Call sample callback if provided
+                if sample_callback:
+                    sample_callback(global_step, sample_data)
+                elif show_samples:
+                    # Print sample data directly if no callback is provided
+                    self._display_sample(global_step, sample_data)
             
             # Evaluate and log metrics
             if global_step % eval_interval == 0 or global_step == steps - 1:
@@ -424,6 +548,51 @@ class PlasticityTrainer:
         
         progress_bar.close()
         return metrics_history
+        
+    def _display_sample(self, step, sample_data):
+        """
+        Display sample prediction data in a formatted way.
+        
+        Args:
+            step: Current training step
+            sample_data: Sample prediction data
+        """
+        if "error" in sample_data:
+            print(f"\nSample processing error at step {step}: {sample_data['error']}")
+            return
+            
+        # Print header
+        print(f"\n{'='*80}")
+        print(f"Sample predictions at step {step}:")
+        print(f"{'='*80}")
+        
+        # Print input text (truncated if too long)
+        input_text = sample_data["input_text"]
+        if len(input_text) > 100:
+            input_text = input_text[:97] + "..."
+        print(f"Input text: {input_text}")
+        print(f"{'-'*80}")
+        
+        # Print predictions
+        if "predictions" in sample_data and sample_data["predictions"]:
+            print(f"{'Position':<10} {'Context':<30} {'Predicted':<15} {'Actual':<15} {'Perplexity':<10}")
+            print(f"{'-'*80}")
+            
+            for pred in sample_data["predictions"]:
+                # Truncate context if too long
+                context = pred["context"]
+                if len(context) > 28:
+                    context = "..." + context[-25:]
+                
+                # Format prediction and actual token
+                predicted = f"{pred['predicted_token']} ({pred['predicted_prob']:.2f})"
+                actual = f"{pred['actual_token']} ({pred['actual_prob']:.2f})"
+                
+                print(f"{pred['position']:<10} {context:<30} {predicted:<15} {actual:<15} {pred['perplexity']:<10.2f}")
+        else:
+            print("No predictions available")
+        
+        print(f"{'='*80}\n")
 
 
 def create_plasticity_trainer(
@@ -556,7 +725,10 @@ def run_plasticity_loop(
     learning_rate: float = 5e-5,
     training_steps: int = 500,
     use_differential_lr: bool = True,
-    callback: Optional[Callable[[str, int, Dict[str, Any]], None]] = None
+    callback: Optional[Callable[[str, int, Dict[str, Any]], None]] = None,
+    show_samples: bool = False,
+    tokenizer=None,
+    sample_interval: int = 20
 ) -> Dict[str, Any]:
     """
     Run complete neural plasticity loop: Prune → Train → Evaluate.
@@ -571,11 +743,19 @@ def run_plasticity_loop(
         training_steps: Number of training steps
         use_differential_lr: Whether to use different learning rates for pruned layers
         callback: Optional callback function for monitoring progress
+        show_samples: Whether to display sample predictions during training
+        tokenizer: Tokenizer for decoding tokens (required if show_samples=True)
+        sample_interval: Interval for showing sample predictions
         
     Returns:
         Dictionary with experiment results
     """
     device = next(model.parameters()).device
+    
+    # Verify tokenizer if samples are requested
+    if show_samples and tokenizer is None:
+        print("Warning: show_samples=True but no tokenizer provided. Samples will not be shown.")
+        show_samples = False
     
     # 1. Initial evaluation
     print("Evaluating baseline model...")
@@ -661,17 +841,26 @@ def run_plasticity_loop(
         total_steps=training_steps
     )
     
-    # Define callback that forwards to the main callback
+    # Define callbacks that forward to the main callback
     def train_callback(step, metrics):
         if callback:
             callback("training", step, metrics)
     
+    def sample_callback(step, sample_data):
+        if callback:
+            callback("sample", step, sample_data)
+    
+    # Train with sample display if requested
     training_metrics = trainer.train(
         train_dataloader=train_dataloader,
         eval_dataloader=eval_dataloader,
         steps=training_steps,
         eval_interval=max(1, training_steps // 10),
-        callback=train_callback
+        callback=train_callback,
+        show_samples=show_samples,
+        tokenizer=tokenizer,
+        sample_interval=sample_interval,
+        sample_callback=sample_callback if callback else None
     )
     
     # 7. Final evaluation
@@ -695,7 +884,7 @@ def run_plasticity_loop(
     print(f"Recovery rate: {recovery_rate*100:.2f}%")
     
     # 9. Return results
-    return {
+    results = {
         "baseline_metrics": baseline_metrics,
         "pruned_metrics": pruned_metrics,
         "final_metrics": final_metrics,
@@ -709,6 +898,12 @@ def run_plasticity_loop(
         "strategy": strategy,
         "pruning_level": pruning_level
     }
+    
+    # Store samples if available
+    if show_samples and "samples" in training_metrics:
+        results["samples"] = training_metrics["samples"]
+    
+    return results
 
 
 def train_with_plasticity(
@@ -720,7 +915,11 @@ def train_with_plasticity(
     training_steps: int = 500,
     use_differential_lr: bool = True,
     eval_interval: int = 50,
-    callback: Optional[Callable[[int, Dict[str, float]], None]] = None
+    callback: Optional[Callable[[int, Dict[str, float]], None]] = None,
+    show_samples: bool = False,
+    tokenizer=None,
+    sample_interval: int = 20,
+    sample_callback: Optional[Callable[[int, Dict], None]] = None
 ) -> Dict[str, List[float]]:
     """
     Train a model with neural plasticity.
@@ -735,10 +934,19 @@ def train_with_plasticity(
         use_differential_lr: Whether to use different learning rates for pruned layers
         eval_interval: Interval for evaluation and callback
         callback: Optional callback function for monitoring progress
+        show_samples: Whether to display sample predictions during training
+        tokenizer: Tokenizer for decoding tokens (required if show_samples=True)
+        sample_interval: Interval for showing sample predictions
+        sample_callback: Optional callback for handling sample data
         
     Returns:
         Dictionary with training metrics history
     """
+    # Verify tokenizer if samples are requested
+    if show_samples and tokenizer is None:
+        print("Warning: show_samples=True but no tokenizer provided. Samples will not be shown.")
+        show_samples = False
+    
     trainer = PlasticityTrainer(
         model=model,
         learning_rate=learning_rate,
@@ -756,7 +964,11 @@ def train_with_plasticity(
         eval_dataloader=eval_dataloader,
         steps=training_steps,
         eval_interval=eval_interval,
-        callback=callback
+        callback=callback,
+        show_samples=show_samples,
+        tokenizer=tokenizer,
+        sample_interval=sample_interval,
+        sample_callback=sample_callback
     )
 
 
@@ -834,13 +1046,13 @@ def run_warmup_phase(
     # Helper function to determine if loss has stabilized
     def is_loss_stabilized(losses, min_steps, patience_steps, window_size=5):
         """
-        Determine if the loss has stabilized.
+        Determine if the loss has stabilized using polynomial fitting.
         
         Args:
             losses: List of loss values
             min_steps: Minimum number of steps before stabilization can be determined
             patience_steps: Number of steps with no decrease to consider stabilized
-            window_size: Window size for rolling average comparison
+            window_size: Window size for trend analysis
             
         Returns:
             Tuple of (is_stable, steps_since_decrease)
@@ -849,12 +1061,66 @@ def run_warmup_phase(
         if len(losses) < min_steps:
             return False, 0
 
-        # Not enough steps since last decrease
+        # Track steps since last decrease for traditional methods
         steps_since_decrease = len(losses) - last_loss_decrease
         if steps_since_decrease < patience_steps:
             return False, steps_since_decrease
         
-        # Check if recent trend is flat or increasing using rolling average
+        # Use polynomial fitting for more robust trend detection
+        try:
+            import numpy as np
+            from scipy.optimize import curve_fit
+            
+            # Only analyze the most recent portion to detect current trend
+            # Use last 20 steps or all available steps if fewer
+            analysis_window = min(20, len(losses))
+            recent_losses = losses[-analysis_window:]
+            x_data = np.array(range(len(recent_losses)))
+            y_data = np.array(recent_losses)
+            
+            # Define polynomial function (degree 2 = quadratic)
+            def poly_func(x, a, b, c):
+                return a * x**2 + b * x + c
+                
+            # Fit polynomial to the recent loss values
+            params, _ = curve_fit(poly_func, x_data, y_data)
+            a, b, c = params
+            
+            # Analyze curve shape: 
+            # - a > 0: upward curve (loss increasing) = stabilized
+            # - a ≈ 0 and b ≈ 0: flat curve = stabilized
+            # - a < 0 and small magnitude: still decreasing but flattening = not stabilized
+            
+            # Calculate derivatives at the end point (most recent)
+            x_end = analysis_window - 1
+            deriv_1 = 2 * a * x_end + b  # First derivative
+            deriv_2 = 2 * a              # Second derivative (constant for quadratic)
+            
+            # Stabilized if:
+            # 1. Curve is upward (a > 0)
+            # 2. OR curve is flat (both derivatives near zero)
+            # 3. OR first derivative is positive (increasing loss)
+            if verbose and len(losses) % 5 == 0:  # Print diagnostics periodically
+                print(f"  Polynomial fit: y = {a:.6f}x² + {b:.6f}x + {c:.6f}")
+                print(f"  First derivative at end: {deriv_1:.6f}, Second derivative: {deriv_2:.6f}")
+                
+            # We've stabilized if:
+            is_stable = (
+                (a > 0.001) or                  # Upward curve
+                (abs(deriv_1) < 0.05 and abs(deriv_2) < 0.01) or  # Flat curve
+                (deriv_1 > 0.05)                # Increasing slope
+            )
+            
+            if is_stable:
+                return True, steps_since_decrease
+                
+        except (ImportError, ValueError, RuntimeError) as e:
+            # Fallback to traditional method if curve fitting fails
+            if verbose:
+                print(f"Polynomial fitting failed: {e}. Using traditional stabilization detection.")
+            pass
+        
+        # Fallback: Check if recent trend is flat or increasing using rolling average
         if len(losses) >= window_size * 2:
             recent_window = sum(losses[-window_size:]) / window_size
             previous_window = sum(losses[-(window_size*2):-window_size]) / window_size

@@ -8,7 +8,7 @@ configuration to verify that all components work correctly together.
 Usage:
     python scripts/test_neural_plasticity_end_to_end.py [--output_dir OUTPUT_DIR] [--steps STEPS]
 
-Version: v0.0.60 (2025-04-20 23:55:00)
+Version: v0.0.61 (2025-04-20 15:00:00)
 """
 
 import os
@@ -66,6 +66,10 @@ def parse_args():
     parser.add_argument('--pruning_strategy', type=str, default='combined',
                         choices=['entropy', 'gradient', 'random', 'combined'],
                         help='Pruning strategy to use')
+    parser.add_argument('--show_samples', action='store_true',
+                        help='Show sample text and predictions during training')
+    parser.add_argument('--sample_interval', type=int, default=10,
+                        help='Interval for showing sample predictions')
     
     return parser.parse_args()
 
@@ -82,6 +86,7 @@ def run_test(args):
     print(f"Steps: {args.steps}")
     print(f"Output directory: {args.output_dir}")
     print(f"Pruning: {args.pruning_level*100:.1f}% with {args.pruning_strategy} strategy")
+    print(f"Sample display: {'Enabled' if args.show_samples else 'Disabled'}{f' (interval: {args.sample_interval})' if args.show_samples else ''}")
     print(f"--------------------------------")
     
     # Create or clean output directory
@@ -90,6 +95,15 @@ def run_test(args):
         shutil.rmtree(args.output_dir)
     
     os.makedirs(args.output_dir, exist_ok=True)
+    
+    # Load tokenizer first if we're showing samples
+    tokenizer = None
+    if args.show_samples:
+        from transformers import AutoTokenizer
+        print(f"Loading tokenizer for sample display...")
+        tokenizer = AutoTokenizer.from_pretrained(args.model)
+        if tokenizer.pad_token is None:
+            tokenizer.pad_token = tokenizer.eos_token
     
     # Initialize experiment
     print(f"Initializing experiment...")
@@ -104,7 +118,10 @@ def run_test(args):
         pruning_strategy=args.pruning_strategy,
         learning_rate=5e-5,
         verbose=True,
-        save_results=True
+        save_results=True,
+        show_samples=args.show_samples,
+        sample_interval=args.sample_interval,
+        tokenizer=tokenizer
     )
     
     # Run experiment phases
@@ -159,7 +176,8 @@ def main():
             f.write(f"Duration: {duration.total_seconds():.1f} seconds\n")
             f.write(f"Model: {args.model}\n")
             f.write(f"Dataset: {args.dataset}/{args.dataset_config}\n")
-            f.write(f"Pruning: {args.pruning_level*100:.1f}% with {args.pruning_strategy} strategy\n\n")
+            f.write(f"Pruning: {args.pruning_level*100:.1f}% with {args.pruning_strategy} strategy\n")
+            f.write(f"Sample display: {'Enabled' if args.show_samples else 'Disabled'}{f' (interval: {args.sample_interval})' if args.show_samples else ''}\n\n")
             f.write(f"Results:\n")
             f.write(f"- Baseline perplexity: {metrics['baseline_perplexity']:.2f}\n")
             f.write(f"- Final perplexity: {metrics['perplexity']:.2f}\n")

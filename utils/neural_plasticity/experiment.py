@@ -5,7 +5,7 @@ This module provides experiment utilities for running end-to-end neural
 plasticity experiments, including baseline creation, data preparation,
 and results analysis.
 
-Version: v0.0.67 (2025-04-20 23:50:00)
+Version: v0.0.68 (2025-04-20 14:50:00)
 """
 
 import os
@@ -301,7 +301,10 @@ class NeuralPlasticityExperiment:
         learning_rate: float = 5e-5,
         device: Optional[str] = None,
         verbose: bool = True,
-        save_results: bool = True
+        save_results: bool = True,
+        show_samples: bool = False,
+        sample_interval: int = 20,
+        tokenizer=None
     ):
         """
         Initialize the Neural Plasticity experiment.
@@ -330,6 +333,10 @@ class NeuralPlasticityExperiment:
         self.learning_rate = learning_rate
         self.verbose = verbose
         self.save_results = save_results
+        self.show_samples = show_samples
+        self.sample_interval = sample_interval
+        self.tokenizer_provided = tokenizer is not None
+        self.tokenizer = tokenizer
         
         # Create output directory with timestamp if not provided
         if output_dir is None:
@@ -397,10 +404,14 @@ class NeuralPlasticityExperiment:
         if self.verbose:
             print(f"Setting up experiment with {self.model_name} on {self.dataset}/{self.dataset_config}")
             
-        # Load tokenizer
-        if self.verbose:
-            print(f"Loading tokenizer: {self.model_name}")
-        self.tokenizer = AutoTokenizer.from_pretrained(self.model_name)
+        # Load tokenizer if not provided or ensure it's ready for use
+        if not self.tokenizer_provided or self.tokenizer is None:
+            if self.verbose:
+                print(f"Loading tokenizer: {self.model_name}")
+            self.tokenizer = AutoTokenizer.from_pretrained(self.model_name)
+            self.tokenizer_provided = True
+        
+        # Ensure pad token is set    
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
             
@@ -731,56 +742,47 @@ class NeuralPlasticityExperiment:
         # 5. Evaluate after pruning
         pruned_metrics = evaluate_model(self.model, self.validation_dataloader, self.device)
         
-        # 6. Train the pruned model
-        optimizer = torch.optim.AdamW(self.model.parameters(), lr=self.learning_rate)
-        total_steps = training_steps
-        scheduler = get_linear_schedule_with_warmup(
-            optimizer, 
-            num_warmup_steps=total_steps // 10, 
-            num_training_steps=total_steps
+        # 6. Train the pruned model using plasticity trainer
+        from .training import PlasticityTrainer
+        
+        trainer = PlasticityTrainer(
+            model=self.model,
+            learning_rate=self.learning_rate,
+            use_differential_lr=True,
+            pruned_head_lr_multiplier=3.0
         )
         
-        training_metrics = []
-        self.model.train()
+        trainer.prepare_optimizer(
+            pruned_heads=pruned_heads,
+            warmup_steps=training_steps // 10,
+            total_steps=training_steps
+        )
         
-        # Training loop
-        for step in range(training_steps):
-            # Get batch
-            try:
-                batch = next(iter(self.train_dataloader))
-            except StopIteration:
-                # Restart iterator
-                batch = next(iter(self.train_dataloader))
-                
-            # Move batch to device
-            batch = {k: v.to(self.device) for k, v in batch.items() if isinstance(v, torch.Tensor)}
-            
-            # Forward pass
-            outputs = self.model(**batch)
-            loss = outputs.loss
-            
-            # Backward pass
-            loss.backward()
-            
-            # Update weights
-            optimizer.step()
-            scheduler.step()
-            optimizer.zero_grad()
-            
-            # Track metrics
-            metrics = {
-                "train_loss": loss.item(),
-                "step": step,
-                "new_pruned": len(pruned_heads),
-                "total_pruned": len(pruned_heads)
-            }
-            
-            # Call callback if provided
+        # Define a training callback that wraps the tracking callback
+        def train_callback(step, metrics):
             if tracking_callback:
+                # Add pruning metrics
+                metrics["new_pruned"] = len(pruned_heads)
+                metrics["total_pruned"] = len(pruned_heads)
                 tracking_callback("training", step, metrics)
-                
-            # Store metrics
-            training_metrics.append(metrics)
+        
+        # Define a sample callback if samples are being shown
+        def sample_callback(step, sample_data):
+            if tracking_callback:
+                tracking_callback("sample", step, sample_data)
+        
+        # Train the model with sample display if requested
+        training_metrics = trainer.train(
+            train_dataloader=self.train_dataloader,
+            eval_dataloader=self.validation_dataloader,
+            steps=training_steps,
+            eval_interval=max(1, training_steps // 10),
+            callback=train_callback,
+            show_samples=self.show_samples,
+            tokenizer=self.tokenizer if self.show_samples else None,
+            sample_interval=self.sample_interval,
+            sample_callback=sample_callback if tracking_callback else None
+        )
             
         # 7. Evaluate final model
         final_metrics = evaluate_model(self.model, self.validation_dataloader, self.device)
@@ -831,10 +833,7 @@ class NeuralPlasticityExperiment:
             },
             "pruned_metrics": pruned_metrics,
             "final_metrics": final_metrics,
-            "training_metrics": {
-                "step": [m["step"] for m in training_metrics],
-                "train_loss": [m["train_loss"] for m in training_metrics]
-            },
+            "training_metrics": training_metrics,
             "strategy": self.pruning_strategy,
             "pruning_level": self.pruning_level,
             "total_heads": model_structure[0] * model_structure[1]
