@@ -104,19 +104,65 @@ def get_colab_type(verbose: bool = True) -> Dict[str, str]:
     result = {"hardware": "CPU"}
     
     try:
-        # Check for GPU
-        gpu_info = subprocess.run(['nvidia-smi', '--query-gpu=name', '--format=csv,noheader'], 
+        # First check PyTorch's CUDA availability for GPU
+        gpu_available = False
+        gpu_name = "Unknown GPU"
+        gpu_memory = 0
+        
+        try:
+            import torch
+            if torch.cuda.is_available():
+                gpu_available = True
+                if torch.cuda.device_count() > 0:
+                    gpu_name = torch.cuda.get_device_name(0)
+                    gpu_memory = torch.cuda.get_device_properties(0).total_memory / (1024**3)  # GB
+        except (ImportError, Exception) as e:
+            if verbose:
+                print(f"Error checking PyTorch CUDA: {e}")
+        
+        # Also check with nvidia-smi (more detailed)
+        gpu_info = subprocess.run(['nvidia-smi', '--query-gpu=name,memory.total', '--format=csv,noheader'], 
                                  stdout=subprocess.PIPE, stderr=subprocess.PIPE, 
                                  universal_newlines=True, check=False)
         
         if gpu_info.returncode == 0 and gpu_info.stdout.strip():
-            gpu_name = gpu_info.stdout.strip()
+            gpu_available = True
+            gpu_info_parts = gpu_info.stdout.strip().split(',', 1)
+            if len(gpu_info_parts) > 0:
+                gpu_name = gpu_info_parts[0].strip()
+                if len(gpu_info_parts) > 1:
+                    # Extract memory information if available
+                    try:
+                        mem_str = gpu_info_parts[1].strip()
+                        mem_value = float(re.search(r'(\d+\.?\d*)', mem_str).group(1))
+                        mem_unit = re.search(r'([A-Za-z]+)', mem_str).group(1).upper()
+                        
+                        if mem_unit == 'MB':
+                            gpu_memory = mem_value / 1024
+                        elif mem_unit == 'GB':
+                            gpu_memory = mem_value
+                        else:
+                            gpu_memory = 0
+                    except (AttributeError, ValueError):
+                        pass
+        
+        # Update result with GPU information if available
+        if gpu_available:
             result["hardware"] = "GPU"
             result["gpu_name"] = gpu_name
+            result["gpu_memory_gb"] = gpu_memory
             
             if verbose:
                 print(f"✅ GPU detected: {gpu_name}")
-            
+                if gpu_memory > 0:
+                    print(f"💾 GPU Memory: {gpu_memory:.1f} GB")
+                
+                # Try to show more detailed GPU info
+                try:
+                    subprocess.run(["nvidia-smi"], check=False)
+                except Exception:
+                    pass
+                
             return result
             
         # Check for TPU
@@ -131,7 +177,7 @@ def get_colab_type(verbose: bool = True) -> Dict[str, str]:
                     print(f"✅ TPU detected with {len(tpu_devices)} cores")
                 
                 return result
-        except:
+        except Exception:
             pass
             
         # No accelerator found
@@ -233,8 +279,13 @@ def optimize_for_colab(
         "use_fp16": False,
         "optimize_memory_usage": True, 
         "stability_level": 1,
-        "apple_silicon_fix": False
+        "apple_silicon_fix": False,
+        "device": "cpu",
+        "use_gpu": False,
+        "memory_efficient_attention": False
     }
+    
+    # Check for different hardware environments
     
     # Check if running on Apple Silicon (M1/M2/M3)
     is_apple_silicon = False
@@ -243,58 +294,128 @@ def optimize_for_colab(
         if platform.system() == "Darwin" and platform.processor() == "arm":
             is_apple_silicon = True
             params["apple_silicon_fix"] = True
+            params["device"] = "cpu"  # Force CPU for Apple Silicon
             if verbose:
-                print("🍎 Detected Apple Silicon (M1/M2/M3) - Enabling special optimizations")
+                print("🍎 Detected Apple Silicon (M1/M2/M3) - Using CPU with special optimizations")
     except ImportError:
         pass
     
-    # Get GPU info if not provided
+    # Check for Colab with GPU if not on Apple Silicon
+    if not is_apple_silicon:
+        # Check if running in Colab with GPU
+        try:
+            import google.colab
+            colab_info = get_colab_type(verbose=False)
+            
+            if colab_info.get("hardware") == "GPU":
+                params["use_gpu"] = True
+                params["device"] = "cuda"
+                
+                # Get GPU memory info for T4 GPU typically found in Colab
+                if "gpu_memory_gb" in colab_info:
+                    gpu_memory_gb = colab_info["gpu_memory_gb"]
+                    available_memory_mb = int(gpu_memory_gb * 1024 * 0.85)  # Use 85% of available memory
+                    
+                    if verbose:
+                        print(f"✅ GPU detected in Colab: {colab_info.get('gpu_name', 'Unknown GPU')}")
+                        print(f"📊 Available GPU memory: {gpu_memory_gb:.1f} GB (using {available_memory_mb} MB)")
+        except (ImportError, Exception):
+            pass
+    
+    # Get GPU info if still not provided
     if available_memory_mb is None:
-        gpu_info = check_gpu_status(verbose=False)
-        if gpu_info["memory_info"]:
-            available_memory_mb = gpu_info["memory_info"]["free_mb"]
-        else:
-            # No GPU or couldn't detect memory, use conservative defaults
+        try:
+            # Try to directly get GPU memory from PyTorch
+            import torch
+            if torch.cuda.is_available():
+                params["use_gpu"] = True
+                params["device"] = "cuda"
+                total_memory = torch.cuda.get_device_properties(0).total_memory / (1024**2)  # MB
+                allocated = torch.cuda.memory_allocated(0) / (1024**2)  # MB
+                available_memory_mb = int((total_memory - allocated) * 0.85)  # Use 85% of free memory
+                
+                if verbose and not is_apple_silicon:
+                    print(f"🔍 Auto-detected {available_memory_mb} MB available GPU memory")
+            else:
+                # Fallback to check_gpu_status
+                gpu_info = check_gpu_status(verbose=False)
+                if gpu_info.get("memory_info"):
+                    available_memory_mb = gpu_info["memory_info"]["free_mb"]
+                    params["use_gpu"] = True
+                    params["device"] = "cuda"
+                else:
+                    # No GPU or couldn't detect memory, use conservative defaults for CPU
+                    available_memory_mb = 2000
+                    params["use_gpu"] = False
+                    params["device"] = "cpu"
+        except Exception:
+            # If all detection fails, use conservative defaults
             available_memory_mb = 2000
+            params["use_gpu"] = False
+            params["device"] = "cpu"
     
     # Adjust parameters based on model size
     size_factor_map = {
-        "tiny": 0.5,    # e.g., DistilGPT2, smallest models
-        "small": 1.0,   # e.g., GPT2, OPT-125M
-        "medium": 2.0,  # e.g., GPT2-Medium, OPT-350M
-        "large": 4.0,   # e.g., GPT2-Large, OPT-1.3B
-        "xl": 8.0       # e.g., GPT2-XL, larger models
+        "tiny": 0.5,    # e.g., DistilGPT2, smallest models (< 100M params)
+        "small": 1.0,   # e.g., GPT2, OPT-125M (100-200M params)
+        "medium": 2.0,  # e.g., GPT2-Medium, OPT-350M (200-500M params)
+        "large": 4.0,   # e.g., GPT2-Large, OPT-1.3B (0.5B-2B params)
+        "xl": 8.0       # e.g., GPT2-XL, larger models (>2B params)
     }
     
     size_factor = size_factor_map.get(model_size.lower(), 1.0)
-    memory_factor = max(0.1, min(1.0, available_memory_mb / 15000))
     
-    # Calculate optimized parameters
-    if prefer_stability:
-        # More conservative settings
-        params["batch_size"] = max(1, min(8, int(4 * memory_factor / size_factor)))
-        params["sequence_length"] = max(32, min(128, int(128 * memory_factor / size_factor)))
-        params["stability_level"] = 2 if size_factor >= 2.0 else 1
-    else:
-        # More aggressive settings
-        params["batch_size"] = max(1, min(16, int(8 * memory_factor / size_factor)))
-        params["sequence_length"] = max(32, min(256, int(192 * memory_factor / size_factor)))
-        params["stability_level"] = 1
-    
-    # Enable mixed precision for medium+ models if enough memory
-    if available_memory_mb > 6000 and size_factor >= 1.0:
+    # Different memory scaling based on whether using GPU or CPU
+    if params["use_gpu"]:
+        # For T4 GPU in Colab (16GB), scaling factor relative to that
+        memory_factor = max(0.1, min(1.0, available_memory_mb / 15000))
+        
+        # Calculate optimized parameters for GPU
+        if prefer_stability:
+            # More conservative settings
+            params["batch_size"] = max(1, min(16, int(8 * memory_factor / size_factor)))
+            params["sequence_length"] = max(64, min(256, int(192 * memory_factor / size_factor)))
+            params["stability_level"] = 2 if size_factor >= 2.0 else 1
+        else:
+            # More aggressive settings
+            params["batch_size"] = max(1, min(32, int(16 * memory_factor / size_factor)))
+            params["sequence_length"] = max(64, min(512, int(384 * memory_factor / size_factor)))
+            params["stability_level"] = 1
+        
+        # Enable memory efficient attention for T4 GPUs
+        params["memory_efficient_attention"] = True
+        
+        # Enable mixed precision for all GPU operations
         params["use_fp16"] = True
-    
-    # Apply gradient accumulation for very limited memory
-    if available_memory_mb < 3000 or size_factor >= 4.0:
-        params["gradient_accumulation_steps"] = max(2, int(size_factor))
+        
+        # Apply gradient accumulation for large models
+        if size_factor >= 4.0:
+            params["gradient_accumulation_steps"] = max(2, int(size_factor / 2))
+    else:
+        # For CPU, be more conservative
+        memory_factor = max(0.1, min(1.0, available_memory_mb / 8000))
+        
+        # Calculate optimized parameters for CPU
+        if prefer_stability:
+            # More conservative settings
+            params["batch_size"] = max(1, min(4, int(2 * memory_factor / size_factor)))
+            params["sequence_length"] = max(32, min(128, int(96 * memory_factor / size_factor)))
+        else:
+            # More aggressive settings
+            params["batch_size"] = max(1, min(8, int(4 * memory_factor / size_factor)))
+            params["sequence_length"] = max(32, min(192, int(128 * memory_factor / size_factor)))
+        
+        # Gradient accumulation for CPU to compensate for smaller batch sizes
+        params["gradient_accumulation_steps"] = max(2, int(size_factor * 2))
     
     if verbose:
-        print(f"📊 Colab optimization for {model_size} model with {available_memory_mb}MB memory:")
+        print(f"📊 Optimized settings for {model_size} model:")
+        print(f"  - Device: {params['device']}")
         print(f"  - Batch size: {params['batch_size']}")
         print(f"  - Sequence length: {params['sequence_length']}")
         print(f"  - Gradient accumulation steps: {params['gradient_accumulation_steps']}")
         print(f"  - Mixed precision (FP16): {params['use_fp16']}")
+        print(f"  - Memory efficient attention: {params['memory_efficient_attention']}")
         print(f"  - Stability level: {params['stability_level']}")
     
     return params
@@ -308,10 +429,12 @@ def safe_tensor_imshow(
     figsize: Tuple[int, int] = (8, 6),
     show_colorbar: bool = True,
     vmin: Optional[float] = None, 
-    vmax: Optional[float] = None
+    vmax: Optional[float] = None,
+    verbose: bool = True
 ) -> plt.Figure:
     """
     Safely visualize a tensor with proper detach/cpu/numpy handling.
+    Works with both GPU and CPU tensors across all environments.
     
     Args:
         tensor: The tensor to visualize (can be on any device)
@@ -323,31 +446,74 @@ def safe_tensor_imshow(
         show_colorbar: Whether to show a colorbar
         vmin: Minimum value for colormap scaling
         vmax: Maximum value for colormap scaling
+        verbose: Whether to print tensor information
         
     Returns:
         The matplotlib figure object
     """
+    # Get original device information for debugging
+    original_device = "cpu"
+    required_detach = False
+    was_cuda = False
+    
     # Ensure tensor is properly converted for visualization
     if isinstance(tensor, torch.Tensor):
-        # Handle GPU tensors or tensors with gradients
+        # Record original state for debugging
+        if hasattr(tensor, 'device'):
+            original_device = str(tensor.device)
         if tensor.requires_grad:
-            tensor = tensor.detach()
+            required_detach = True
         if tensor.is_cuda:
-            tensor = tensor.cpu()
+            was_cuda = True
+            
+        # Special handling for different environments
+        if "apple" in original_device.lower() or (IS_APPLE_SILICON if 'IS_APPLE_SILICON' in globals() else False):
+            # Extra careful handling for Apple Silicon
+            if tensor.requires_grad:
+                tensor = tensor.detach()
+            if tensor.is_cuda:
+                tensor = tensor.cpu()
+            if not tensor.is_contiguous():
+                tensor = tensor.contiguous()
+        else:
+            # Standard handling for other environments
+            if tensor.requires_grad:
+                tensor = tensor.detach()
+            if tensor.is_cuda:
+                tensor = tensor.cpu()
+        
+        # Convert to numpy array
         tensor_np = tensor.numpy()
+        
     elif isinstance(tensor, np.ndarray):
         tensor_np = tensor
     else:
         raise TypeError(f"Expected torch.Tensor or numpy.ndarray, got {type(tensor)}")
     
+    # Handle potential NaN or Inf values
+    has_nans = np.isnan(tensor_np).any()
+    has_infs = np.isinf(tensor_np).any()
+    
+    if has_nans or has_infs:
+        if verbose:
+            print("⚠️ Warning: Tensor contains NaN or Inf values, replacing with safe values")
+        tensor_np = np.nan_to_num(tensor_np, nan=0.0, posinf=1.0, neginf=0.0)
+    
     # Create figure and plot
     fig, ax = plt.subplots(figsize=figsize)
     
-    # Handle potential NaN or Inf values
-    if np.isnan(tensor_np).any() or np.isinf(tensor_np).any():
-        print("⚠️ Warning: Tensor contains NaN or Inf values, replacing with zeros")
-        tensor_np = np.nan_to_num(tensor_np, nan=0.0, posinf=1.0, neginf=0.0)
+    # Automatically determine appropriate color limits if not provided
+    if vmin is None:
+        vmin = np.percentile(tensor_np, 1) if not has_nans else tensor_np.min()
+    if vmax is None:
+        vmax = np.percentile(tensor_np, 99) if not has_nans else tensor_np.max()
+        
+    # Ensure vmin and vmax are not equal (which would cause matplotlib warnings)
+    if vmin == vmax:
+        vmin = vmin - 0.1 if vmin != 0 else -0.1
+        vmax = vmax + 0.1 if vmax != 0 else 0.1
     
+    # Plot the image
     im = ax.imshow(tensor_np, cmap=cmap, vmin=vmin, vmax=vmax)
     
     # Add colorbar if requested
@@ -355,7 +521,10 @@ def safe_tensor_imshow(
         fig.colorbar(im, ax=ax)
     
     # Add title
-    ax.set_title(title)
+    if was_cuda:
+        ax.set_title(f"{title} (from CUDA)")
+    else:
+        ax.set_title(title)
     
     # Save if path provided, otherwise use default path
     if save_path is None:
@@ -367,8 +536,17 @@ def safe_tensor_imshow(
     plt.savefig(save_path)
     
     # Display useful info
-    print(f"Tensor shape: {tensor_np.shape}")
-    print(f"Value range: [{tensor_np.min():.4f}, {tensor_np.max():.4f}]")
-    print(f"Visualization saved to: {save_path}")
+    if verbose:
+        print(f"✅ Tensor visualization:")
+        print(f"  - Shape: {tensor_np.shape}")
+        print(f"  - Range: [{tensor_np.min():.4f}, {tensor_np.max():.4f}]") 
+        print(f"  - Original device: {original_device}")
+        if required_detach:
+            print(f"  - Required detach: Yes (had gradients)")
+        if was_cuda:
+            print(f"  - Required CPU transfer: Yes (was on CUDA)")
+        if has_nans or has_infs:
+            print(f"  - Had NaN/Inf values: Yes (replaced with safe values)")
+        print(f"  - Saved to: {save_path}")
     
     return fig

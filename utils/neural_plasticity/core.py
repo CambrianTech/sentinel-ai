@@ -6,7 +6,7 @@ This module implements the fundamental algorithms for neural plasticity, includi
 - Pruning mask generation and application
 - Model evaluation functions
 
-Version: v0.0.56 (2025-04-19 23:30:00)
+Version: v0.0.57 (2025-04-19 17:30:00)
 """
 
 import torch
@@ -14,15 +14,32 @@ import numpy as np
 import platform
 from typing import Dict, List, Tuple, Optional, Union, Callable, Any
 
-# Check for Apple Silicon at module import time
+# Initialize environment variables
 IS_APPLE_SILICON = False
 IS_COLAB = False
+HAS_GPU = False
 
 # Detect if we're running in Google Colab
 try:
     import google.colab
     IS_COLAB = True
     print("🌐 Running in Google Colab environment")
+    
+    # Check for GPU availability in Colab
+    if torch.cuda.is_available():
+        HAS_GPU = True
+        gpu_name = torch.cuda.get_device_name(0) if torch.cuda.device_count() > 0 else "Unknown GPU"
+        print(f"✅ CUDA GPU detected in Colab: {gpu_name}")
+        print(f"🚀 Total GPU Memory: {torch.cuda.get_device_properties(0).total_memory / 1024**3:.1f} GB")
+        
+        # Try to display more GPU information
+        try:
+            import subprocess
+            subprocess.run(["nvidia-smi"], check=False)
+        except Exception:
+            pass
+    else:
+        print("⚠️ No GPU detected in Colab - using CPU for computations")
 except (ImportError, ModuleNotFoundError):
     pass
 
@@ -44,7 +61,6 @@ try:
             
             # Try to force PyTorch to behave on Apple Silicon
             try:
-                import torch
                 # Disable parallel CPU operations
                 torch.set_num_threads(1)
                 
@@ -63,7 +79,7 @@ try:
                 os.environ["ACCELERATE_USE_SYSTEM_BLAS"] = "1"
                 os.environ["PYTORCH_JIT_USE_AUTOTUNER"] = "0"
                 
-                # Ensure the default device is CPU
+                # Ensure the default device is CPU on Apple Silicon
                 if torch.cuda.is_available():
                     print("⚠️ CUDA detected on Apple Silicon - forcing CPU usage to prevent crashes")
                     torch.__future__.set_overwrite_module_params_on_conversion(True)
@@ -78,7 +94,7 @@ def safe_matmul(
     b: torch.Tensor
 ) -> torch.Tensor:
     """
-    Safely perform matrix multiplication on Apple Silicon.
+    Safely perform matrix multiplication, with special handling for Apple Silicon.
     
     Args:
         a: First tensor
@@ -87,56 +103,141 @@ def safe_matmul(
     Returns:
         Result of matrix multiplication
     """
-    # Only apply special handling on Apple Silicon and NOT in Colab
-    if not IS_APPLE_SILICON or IS_COLAB:
-        # Regular matmul for non-Apple Silicon platforms or Colab
-        return torch.matmul(a, b)
-    
-    # On Apple Silicon (local execution), we need extra precautions
-    try:
-        # Ensure tensors are on CPU
-        if a.is_cuda:
-            a = a.cpu()
-        if b.is_cuda:
-            b = b.cpu()
-        
-        # Ensure tensors are contiguous for better memory layout
-        if not a.is_contiguous():
-            a = a.contiguous()
-        if not b.is_contiguous():
-            b = b.contiguous()
-        
-        # Ensure tensors are in float32 for better numerical stability
-        if a.dtype != torch.float32 and a.dtype.is_floating_point:
-            a = a.to(torch.float32)
-        if b.dtype != torch.float32 and b.dtype.is_floating_point:
-            b = b.to(torch.float32)
-        
-        # Ensure gradient tracking is disabled for matmul operation
-        with torch.no_grad():
-            # Perform matrix multiplication
-            result = torch.matmul(a.detach(), b.detach())
+    # For Colab with GPU, use GPU acceleration for matrix operations
+    if IS_COLAB and HAS_GPU:
+        # For Colab GPU environment, ensure tensors are on GPU for best performance
+        try:
+            # Set device to cuda to ensure GPU usage
+            device = torch.device('cuda')
             
-            # Check for NaN/Inf values in result
+            # Move tensors to GPU if they aren't already there
+            if not a.is_cuda:
+                a = a.to(device)
+            if not b.is_cuda:
+                b = b.to(device)
+            
+            # Ensure tensors are contiguous for better memory layout
+            if not a.is_contiguous():
+                a = a.contiguous()
+            if not b.is_contiguous():
+                b = b.contiguous()
+            
+            # Perform matrix multiplication on GPU
+            result = torch.matmul(a, b)
+            
+            # Check for NaN/Inf values in result (rare on GPU but possible)
             if torch.isnan(result).any() or torch.isinf(result).any():
                 # Replace with zeros if NaN/Inf are found
                 result = torch.where(torch.isfinite(result), result, torch.zeros_like(result))
-                print("Warning: NaN/Inf values detected in matrix multiplication result")
+                print("Warning: NaN/Inf values detected in GPU matrix multiplication result")
+                
+            return result
             
-        return result
-        
-    except Exception as e:
-        print(f"Error in safe_matmul: {e}")
-        # Fallback method using manual dot product for extreme cases
+        except Exception as e:
+            print(f"GPU matmul failed, falling back to standard method: {e}")
+            # Fall back to standard matmul
+            return torch.matmul(a, b)
+            
+    # For standard non-Apple Silicon environments without GPU, just use standard matmul
+    elif not IS_APPLE_SILICON:
+        return torch.matmul(a, b)
+    
+    # EXTREME PROTECTION MODE FOR APPLE SILICON
+    # The code below implements a super-safe matrix multiplication for Apple Silicon
+    # that completely avoids BLAS crashes by using a pure Python implementation
+    # as the first option, only falling back to PyTorch's matmul in safer contexts
+    else:
         try:
-            # Try with numpy as absolute fallback
-            a_np = a.detach().cpu().numpy()
-            b_np = b.detach().cpu().numpy()
-            result_np = np.matmul(a_np, b_np)
-            return torch.tensor(result_np, device='cpu')
-        except Exception as np_error:
-            print(f"Fallback numpy matmul also failed: {np_error}")
-            # Return zero tensor of appropriate shape as last resort
+            # Ensure tensors are on CPU
+            if a.is_cuda:
+                a = a.cpu()
+            if b.is_cuda:
+                b = b.cpu()
+            
+            # Ensure tensors are contiguous for better memory layout
+            if not a.is_contiguous():
+                a = a.contiguous()
+            if not b.is_contiguous():
+                b = b.contiguous()
+            
+            # Ensure tensors are in float32 for better numerical stability
+            if a.dtype != torch.float32 and a.dtype.is_floating_point:
+                a = a.to(torch.float32)
+            if b.dtype != torch.float32 and b.dtype.is_floating_point:
+                b = b.to(torch.float32)
+                
+            # Detach tensors to prevent autograd issues
+            a = a.detach()
+            b = b.detach()
+            
+            # APPROACH 1: Try numpy first (completely bypasses BLAS issues)
+            try:
+                # Convert to numpy arrays (safely)
+                a_np = a.numpy()
+                b_np = b.numpy()
+                
+                # Use numpy's matmul which is more stable on Apple Silicon
+                result_np = np.matmul(a_np, b_np)
+                
+                # Convert back to torch tensor
+                result = torch.tensor(result_np, device='cpu')
+                
+                # Check for NaN/Inf
+                if torch.isnan(result).any() or torch.isinf(result).any():
+                    result = torch.where(torch.isfinite(result), result, torch.zeros_like(result))
+                
+                return result
+                
+            # APPROACH 2: If numpy fails, try manual implementation for smaller matrices
+            except Exception as np_error:
+                # For smaller matrices, use a manual implementation
+                if a.dim() == 2 and b.dim() == 2 and (a.shape[0] * a.shape[1] * b.shape[1]) < 1000000:
+                    # Manual matrix multiplication using Python loops (slow but safe)
+                    m, k = a.shape
+                    k2, n = b.shape
+                    
+                    if k != k2:
+                        raise ValueError(f"Incompatible matrix dimensions: {a.shape} and {b.shape}")
+                    
+                    result = torch.zeros((m, n), dtype=a.dtype, device='cpu')
+                    
+                    # Simple iterative matrix multiplication
+                    for i in range(m):
+                        for j in range(n):
+                            s = 0.0
+                            for k in range(k):
+                                s += a[i, k].item() * b[k, j].item()
+                            result[i, j] = s
+                    
+                    return result
+                
+                # APPROACH 3: If matrices are too large for manual method, try PyTorch with extreme safety
+                with torch.no_grad():
+                    # Set PyTorch to single thread for matmul
+                    prev_threads = torch.get_num_threads()
+                    torch.set_num_threads(1)
+                    
+                    try:
+                        # Perform matrix multiplication with all safety measures
+                        # We're being extremely cautious here
+                        result = torch.matmul(a, b)
+                        
+                        # Check for NaN/Inf values in result
+                        if torch.isnan(result).any() or torch.isinf(result).any():
+                            result = torch.where(torch.isfinite(result), result, torch.zeros_like(result))
+                            
+                        # Restore thread count
+                        torch.set_num_threads(prev_threads)
+                        return result
+                        
+                    except Exception as torch_error:
+                        # Restore thread count
+                        torch.set_num_threads(prev_threads)
+                        raise torch_error
+                            
+        except Exception as e:
+            print(f"All safe_matmul approaches failed: {e}")
+            # Return zero tensor of appropriate shape as absolute last resort
             out_shape = list(a.shape[:-1]) + list(b.shape[1:])
             return torch.zeros(out_shape, device='cpu')
 
@@ -157,18 +258,33 @@ def calculate_head_entropy(
     Returns:
         Tensor of shape [layers, heads] containing entropy values
     """
-    # Ensure tensor is properly formatted and on the right device
+    # Ensure tensor is properly formatted
     if not isinstance(attention_maps, torch.Tensor):
         raise TypeError(f"Expected torch.Tensor, got {type(attention_maps)}")
     
-    # Apply Apple Silicon workaround to avoid BLAS crashes (only on local machines, not in Colab)
-    if IS_APPLE_SILICON and not IS_COLAB:
+    # Special handling for different environments
+    if IS_COLAB and HAS_GPU:
+        # For Colab with GPU, ensure we use GPU for computation
+        device = torch.device('cuda')
+        
+        # Move tensor to GPU if it's not already there
+        if not attention_maps.is_cuda:
+            attention_maps = attention_maps.to(device)
+            
+        # Ensure contiguous memory layout for efficiency
+        if not attention_maps.is_contiguous():
+            attention_maps = attention_maps.contiguous()
+            
+    elif IS_APPLE_SILICON:
+        # Apple Silicon workaround to avoid BLAS crashes
         # Always move to CPU on Apple Silicon, regardless of original device
         if attention_maps.is_cuda:
             attention_maps = attention_maps.detach().cpu()
+            
         # For safety, ensure no gradients are tracked
         if attention_maps.requires_grad:
             attention_maps = attention_maps.detach()
+            
         # Force contiguous memory layout to avoid strided ops issues
         if not attention_maps.is_contiguous():
             attention_maps = attention_maps.contiguous()
@@ -753,24 +869,35 @@ def evaluate_model(
     Returns:
         Dictionary with 'loss' and 'perplexity' metrics
     """
-    # On Apple Silicon, force CPU usage to avoid BLAS crashes
-    if IS_APPLE_SILICON and device is not None and str(device).startswith("cuda"):
-        print("⚠️ Apple Silicon detected with CUDA device - forcing CPU to avoid crashes")
-        device = torch.device("cpu")
-    
-    # Determine device if not provided
+    # Choose appropriate device based on environment
     if device is None:
-        device = next(model.parameters()).device
-        # Extra safety check for Apple Silicon
-        if IS_APPLE_SILICON and str(device).startswith("cuda"):
+        if IS_COLAB and HAS_GPU:
+            # Use GPU in Colab if available
+            device = torch.device("cuda")
+            print(f"✅ Using GPU for model evaluation: {torch.cuda.get_device_name(0)}")
+        elif IS_APPLE_SILICON:
+            # Force CPU on Apple Silicon
             device = torch.device("cpu")
+            print("🍎 Using CPU for model evaluation on Apple Silicon")
+        else:
+            # Default to model's current device
+            device = next(model.parameters()).device
+    else:
+        # If device is explicitly provided, make sure it's compatible with the environment
+        if IS_APPLE_SILICON and str(device).startswith("cuda"):
+            print("⚠️ Apple Silicon detected with CUDA device - forcing CPU to avoid crashes")
+            device = torch.device("cpu")
+    
+    # Move model to the selected device
+    model = model.to(device)
+    print(f"📊 Evaluating model on device: {device}")
     
     model.eval()
     total_loss = 0.0
     total_steps = 0
     
-    # Set up loss function
-    loss_fn = torch.nn.CrossEntropyLoss()
+    # Set up loss function on the same device as the model
+    loss_fn = torch.nn.CrossEntropyLoss().to(device)
     
     with torch.no_grad():
         for batch_idx, batch in enumerate(dataloader):
@@ -809,6 +936,12 @@ def evaluate_model(
     
     avg_loss = total_loss / total_steps if total_steps > 0 else float("inf")
     perplexity = torch.exp(torch.tensor(avg_loss)).item()
+    
+    # If running on GPU, print memory stats
+    if str(device).startswith("cuda"):
+        used_memory = torch.cuda.memory_allocated(device) / 1024**2
+        total_memory = torch.cuda.get_device_properties(device).total_memory / 1024**2
+        print(f"GPU Memory Usage: {used_memory:.1f}MB / {total_memory:.1f}MB ({100*used_memory/total_memory:.1f}%)")
     
     return {
         "loss": avg_loss,

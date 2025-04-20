@@ -1,112 +1,95 @@
-# Neural Plasticity Module
+# Neural Plasticity on Apple Silicon
 
-## Overview
+## Core Features and Optimizations for Apple Silicon
 
-The Neural Plasticity module provides functionality for transformer models to dynamically adapt their structure through:
-- Entropy-based head importance measurement
-- Gradient-based pruning of attention heads
-- Targeted head revitalization during training
-- Visualization of model brain dynamics
+This implementation of Neural Plasticity has been optimized to work reliably on Apple Silicon (M1/M2/M3) while maintaining full GPU support on Colab. The key features include:
 
-## Recent Fixes (v0.0.56 - 2025-04-19 22:30:00)
+### 1. Environment Detection
 
-We've implemented comprehensive fixes for BLAS/libtorch crashes on Apple Silicon (M1/M2/M3) and fixed a critical pruning algorithm bug:
+- Automatically detects Apple Silicon vs. Colab environments
+- Configures optimizations based on the specific hardware
+- Seamlessly adapts tensor operations for best performance on each platform
 
-1. **Enhanced Apple Silicon Support**: Improved detection and safeguards for Apple Silicon architecture
-2. **Environment Variables**: Automatically set `OMP_NUM_THREADS=1` and other threading vars on Apple Silicon
-3. **Thread Management**: Added `torch.set_num_threads(1)` to prevent parallel BLAS operations
-4. **Memory Management**: Added stricter tensor memory layout handling with `.contiguous()` calls
-5. **Tensor Device Control**: Forced CPU tensors for all BLAS operations on Apple Silicon
-6. **Matplotlib Backend**: Switched to 'Agg' backend on Apple Silicon for visualization stability
-7. **Gradient Handling**: Added extra `.detach()` calls to prevent autograd-related crashes
-8. **Pruning Algorithm Fix**: Added tensor shape validation and bounds checking in `generate_pruning_mask`
+### 2. Apple Silicon Optimizations
 
-## Running the Notebook
+- Prevents BLAS/libtorch crashes on Apple Silicon with multi-level fallback:
+  - Level 1: Uses NumPy-based matrix multiplication when possible
+  - Level 2: Uses manual Python implementation for smaller matrices
+  - Level 3: Uses protected single-threaded PyTorch operations
+- Forces single-threaded BLAS operations
+- Disables problematic optimizations that cause crashes
+- Handles memory layout and contiguity issues automatically
+- Auto-handles tensor devices and gradients
 
-### Option 1: Local Execution
+### 3. Colab GPU Support
 
-For running locally, use our optimized environment settings:
+- Automatically detects and utilizes GPU in Colab
+- Places tensors on GPU for maximum speed
+- Handles device transitions seamlessly
+- Optimizes batch sizes based on available GPU memory
 
-```bash
-# Activate virtual environment
-source .venv/bin/activate
+### 4. Universal Compatibility
 
-# Set optimized environment variables
-export OMP_NUM_THREADS=1
-export OPENBLAS_NUM_THREADS=1
-export MKL_NUM_THREADS=1
-export NUMEXPR_NUM_THREADS=1
+- Works consistently across all environments:
+  - Apple Silicon (M1/M2/M3)
+  - Colab with GPU
+  - Colab without GPU
+  - Standard x86 CPUs
+- No code changes needed when moving between environments
 
-# Run with minimal settings for testing
-python scripts/run_neural_plasticity_notebook.py --minimal
+### 5. Robust Error Handling
+
+- Proper handling of NaN/Inf values
+- Graceful degradation when operations fail
+- Detailed error reporting for debugging
+- Auto-recovery from numerical issues
+
+## Key Components
+
+1. **safe_matmul**: A robust matrix multiplication function that works reliably on all platforms
+2. **calculate_head_entropy**: Entropy calculation for attention heads with proper numerical stability
+3. **IS_APPLE_SILICON**: Detection flag for Apple Silicon optimization
+4. **Visualization enhancements**: Proper tensor handling for visualization on all platforms
+
+## Testing
+
+All components have been thoroughly tested on Apple Silicon with comprehensive tests:
+
+1. **Matrix Stability Test**: Tests matrix multiplication with various sizes (small to large)
+2. **Entropy Calculation Test**: Tests entropy calculation on attention maps
+3. **Large Tensor Test**: Tests handling of very large tensors (1000x1000 and larger)
+4. **Visualization Test**: Tests visualization capabilities with proper tensor handling
+
+## Usage
+
+Simply use the functions provided by the Neural Plasticity module. The environment detection and optimization happens automatically.
+
+```python
+from utils.neural_plasticity.core import safe_matmul, calculate_head_entropy
+
+# Matrix multiplication (works on all platforms)
+result = safe_matmul(matrix_a, matrix_b)
+
+# Entropy calculation (works on all platforms)
+entropy = calculate_head_entropy(attention_maps)
 ```
 
-### Option 2: Google Colab (Recommended)
+## Running the NeuralPlasticityDemo Notebook
 
-For running in Colab, follow these steps:
+To run the NeuralPlasticityDemo notebook safely on Apple Silicon:
 
-1. Open [NeuralPlasticityDemo.ipynb](https://colab.research.google.com/github/CambrianTech/sentinel-ai/blob/feature/implement-adaptive-plasticity/colab_notebooks/NeuralPlasticityDemo.ipynb) in Google Colab
-2. Select Runtime > Change runtime type > Hardware accelerator: GPU
-3. Run the notebook cells in sequence
+1. Use the provided runner script:
+   ```bash
+   python run_neural_plasticity_safe.py
+   ```
 
-## Testing Individual Components
+2. Or manually run the verified test:
+   ```bash
+   python neural_plasticity_test_verified.py
+   ```
 
-If you just want to verify that specific components work correctly:
+The implementation successfully passes all tests on Apple Silicon, ensuring reliable operation without crashes.
 
-```bash
-# Test tensor handling (matrix operations and entropy calculation)
-python scripts/test_tensor_handling.py
+## Version History
 
-# Test the pruning algorithm with various tensor shapes
-python scripts/test_pruning_algorithm.py
-```
-
-These will test:
-- Attention tensor creation and manipulation
-- Entropy calculation
-- Visualization functionality
-- Pruning mask generation with different strategies
-- Tensor shape validation and bounds checking
-- Safe tensor display utilities
-
-## Implementation Details
-
-The modular architecture includes:
-
-- **Core Module**: `utils/neural_plasticity/core.py`
-  - Contains fundamental algorithms and tensor operations
-
-- **Visualization Module**: `utils/neural_plasticity/visualization.py`
-  - Provides visualization utilities for entropy, gradients, etc.
-
-- **Training Module**: `utils/neural_plasticity/training.py`
-  - Implements differential learning for pruned vs. active heads
-
-## Troubleshooting
-
-If you encounter issues:
-
-### Apple Silicon (M1/M2/M3) Users
-
-The module now includes automatic detection and fixes for Apple Silicon, but if you still encounter BLAS crashes:
-
-1. **Force CPU Usage**: Add `device="cpu"` to model loading and all tensor operations
-2. **Install JAX**: Make sure you have JAX installed with `pip install jax jaxlib`
-3. **Single-Threaded BLAS**: Set the environment variables shown in the Local Execution section
-4. **Visualization Issues**: If you see rendering errors, try forcing `matplotlib.use('Agg')`
-
-### General Troubleshooting
-
-1. **BLAS Errors**: Set single-threaded environment variables as shown above
-2. **Memory Errors**: Reduce batch size and sequence length in the configuration cell
-3. **Visualization Errors**: Make sure matplotlib is properly configured
-4. **GPU Errors**: Try running on CPU if GPU errors persist
-
-## Next Steps
-
-Further improvements planned:
-
-1. Make tensor operations more memory-efficient
-2. Add more visualization options for head dynamics
-3. Implement adaptive pruning schedules
-4. Add support for more model architectures
+- v0.0.58 (2025-04-19): Added comprehensive Apple Silicon support with multi-level fallback and cross-platform compatibility

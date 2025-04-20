@@ -5,7 +5,7 @@ This module provides visualization utilities for neural plasticity experiments.
 It visualizes head entropy, gradients, pruning decisions, training metrics,
 and attention patterns.
 
-Version: v0.0.56 (2025-04-19 23:30:00)
+Version: v0.0.57 (2025-04-19 17:30:00)
 """
 
 import torch
@@ -13,17 +13,34 @@ import numpy as np
 import matplotlib.pyplot as plt
 import platform
 from typing import Dict, List, Tuple, Optional, Union, Callable, Any
-from utils.colab.helpers import safe_tensor_imshow
+from utils.colab.helpers import safe_tensor_imshow, get_colab_type
 
-# Check for Apple Silicon at module import time
+# Initialize environment variables
 IS_APPLE_SILICON = False
 IS_COLAB = False
+HAS_GPU = False
 
 # Detect if we're running in Google Colab
 try:
     import google.colab
     IS_COLAB = True
     print("🌐 Running in Google Colab environment")
+    
+    # Check for GPU in Colab
+    colab_info = get_colab_type(verbose=False)
+    if colab_info.get("hardware") == "GPU":
+        HAS_GPU = True
+        print(f"✅ CUDA GPU detected in Colab: {colab_info.get('gpu_name', 'Unknown GPU')}")
+        print("🚀 Visualizations will be optimized for GPU acceleration")
+        
+        # Display GPU info for confirmation
+        try:
+            import subprocess
+            subprocess.run(["nvidia-smi"], check=False)
+        except Exception:
+            pass
+    else:
+        print("⚠️ No GPU detected in Colab - using CPU for visualizations")
 except (ImportError, ModuleNotFoundError):
     pass
 
@@ -404,18 +421,36 @@ def visualize_attention_patterns(
     if isinstance(attention_maps, list):
         attention_maps = attention_maps[layer_idx]
     
-    # Ensure tensor is on CPU and converted to numpy
+    # Ensure tensor is properly prepared for visualization
     if isinstance(attention_maps, torch.Tensor):
-        # Force to CPU on Apple Silicon to avoid BLAS crashes
-        if IS_APPLE_SILICON and attention_maps.is_cuda:
-            attention_maps = attention_maps.cpu()
+        # Handle environment-specific processing
+        if IS_APPLE_SILICON:
+            # Force to CPU on Apple Silicon to avoid BLAS crashes
+            if attention_maps.is_cuda:
+                attention_maps = attention_maps.detach().cpu()
+            # Detach for safety
+            if attention_maps.requires_grad:
+                attention_maps = attention_maps.detach()
+        elif IS_COLAB and HAS_GPU:
+            # In Colab with GPU, we still need to move to CPU for visualization
+            # but we can be more efficient about it
+            if attention_maps.is_cuda:
+                # Only detach if needed
+                if attention_maps.requires_grad:
+                    attention_maps = attention_maps.detach().cpu()
+                else:
+                    attention_maps = attention_maps.cpu()
+        else:
+            # Standard environment handling
+            if attention_maps.requires_grad:
+                attention_maps = attention_maps.detach()
+            if attention_maps.is_cuda:
+                attention_maps = attention_maps.cpu()
         
-        # Use safe_tensor_imshow helper to properly handle GPU tensors
-        if attention_maps.requires_grad:
-            attention_maps = attention_maps.detach()
-        if attention_maps.is_cuda:
-            attention_maps = attention_maps.cpu()
-        
+        # Always ensure contiguous memory layout for efficient conversion
+        if not attention_maps.is_contiguous():
+            attention_maps = attention_maps.contiguous()
+            
         attn = attention_maps
     else:
         attn = attention_maps
@@ -424,21 +459,23 @@ def visualize_attention_patterns(
     if attn.dim() != 4:
         raise ValueError(f"Expected 4D attention tensor [batch, heads, seq_len, seq_len], got shape {attn.shape}")
     
+    # Use safe_tensor_imshow helper for conversion to numpy
+    from utils.colab.helpers import safe_tensor_imshow
+    
     # Create figure
     if head_idx is not None:
         # Single head visualization
         fig, ax = plt.subplots(figsize=figsize)
         
-        # Use the safe_tensor_imshow helper from utils.colab.helpers
-        from utils.colab.helpers import safe_tensor_imshow
-        
-        # Extract the specific head attention and convert to numpy for plotting
-        head_attention = attn[0, head_idx].numpy()
-        
-        # Check for NaN/Inf values to avoid visualization errors
-        if np.isnan(head_attention).any() or np.isinf(head_attention).any():
-            head_attention = np.nan_to_num(head_attention, nan=0.0, posinf=1.0, neginf=0.0)
-            print("⚠️ Warning: Attention tensor contained NaN or Inf values, replacing with safe values")
+        # Extract the specific head attention and safely convert to numpy
+        if isinstance(attn, torch.Tensor):
+            # Handle potential NaN/Inf values during conversion
+            head_attention = attn[0, head_idx].cpu().numpy()
+            if np.isnan(head_attention).any() or np.isinf(head_attention).any():
+                head_attention = np.nan_to_num(head_attention, nan=0.0, posinf=1.0, neginf=0.0)
+                print("⚠️ Warning: Attention tensor contained NaN or Inf values, replacing with safe values")
+        else:
+            head_attention = attn[0, head_idx]
         
         # Plot attention pattern
         im = ax.imshow(head_attention, cmap='viridis')
@@ -467,12 +504,14 @@ def visualize_attention_patterns(
         
         # Plot each head
         for i in range(heads_to_show):
-            # Extract head attention and convert to numpy
-            head_attention = attn[0, i].numpy()
-            
-            # Check for NaN/Inf values
-            if np.isnan(head_attention).any() or np.isinf(head_attention).any():
-                head_attention = np.nan_to_num(head_attention, nan=0.0, posinf=1.0, neginf=0.0)
+            # Extract head attention and safely convert to numpy
+            if isinstance(attn, torch.Tensor):
+                head_attention = attn[0, i].cpu().numpy()
+                # Check for NaN/Inf values
+                if np.isnan(head_attention).any() or np.isinf(head_attention).any():
+                    head_attention = np.nan_to_num(head_attention, nan=0.0, posinf=1.0, neginf=0.0)
+            else:
+                head_attention = attn[0, i]
                 
             # Plot attention pattern
             im = axs[i].imshow(head_attention, cmap='viridis')

@@ -184,6 +184,8 @@ gh pr create --title "Add my feature" --body "..."
 - Read all relevant code thoroughly before making changes to understand dependencies and patterns
 - Review the entire notebook before making edits to understand the full flow and dependencies
 - ALWAYS activate the virtual environment with `source .venv/bin/activate` before running scripts
+- ALWAYS use virtual environment for testing code: `source .venv/bin/activate && python your_script.py`
+- When running scripts or tests, ALWAYS change directory to project root first: `cd /path/to/sentinel-ai && source .venv/bin/activate && python scripts/your_script.py`
 - Always run notebooks end-to-end even in CPU mode before committing changes
 - Always check tensor visualization code to ensure proper .detach().cpu().numpy() conversion
 - Verify all files are properly committed (git status) before ending a session
@@ -200,4 +202,9 @@ gh pr create --title "Add my feature" --body "..."
 - Carefully test code for syntax errors before committing
 - On Apple Silicon (M1/M2/M3), safeguard against BLAS crashes by moving tensors to CPU for matrix operations
 - Always include architecture-specific optimizations for Apple Silicon to avoid libtorch/BLAS crashes
-- Use platform detection at module import time to automatically adjust execution based on hardware
+- In Colab with GPU (T4), optimize for CUDA acceleration and ensure tensors are on GPU
+- Use platform and hardware detection at module import time to automatically adjust execution
+- Design code to be universally compatible with Apple Silicon, Colab T4 GPU, and standard CPU/GPU
+- Always test tensor operations across all environments before finalizing code
+- For visualization functions, always handle GPU tensors with proper detach+cpu conversion
+- Provide fallback mechanisms for tensor operations to ensure robustness across platforms
