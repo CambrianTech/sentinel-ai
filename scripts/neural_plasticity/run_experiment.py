@@ -244,10 +244,9 @@ def main():
     # Create output directory with timestamp if not provided
     if args.output_dir is None:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        # Use the consolidated experiment_output directory
+        # Use the consolidated neural_plasticity_output directory
         args.output_dir = os.path.join(
-            "experiment_output", 
-            "neural_plasticity",
+            "neural_plasticity_output",
             f"run_{timestamp}"
         )
     

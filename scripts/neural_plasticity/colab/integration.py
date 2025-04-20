@@ -98,7 +98,7 @@ def get_output_dir(experiment_name: str, base_dir: Optional[str] = None) -> str:
             base_dir = "/content/neural_plasticity_experiments"
     elif base_dir is None:
         # Default local base directory
-        base_dir = os.path.join(os.getcwd(), "experiment_output", "neural_plasticity")
+        base_dir = os.path.join(os.getcwd(), "neural_plasticity_output")
     
     # Create timestamp-based directory
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
