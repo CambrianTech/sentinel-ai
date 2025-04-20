@@ -54,22 +54,54 @@ In this demo, we:
 This allows models to form more efficient neural structures during training.
 """))
 
-    # System dependencies
-    cells.append(new_code_cell("""# Check and install system dependencies if needed
-!apt-get update -qq > /dev/null
-!apt-get install -qq libopenblas-dev > /dev/null  # For better performance"""))
+    # System dependencies - only for Colab
+    cells.append(new_code_cell("""# This cell is only needed in Colab
+if 'google.colab' in str(get_ipython()):
+    # Install system dependencies in Colab
+    !apt-get update -qq > /dev/null
+    !apt-get install -qq libopenblas-dev > /dev/null  # For better performance
+    print("Installed system dependencies for Colab")
+else:
+    print("Running locally - skipping Colab-specific system dependencies")"""))
 
     # Install packages and clone repo
-    cells.append(new_code_cell("""# Install required packages
-!pip install -q torch transformers datasets matplotlib seaborn
+    cells.append(new_code_cell("""# This cell is only needed in Colab - has no effect when running locally
+import os
 
-# Clone the Sentinel AI repository
-!git clone -b feature/implement-adaptive-plasticity https://github.com/CambrianTech/sentinel-ai.git
-%cd sentinel-ai
+# Check if we're running in Colab
+IN_COLAB = 'google.colab' in str(get_ipython())
 
-# Add repository to path
-import sys
-sys.path.append('.')"""))
+if IN_COLAB:
+    # Install required packages in Colab
+    !pip install -q torch transformers datasets matplotlib seaborn
+    
+    # Clone the repository in Colab
+    !git clone -b feature/implement-adaptive-plasticity https://github.com/CambrianTech/sentinel-ai.git
+    %cd sentinel-ai
+    
+    # Add repository to path
+    import sys
+    sys.path.append('.')
+else:
+    # When running locally, we're already in the repository
+    print("Running locally - no need to clone repository")
+    
+    # Make sure all required packages are installed
+    import importlib
+    
+    required_packages = ['torch', 'transformers', 'datasets', 'matplotlib', 'seaborn']
+    missing_packages = []
+    
+    for package in required_packages:
+        try:
+            importlib.import_module(package)
+        except ImportError:
+            missing_packages.append(package)
+    
+    if missing_packages:
+        print(f"Warning: The following packages are missing and should be installed: {', '.join(missing_packages)}")
+    else:
+        print("All required packages are installed")"""))
 
     # Configure experiment
     cells.append(new_markdown_cell("""# Configure the Experiment
