@@ -1644,9 +1644,12 @@ class NeuralPlasticityExperiment:
             return None
         
         try:
+            import time
+            from datetime import datetime
+            
             metadata = {
                 "experiment_version": "1.0.0",
-                "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
+                "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                 "model": {
                     "name": self.model_name,
                     "layers": self.model.config.num_hidden_layers if hasattr(self.model, "config") else None,

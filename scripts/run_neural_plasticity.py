@@ -151,6 +151,7 @@ if __name__ == "__main__":
         sys.exit(1)
     
     # Record experiment start time for performance measurement
+    import time
     start_time = time.time()
     
     # Run experiment
@@ -210,7 +211,7 @@ if __name__ == "__main__":
             
             # Adjust parameters for quick test mode if enabled
             warmup_epochs = 1
-            training_steps = args.training_steps // 5 if args.quick_test else args.training_steps
+            training_steps = min(25, args.training_steps // 10) if args.quick_test else args.training_steps
             
             # Run the complete experiment pipeline
             results = experiment.run_full_experiment(
