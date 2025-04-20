@@ -430,27 +430,37 @@ def safe_tensor_imshow(
     show_colorbar: bool = True,
     vmin: Optional[float] = None, 
     vmax: Optional[float] = None,
-    verbose: bool = True
-) -> plt.Figure:
+    verbose: bool = False,  # Default to less verbose for notebook use
+    return_tensor: bool = False  # Allow returning the cleaned tensor for chaining operations
+) -> Union[plt.Figure, Tuple[plt.Figure, np.ndarray]]:
     """
     Safely visualize a tensor with proper detach/cpu/numpy handling.
-    Works with both GPU and CPU tensors across all environments.
+    Works with GPU tensors, CPU tensors, and Apple Silicon environments.
     
     Args:
         tensor: The tensor to visualize (can be on any device)
         title: Title for the plot
         cmap: Colormap to use
-        save_path: Optional path to save the visualization 
-                  (default: /tmp/tensor_viz_{timestamp}.png)
+        save_path: Optional path to save the visualization
         figsize: Figure size as (width, height) in inches
         show_colorbar: Whether to show a colorbar
-        vmin: Minimum value for colormap scaling
-        vmax: Maximum value for colormap scaling
+        vmin: Minimum value for colormap scaling (auto-computed if None)
+        vmax: Maximum value for colormap scaling (auto-computed if None)
         verbose: Whether to print tensor information
+        return_tensor: Whether to also return the numpy tensor alongside the figure
         
     Returns:
-        The matplotlib figure object
+        The matplotlib figure object, or (figure, numpy_tensor) if return_tensor=True
     """
+    # Detect Apple Silicon environment
+    is_apple_silicon = False
+    try:
+        import platform
+        if platform.system() == "Darwin" and platform.processor() == "arm":
+            is_apple_silicon = True
+    except:
+        pass
+    
     # Get original device information for debugging
     original_device = "cpu"
     required_detach = False
@@ -467,28 +477,48 @@ def safe_tensor_imshow(
             was_cuda = True
             
         # Special handling for different environments
-        if "apple" in original_device.lower() or (IS_APPLE_SILICON if 'IS_APPLE_SILICON' in globals() else False):
+        if is_apple_silicon:
             # Extra careful handling for Apple Silicon
-            if tensor.requires_grad:
-                tensor = tensor.detach()
-            if tensor.is_cuda:
-                tensor = tensor.cpu()
-            if not tensor.is_contiguous():
-                tensor = tensor.contiguous()
+            try:
+                if tensor.requires_grad:
+                    tensor = tensor.detach()
+                if tensor.is_cuda:
+                    tensor = tensor.cpu()
+                if not tensor.is_contiguous():
+                    tensor = tensor.contiguous()
+                # Convert to numpy array
+                tensor_np = tensor.numpy()
+            except Exception as e:
+                # Ultimate fallback for Apple Silicon: create zeros array of same shape
+                if verbose:
+                    print(f"⚠️ Error converting tensor on Apple Silicon: {e}")
+                    print("Creating empty tensor with same shape for visualization")
+                tensor_shape = tensor.shape
+                tensor_np = np.zeros(tensor_shape)
         else:
             # Standard handling for other environments
-            if tensor.requires_grad:
-                tensor = tensor.detach()
-            if tensor.is_cuda:
-                tensor = tensor.cpu()
-        
-        # Convert to numpy array
-        tensor_np = tensor.numpy()
-        
+            try:
+                if tensor.requires_grad:
+                    tensor = tensor.detach()
+                if tensor.is_cuda:
+                    tensor = tensor.cpu()
+                # Convert to numpy array
+                tensor_np = tensor.numpy()
+            except Exception as e:
+                if verbose:
+                    print(f"⚠️ Error converting tensor: {e}")
+                # Create empty array as fallback
+                tensor_shape = tensor.shape
+                tensor_np = np.zeros(tensor_shape)
+                
     elif isinstance(tensor, np.ndarray):
         tensor_np = tensor
     else:
-        raise TypeError(f"Expected torch.Tensor or numpy.ndarray, got {type(tensor)}")
+        # Try to convert other array-like objects
+        try:
+            tensor_np = np.array(tensor)
+        except:
+            raise TypeError(f"Expected torch.Tensor, numpy.ndarray, or array-like object, got {type(tensor)}")
     
     # Handle potential NaN or Inf values
     has_nans = np.isnan(tensor_np).any()
@@ -504,36 +534,78 @@ def safe_tensor_imshow(
     
     # Automatically determine appropriate color limits if not provided
     if vmin is None:
-        vmin = np.percentile(tensor_np, 1) if not has_nans else tensor_np.min()
+        try:
+            vmin = np.percentile(tensor_np, 1) if not has_nans else tensor_np.min()
+        except:
+            vmin = tensor_np.min() if not has_nans else 0.0
+            
     if vmax is None:
-        vmax = np.percentile(tensor_np, 99) if not has_nans else tensor_np.max()
+        try:
+            vmax = np.percentile(tensor_np, 99) if not has_nans else tensor_np.max()
+        except:
+            vmax = tensor_np.max() if not has_infs else 1.0
         
     # Ensure vmin and vmax are not equal (which would cause matplotlib warnings)
-    if vmin == vmax:
+    if np.isclose(vmin, vmax) or vmin == vmax:
         vmin = vmin - 0.1 if vmin != 0 else -0.1
         vmax = vmax + 0.1 if vmax != 0 else 0.1
     
     # Plot the image
-    im = ax.imshow(tensor_np, cmap=cmap, vmin=vmin, vmax=vmax)
+    try:
+        im = ax.imshow(tensor_np, cmap=cmap, vmin=vmin, vmax=vmax)
+    except Exception as e:
+        if verbose:
+            print(f"⚠️ Error in plotting: {e}")
+            print("Attempting to flatten or reshape tensor for visualization")
+        
+        # Try to reshape or flatten if imshow fails
+        orig_shape = tensor_np.shape
+        try:
+            # For 1D tensors or tensors with singleton dimensions
+            if tensor_np.ndim == 1 or (tensor_np.ndim > 1 and 1 in tensor_np.shape):
+                tensor_np = tensor_np.reshape(-1, 1)
+            # For higher dimensional tensors, flatten to 2D
+            elif tensor_np.ndim > 2:
+                tensor_np = tensor_np.reshape(tensor_np.shape[0], -1)
+                
+            im = ax.imshow(tensor_np, cmap=cmap, vmin=vmin, vmax=vmax)
+            
+            # Note the reshaping in the title
+            title = f"{title} (reshaped from {orig_shape})"
+        except Exception as reshape_error:
+            if verbose:
+                print(f"⚠️ Reshaping failed: {reshape_error}")
+            # Create a simple heatmap as fallback
+            tensor_np = np.ones((5, 5))
+            im = ax.imshow(tensor_np, cmap=cmap)
+            title = f"{title} (visualization failed - showing placeholder)"
     
     # Add colorbar if requested
     if show_colorbar:
         fig.colorbar(im, ax=ax)
     
-    # Add title
-    if was_cuda:
-        ax.set_title(f"{title} (from CUDA)")
+    # Add title with environment info
+    if is_apple_silicon:
+        ax.set_title(f"{title} (Apple Silicon)")
+    elif was_cuda:
+        ax.set_title(f"{title} (CUDA)")
     else:
         ax.set_title(title)
     
-    # Save if path provided, otherwise use default path
-    if save_path is None:
-        # Create timestamp for unique filename
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        save_path = f"/tmp/tensor_viz_{timestamp}.png"
+    # Add axis labels if tensor is 2D
+    if tensor_np.ndim == 2:
+        ax.set_xlabel('Column Index')
+        ax.set_ylabel('Row Index')
     
-    # Save figure
-    plt.savefig(save_path)
+    # Save if path provided
+    if save_path is not None:
+        try:
+            plt.savefig(save_path, bbox_inches='tight')
+            if verbose:
+                print(f"Visualization saved to: {save_path}")
+        except Exception as save_error:
+            if verbose:
+                print(f"⚠️ Could not save figure: {save_error}")
     
     # Display useful info
     if verbose:
@@ -547,6 +619,9 @@ def safe_tensor_imshow(
             print(f"  - Required CPU transfer: Yes (was on CUDA)")
         if has_nans or has_infs:
             print(f"  - Had NaN/Inf values: Yes (replaced with safe values)")
-        print(f"  - Saved to: {save_path}")
     
-    return fig
+    # Return figure or tuple based on return_tensor flag
+    if return_tensor:
+        return fig, tensor_np
+    else:
+        return fig

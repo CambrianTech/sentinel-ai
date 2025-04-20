@@ -1,5 +1,5 @@
 """
-Neural Plasticity Utilities (v0.0.60 2025-04-20)
+Neural Plasticity Utilities (v0.0.61 2025-04-20)
 
 This module provides a comprehensive modular implementation of neural plasticity
 for transformer models, enabling dynamic pruning and regrowth of attention heads.
@@ -8,6 +8,8 @@ Key features:
 - Environment-aware tensor operations that work across platforms
 - Detection and adaptation for Apple Silicon, CPU, and GPU environments
 - Dynamic pruning based on entropy and gradient metrics
+- Improved entropy calculation with detailed diagnostics
+- Apple Silicon compatibility with safe tensor operations
 - Visualization tools for attention patterns and pruning decisions
 - Training loops with differential learning rates
 - Complete experiment runners for end-to-end testing
@@ -16,13 +18,14 @@ These utilities enable transformer models to become more efficient through
 adaptively modifying their structure during training.
 """
 
-__version__ = "0.0.60"
+__version__ = "0.0.61"
 __date__ = "2025-04-20"
 
 # Import environment detection and core tensor operations
 from .core import (
     # Core tensor operations
     calculate_head_entropy,
+    compute_improved_entropy,  # New function exposed
     calculate_head_gradients,
     generate_pruning_mask,
     gradient_based_pruning,
@@ -400,6 +403,24 @@ class NeuralPlasticity:
             callback=callback
         )
     
+    @staticmethod
+    def compute_entropy_with_diagnostics(attention_maps, eps=1e-8, debug=True):
+        """
+        Compute entropy with detailed diagnostics for debugging.
+        
+        This method is useful for diagnosing numerical stability issues 
+        in entropy calculations on different hardware platforms.
+        
+        Args:
+            attention_maps: Attention tensor [batch, heads, seq_len, seq_len]
+            eps: Small epsilon value for numerical stability
+            debug: Whether to print detailed diagnostic information
+            
+        Returns:
+            Tensor with entropy values
+        """
+        return compute_improved_entropy(attention_maps, eps=eps, debug=debug)
+        
     @staticmethod
     def create_gradient_pruning_mask(grad_norm_values, prune_percent=0.1):
         """

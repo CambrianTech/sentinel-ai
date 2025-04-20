@@ -241,9 +241,97 @@ def safe_matmul(
             out_shape = list(a.shape[:-1]) + list(b.shape[1:])
             return torch.zeros(out_shape, device='cpu')
 
+def compute_improved_entropy(
+    attn_probs: torch.Tensor,
+    eps: float = 1e-8,
+    debug: bool = False
+) -> torch.Tensor:
+    """
+    Compute entropy with better numerical stability and optional diagnostics.
+    
+    This is a core function used by calculate_head_entropy that focuses on the
+    numerical computation aspects with detailed diagnostics.
+    
+    Args:
+        attn_probs: Attention probabilities tensor
+        eps: Small epsilon value for numerical stability
+        debug: Whether to print diagnostic information
+        
+    Returns:
+        Tensor containing entropy values
+    """
+    # Save original device for returning result
+    original_device = attn_probs.device
+    
+    if debug:
+        # Print raw attention stats
+        print(f"Raw attention shape: {attn_probs.shape}")
+        print(f"Raw min/max/mean: {attn_probs.min().item():.6e}/{attn_probs.max().item():.6e}/{attn_probs.mean().item():.6e}")
+        
+        # Check for numerical issues
+        print(f"Contains zeros: {(attn_probs == 0).any().item()}")
+        print(f"Contains NaN: {torch.isnan(attn_probs).any().item()}")
+        print(f"Contains Inf: {torch.isinf(attn_probs).any().item()}")
+        
+        # Check distribution validity
+        row_sums = attn_probs.sum(dim=-1)
+        print(f"Row sums min/max/mean: {row_sums.min().item():.6f}/{row_sums.max().item():.6f}/{row_sums.mean().item():.6f}")
+        print(f"Rows sum to ~1: {torch.allclose(row_sums, torch.ones_like(row_sums), rtol=1e-2)}")
+    
+    # Apply numerical safeguards
+    # 1. Replace non-finite values
+    attn_probs = torch.where(
+        torch.isfinite(attn_probs),
+        attn_probs,
+        torch.ones_like(attn_probs) * eps
+    )
+    
+    # 2. Ensure positive values
+    attn_probs = attn_probs.clamp(min=eps)
+    
+    # 3. Normalize to ensure it sums to 1.0 along attention dimension
+    attn_probs = attn_probs / attn_probs.sum(dim=-1, keepdim=True)
+    
+    if debug:
+        print("\nAfter preprocessing:")
+        print(f"Min/max/mean: {attn_probs.min().item():.6e}/{attn_probs.max().item():.6e}/{attn_probs.mean().item():.6e}")
+        row_sums = attn_probs.sum(dim=-1)
+        print(f"Row sums min/max/mean: {row_sums.min().item():.6f}/{row_sums.max().item():.6f}/{row_sums.mean().item():.6f}")
+    
+    # Compute entropy: -sum(p * log(p))
+    log_probs = torch.log(attn_probs)
+    entropy = -torch.sum(attn_probs * log_probs, dim=-1)
+    
+    # Handle any remaining NaN/Inf values
+    entropy = torch.where(
+        torch.isfinite(entropy),
+        entropy,
+        torch.zeros_like(entropy)
+    )
+    
+    if debug:
+        print("\nEntropy results:")
+        print(f"Entropy shape: {entropy.shape}")
+        print(f"Entropy min/max/mean: {entropy.min().item():.4f}/{entropy.max().item():.4f}/{entropy.mean().item():.4f}")
+        
+        # Compute theoretical maximum entropy (uniform distribution)
+        seq_len = attn_probs.size(-1)
+        max_entropy = torch.log(torch.tensor(seq_len, dtype=torch.float))
+        print(f"Theoretical max entropy (log(seq_len)): {max_entropy.item():.4f}")
+        
+        # Check if entropy is at maximum (uniform attention)
+        print(f"Percentage of maximum entropy: {entropy.mean().item()/max_entropy.item()*100:.2f}%")
+    
+    # Return to original device
+    if entropy.device != original_device:
+        entropy = entropy.to(original_device)
+    
+    return entropy
+
 def calculate_head_entropy(
     attention_maps: torch.Tensor,
-    eps: float = 1e-8
+    eps: float = 1e-8,
+    debug: bool = False
 ) -> torch.Tensor:
     """
     Calculate entropy of attention patterns with enhanced numerical stability.
@@ -254,6 +342,7 @@ def calculate_head_entropy(
     Args:
         attention_maps: Attention matrix tensor [batch, heads, seq_len, seq_len]
         eps: Small epsilon value to ensure numerical stability
+        debug: Whether to print diagnostic information
         
     Returns:
         Tensor of shape [layers, heads] containing entropy values
@@ -307,37 +396,8 @@ def calculate_head_entropy(
             # Reshape 1D tensors to 2D with batch dimension
             attention_maps = attention_maps.unsqueeze(0).unsqueeze(0)
     
-    # Handle potential NaN or Inf values first
-    attn_probs = torch.where(
-        torch.isfinite(attention_maps),
-        attention_maps,
-        torch.ones_like(attention_maps) * eps
-    )
-    
-    # Apply stronger epsilon for numerical stability
-    attn_probs = attn_probs.clamp(min=eps)
-    
-    # Normalize to ensure it's a proper probability distribution
-    # Use dim=-1 to normalize across the attention dimension
-    attn_sum = attn_probs.sum(dim=-1, keepdim=True)
-    
-    # Handle potential division by zero with safe_div
-    attn_probs = attn_probs / torch.max(attn_sum, torch.ones_like(attn_sum) * eps)
-    
-    # Cast to float32 for better numerical stability if needed
-    if attn_probs.dtype != torch.float32:
-        attn_probs = attn_probs.to(torch.float32)
-    
-    # Calculate entropy: -sum(p * log(p)) with safer log operation
-    log_probs = torch.log(attn_probs)
-    entropy = -torch.sum(attn_probs * log_probs, dim=-1)
-    
-    # Detect and fix any remaining NaN/Inf values after entropy calculation
-    entropy = torch.where(
-        torch.isfinite(entropy),
-        entropy,
-        torch.zeros_like(entropy)
-    )
+    # Use the improved entropy calculation function
+    entropy = compute_improved_entropy(attention_maps, eps=eps, debug=debug)
     
     # Average over batch and sequence length dimensions if present
     dims_to_reduce = list(range(entropy.dim() - 2))

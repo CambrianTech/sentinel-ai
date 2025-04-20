@@ -40,6 +40,10 @@ def validate_notebook(notebook_path):
     
     for cell in notebook.cells:
         if cell.cell_type == 'code':
+            if 'from utils.neural_plasticity import NeuralPlasticity' in cell.source:
+                neural_plasticity_imports_found = True
+                module_imports_found = True
+                print("✅ Neural plasticity API imports found")
             if 'from utils.neural_plasticity.core import' in cell.source:
                 neural_plasticity_imports_found = True
                 module_imports_found = True
@@ -95,6 +99,29 @@ def validate_notebook(notebook_path):
         return False
     else:
         print("✅ No duplicate tensor conversions found")
+        
+    # Check for key modular API usage
+    key_functions = [
+        "NeuralPlasticity.run_warmup_training",
+        "NeuralPlasticity.diagnose_attention_patterns", 
+        "NeuralPlasticity.calculate_head_importance",
+        "NeuralPlasticity.create_gradient_pruning_mask"
+    ]
+    
+    found_functions = set()
+    for i, cell in enumerate(notebook.cells):
+        if cell.cell_type == 'code':
+            for function in key_functions:
+                if function in cell.source:
+                    found_functions.add(function)
+                    print(f"✅ Found modular API function: {function}")
+    
+    missing_functions = set(key_functions) - found_functions
+    if missing_functions:
+        print(f"❌ Missing key modular API functions: {missing_functions}")
+        return False
+    else:
+        print("✅ All key modular API functions found")
     
     print("\n===== VALIDATION SUMMARY =====")
     print("✅ Notebook loads correctly")
