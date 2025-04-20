@@ -39,25 +39,27 @@ class NeuralPlasticityExperiment(BaseExperiment):
     
     def __init__(
         self,
-        model_name: str,
         output_dir: str,
         device: Optional[str] = None,
-        adaptive_model: bool = True
+        model_name: str = "distilgpt2",
+        adaptive_model: bool = True,
+        experiment_name: str = "neural_plasticity"
     ):
         """
         Initialize the neural plasticity experiment.
         
         Args:
-            model_name: Name of the pre-trained model to use
             output_dir: Directory to save results
             device: Device to run on (auto-detected if None)
+            model_name: Name of the pre-trained model to use
             adaptive_model: Whether to use adaptive model wrapper
+            experiment_name: Name of the experiment type
         """
         # Initialize base experiment
         super().__init__(
             output_dir=output_dir,
             device=device,
-            experiment_name="neural_plasticity",
+            experiment_name=experiment_name,
             enable_colab_integration=True
         )
         
