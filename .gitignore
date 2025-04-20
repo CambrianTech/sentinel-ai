@@ -34,7 +34,11 @@ datasets/**/*.arrow
 datasets/**/cache/
 ~$*
 
-# Neural plasticity experiment results
+# Consolidated output directories
+experiment_output/         # Main consolidated output directory
+experiment_output/*/      # All subdirectories under it
+
+# Legacy neural plasticity output directories (to be migrated to experiment_output/)
 plasticity_experiments/
 experiment_results/
 neural_plasticity_output/

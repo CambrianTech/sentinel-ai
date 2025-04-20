@@ -232,9 +232,11 @@ def main():
     # Create output directory with timestamp if not provided
     if args.output_dir is None:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        # Use the consolidated experiment_output directory
         args.output_dir = os.path.join(
-            "experiment_results", 
-            f"{args.model_name.split('/')[-1]}_{args.pruning_strategy}_{timestamp}"
+            "experiment_output", 
+            "neural_plasticity",
+            f"run_{timestamp}"
         )
     
     # Ensure the output directory exists
