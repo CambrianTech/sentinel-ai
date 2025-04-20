@@ -69,6 +69,10 @@ class NeuralPlasticityExperiment(BaseExperiment):
         self.model = None
         self.quick_test = False  # Will be set if --quick_test flag is provided
         self.batch_size = 4      # Default batch size
+        self.pruning_strategy = "entropy"  # Default pruning strategy
+        self.pruning_level = 0.2           # Default pruning level
+        self.fine_tuning_steps = 500       # Default number of fine-tuning steps
+        self.learning_rate = 5e-5          # Default learning rate
         
         # Initialize visualizers if needed
         self._initialize_visualizers()
