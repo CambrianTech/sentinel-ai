@@ -16,46 +16,59 @@ from typing import Dict, List, Tuple, Optional, Union, Callable, Any
 
 # Check for Apple Silicon at module import time
 IS_APPLE_SILICON = False
+IS_COLAB = False
+
+# Detect if we're running in Google Colab
+try:
+    import google.colab
+    IS_COLAB = True
+    print("🌐 Running in Google Colab environment")
+except (ImportError, ModuleNotFoundError):
+    pass
+
+# Detect Apple Silicon and apply optimizations if needed
 try:
     if platform.system() == "Darwin" and platform.processor() == "arm":
         IS_APPLE_SILICON = True
         print("🍎 Apple Silicon detected - enabling PyTorch/BLAS crash prevention")
         
-        # Force single-threaded BLAS operations
-        import os
-        os.environ["OMP_NUM_THREADS"] = "1"
-        os.environ["OPENBLAS_NUM_THREADS"] = "1"
-        os.environ["MKL_NUM_THREADS"] = "1"
-        os.environ["VECLIB_MAXIMUM_THREADS"] = "1"
-        os.environ["NUMEXPR_NUM_THREADS"] = "1"
-        
-        # Try to force PyTorch to behave on Apple Silicon
-        try:
-            import torch
-            # Disable parallel CPU operations
-            torch.set_num_threads(1)
+        # Skip Apple Silicon optimizations if running in Colab (shouldn't happen, but just in case)
+        if not IS_COLAB:
+            # Force single-threaded BLAS operations
+            import os
+            os.environ["OMP_NUM_THREADS"] = "1"
+            os.environ["OPENBLAS_NUM_THREADS"] = "1"
+            os.environ["MKL_NUM_THREADS"] = "1"
+            os.environ["VECLIB_MAXIMUM_THREADS"] = "1"
+            os.environ["NUMEXPR_NUM_THREADS"] = "1"
             
-            # Set additional safeguards for BLAS operations
+            # Try to force PyTorch to behave on Apple Silicon
             try:
-                # Disable BLAS threading at pytorch level too
-                torch.backends.openmp.is_available = lambda: False
-                # Disable fancy optimizations that might crash
-                torch.backends.mkldnn.enabled = False
-                # Set PT deterministic for more consistent behavior
-                torch.use_deterministic_algorithms(True)
-            except (AttributeError, RuntimeError) as e:
-                print(f"⚠️ Could not set all PyTorch safeguards: {e}")
+                import torch
+                # Disable parallel CPU operations
+                torch.set_num_threads(1)
                 
-            # Force use of slower but more stable BLAS implementation
-            os.environ["ACCELERATE_USE_SYSTEM_BLAS"] = "1"
-            os.environ["PYTORCH_JIT_USE_AUTOTUNER"] = "0"
-            
-            # Ensure the default device is CPU
-            if torch.cuda.is_available():
-                print("⚠️ CUDA detected on Apple Silicon - forcing CPU usage to prevent crashes")
-                torch.__future__.set_overwrite_module_params_on_conversion(True)
-        except (ImportError, AttributeError):
-            pass
+                # Set additional safeguards for BLAS operations
+                try:
+                    # Disable BLAS threading at pytorch level too
+                    torch.backends.openmp.is_available = lambda: False
+                    # Disable fancy optimizations that might crash
+                    torch.backends.mkldnn.enabled = False
+                    # Set PT deterministic for more consistent behavior
+                    torch.use_deterministic_algorithms(True)
+                except (AttributeError, RuntimeError) as e:
+                    print(f"⚠️ Could not set all PyTorch safeguards: {e}")
+                    
+                # Force use of slower but more stable BLAS implementation
+                os.environ["ACCELERATE_USE_SYSTEM_BLAS"] = "1"
+                os.environ["PYTORCH_JIT_USE_AUTOTUNER"] = "0"
+                
+                # Ensure the default device is CPU
+                if torch.cuda.is_available():
+                    print("⚠️ CUDA detected on Apple Silicon - forcing CPU usage to prevent crashes")
+                    torch.__future__.set_overwrite_module_params_on_conversion(True)
+            except (ImportError, AttributeError):
+                pass
 except (ImportError, AttributeError):
     pass
 
@@ -74,11 +87,12 @@ def safe_matmul(
     Returns:
         Result of matrix multiplication
     """
-    if not IS_APPLE_SILICON:
-        # Regular matmul for non-Apple Silicon platforms
+    # Only apply special handling on Apple Silicon and NOT in Colab
+    if not IS_APPLE_SILICON or IS_COLAB:
+        # Regular matmul for non-Apple Silicon platforms or Colab
         return torch.matmul(a, b)
     
-    # On Apple Silicon, we need extra precautions
+    # On Apple Silicon (local execution), we need extra precautions
     # Ensure tensors are on CPU
     if a.is_cuda:
         a = a.cpu()
@@ -119,8 +133,8 @@ def calculate_head_entropy(
     if not isinstance(attention_maps, torch.Tensor):
         raise TypeError(f"Expected torch.Tensor, got {type(attention_maps)}")
     
-    # Apply Apple Silicon workaround to avoid BLAS crashes
-    if IS_APPLE_SILICON:
+    # Apply Apple Silicon workaround to avoid BLAS crashes (only on local machines, not in Colab)
+    if IS_APPLE_SILICON and not IS_COLAB:
         # Always move to CPU on Apple Silicon, regardless of original device
         if attention_maps.is_cuda:
             attention_maps = attention_maps.detach().cpu()
@@ -422,9 +436,35 @@ def generate_pruning_mask(
         if entropy_values is None:
             raise ValueError("Entropy values required for entropy-based pruning")
         
+        # Add debugging info in Colab (but not on Apple Silicon to avoid cluttering the output)
+        if IS_COLAB and not IS_APPLE_SILICON:
+            print(f"DEBUG: Entropy values shape: {entropy_values.shape}, Grad values shape: {grad_norm_values.shape}")
+        
         # Flatten entropy values, ensuring they have the same shape
         if entropy_values.shape != grad_norm_values.shape:
-            raise ValueError(f"Entropy values shape {entropy_values.shape} doesn't match gradient values shape {grad_norm_values.shape}")
+            # In Colab, provide more detail for debugging
+            if IS_COLAB:
+                print(f"⚠️ Shape mismatch! Entropy: {entropy_values.shape}, Gradients: {grad_norm_values.shape}")
+                
+                # Try to reshape entropy if it has more dimensions (happens in some models)
+                if len(entropy_values.shape) > len(grad_norm_values.shape):
+                    try:
+                        # Reshape by taking mean of extra dimensions
+                        reshaped = entropy_values.mean(dim=tuple(range(len(grad_norm_values.shape), len(entropy_values.shape))))
+                        print(f"Attempting to reshape entropy from {entropy_values.shape} to {reshaped.shape}")
+                        if reshaped.shape == grad_norm_values.shape:
+                            print("✅ Successfully reshaped entropy to match gradient shape")
+                            entropy_values = reshaped
+                        else:
+                            raise ValueError(f"Entropy values shape {entropy_values.shape} doesn't match gradient values shape {grad_norm_values.shape}")
+                    except Exception as e:
+                        print(f"⚠️ Failed to reshape: {e}")
+                        raise ValueError(f"Entropy values shape {entropy_values.shape} doesn't match gradient values shape {grad_norm_values.shape}")
+                else:
+                    raise ValueError(f"Entropy values shape {entropy_values.shape} doesn't match gradient values shape {grad_norm_values.shape}")
+            else:
+                # In non-Colab, just raise the error
+                raise ValueError(f"Entropy values shape {entropy_values.shape} doesn't match gradient values shape {grad_norm_values.shape}")
             
         flat_entropy = entropy_values.view(-1)
         
@@ -434,12 +474,16 @@ def generate_pruning_mask(
             if flat_entropy.numel() > total_heads:
                 # Truncate if too large
                 flat_entropy = flat_entropy[:total_heads]
+                if IS_COLAB:
+                    print(f"⚠️ Truncated entropy values from {flat_entropy.numel()} to {total_heads}")
             else:
                 # Pad with average value if too small
                 padded = torch.full((total_heads,), flat_entropy.mean(), 
                                    device=flat_entropy.device, dtype=flat_entropy.dtype)
                 padded[:flat_entropy.numel()] = flat_entropy
                 flat_entropy = padded
+                if IS_COLAB:
+                    print(f"⚠️ Padded entropy values from {flat_entropy.numel()} to {total_heads}")
                 
             print(f"⚠️ Warning: Entropy values shape mismatch. Expected {total_heads}, got {entropy_values.numel()}. Adjusting tensor.")
         

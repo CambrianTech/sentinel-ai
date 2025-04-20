@@ -17,35 +17,48 @@ from utils.colab.helpers import safe_tensor_imshow
 
 # Check for Apple Silicon at module import time
 IS_APPLE_SILICON = False
+IS_COLAB = False
+
+# Detect if we're running in Google Colab
+try:
+    import google.colab
+    IS_COLAB = True
+    print("🌐 Running in Google Colab environment")
+except (ImportError, ModuleNotFoundError):
+    pass
+
+# Detect Apple Silicon and apply optimizations if needed
 try:
     if platform.system() == "Darwin" and platform.processor() == "arm":
         IS_APPLE_SILICON = True
         print("🍎 Apple Silicon detected - enabling visualization crash prevention")
         
-        # Force single-threaded image processing
-        import os
-        os.environ["OMP_NUM_THREADS"] = "1"
-        os.environ["OPENBLAS_NUM_THREADS"] = "1"
-        os.environ["MKL_NUM_THREADS"] = "1"
-        os.environ["VECLIB_MAXIMUM_THREADS"] = "1"
-        os.environ["NUMEXPR_NUM_THREADS"] = "1"
-        
-        # Switch matplotlib backend to Agg (non-interactive) on Apple Silicon
-        # This helps prevent some rendering issues
-        try:
-            import matplotlib
-            matplotlib.use('Agg')
-            print("🎨 Switching to Agg matplotlib backend for improved stability")
-        except (ImportError, RuntimeError):
-            pass
+        # Skip Apple Silicon optimizations if running in Colab (shouldn't happen, but just in case)
+        if not IS_COLAB:
+            # Force single-threaded image processing
+            import os
+            os.environ["OMP_NUM_THREADS"] = "1"
+            os.environ["OPENBLAS_NUM_THREADS"] = "1"
+            os.environ["MKL_NUM_THREADS"] = "1"
+            os.environ["VECLIB_MAXIMUM_THREADS"] = "1"
+            os.environ["NUMEXPR_NUM_THREADS"] = "1"
             
-        # Configure PyTorch for Apple Silicon if available
-        try:
-            import torch
-            # Disable parallel CPU operations
-            torch.set_num_threads(1)
-        except (ImportError, AttributeError):
-            pass
+            # Switch matplotlib backend to Agg (non-interactive) on Apple Silicon
+            # This helps prevent some rendering issues
+            try:
+                import matplotlib
+                matplotlib.use('Agg')
+                print("🎨 Switching to Agg matplotlib backend for improved stability")
+            except (ImportError, RuntimeError):
+                pass
+                
+            # Configure PyTorch for Apple Silicon if available
+            try:
+                import torch
+                # Disable parallel CPU operations
+                torch.set_num_threads(1)
+            except (ImportError, AttributeError):
+                pass
 except (ImportError, AttributeError):
     pass
 
