@@ -1,104 +1,199 @@
 # Neural Plasticity Modularization Summary
 
-This document summarizes the modularization of the neural plasticity functionality from the `NeuralPlasticityDemo.ipynb` notebook into reusable components.
+This document summarizes the modularization of the neural plasticity functionality, including the architecture, key components, and cross-platform compatibility features.
 
-## Goals of Modularization
+## Modularization Goals
 
-1. **Reusability**: Extract core algorithms into reusable modules that can be applied to any transformer model
-2. **Testability**: Make components easier to test independently
-3. **Readability**: Improve code organization and documentation
-4. **Maintainability**: Separate concerns for easier updates and extensions
-5. **Enhanced visualization**: Create specialized visualization utilities for neural plasticity
+1. **Cross-Platform Compatibility**: Ensure the code runs reliably on Apple Silicon (M1/M2/M3), standard CPUs, and GPU environments
+2. **Consistent API**: Provide a unified API for all neural plasticity operations
+3. **Environment Awareness**: Automatically detect and adapt to the execution environment
+4. **Tensor Safety**: Implement robust tensor operations with multiple fallback mechanisms
+5. **Maintainable Architecture**: Organize code into logical modules with clear responsibilities
 
-## Components Created
+## Module Structure
 
-### Core Module (`core.py`)
+The neural plasticity functionality is organized into the following modules:
 
-The core functionality for neural plasticity:
+- **core.py**: Environment detection, tensor operations, pruning logic
+- **visualization.py**: Visualization functions for attention patterns, entropy, gradients
+- **training.py**: Training loops for pruned models, differential learning rates
+- **experiment.py**: Experiment runners for complete neural plasticity cycles
+- **\_\_init\_\_.py**: Public API, enums, and high-level class
 
-- `calculate_head_entropy()`: Calculate entropy of attention patterns
-- `calculate_head_gradients()`: Calculate gradient magnitudes for attention heads
-- `detect_model_structure()`: Automatically detect model architecture details
-- `generate_pruning_mask()`: Create pruning masks based on different strategies (gradient, entropy, combined)
-- `apply_pruning_mask()`: Apply pruning to a model based on a mask
-- `evaluate_model()`: Evaluate model performance on a dataset
+## API Design
 
-### Visualization Module (`visualization.py`)
+The API is designed with two levels of abstraction:
 
-Specialized visualization utilities:
-
-- `visualize_head_entropy()`: Visualize entropy values across layers and heads
-- `visualize_head_gradients()`: Show gradient norms with pruned/revived head markers
-- `visualize_pruning_decisions()`: Highlight pruning decisions based on metrics
-- `visualize_training_metrics()`: Plot training progress and metrics
-- `visualize_attention_patterns()`: Display attention patterns for selected heads
-
-### Training Module (`training.py`)
-
-Training utilities with differential learning rates:
-
-- `PlasticityTrainer`: Class for training pruned models with specialized learning rates
-- `run_plasticity_loop()`: Complete neural plasticity workflow (prune → measure → train)
-- `train_with_plasticity()`: Train a pruned model with differential learning rates
-- `get_plasticity_optimizer()`: Create optimizer with head-specific learning rates
-
-## Example Code
-
-The `examples/neural_plasticity_example.py` script demonstrates how to use these modules with a complete neural plasticity experiment:
+1. **Direct Function Imports**: For users who need fine-grained control
+2. **High-Level NeuralPlasticity Class**: For users who want a simplified interface
 
 ```python
-from utils.neural_plasticity.core import calculate_head_gradients, generate_pruning_mask, apply_pruning_mask
-from utils.neural_plasticity.training import run_plasticity_loop
-from utils.neural_plasticity.visualization import visualize_head_gradients, visualize_training_metrics
+# Direct function imports
+from utils.neural_plasticity import (
+    calculate_head_entropy,
+    calculate_head_gradients,
+    generate_pruning_mask,
+    apply_pruning_mask
+)
 
-# Load model and data
-model = AutoModelForCausalLM.from_pretrained("distilgpt2").to(device)
-train_dataloader, eval_dataloader = get_dataloaders()
+# High-level class
+from utils.neural_plasticity import NeuralPlasticity
+```
 
-# Run complete neural plasticity loop
-results = run_plasticity_loop(
+## Environment Detection
+
+Environment detection automatically identifies the execution environment:
+
+- **IS_APPLE_SILICON**: True if running on Apple ARM chips
+- **IS_COLAB**: True if running in Google Colab
+- **HAS_GPU**: True if GPU acceleration is available
+
+Based on these flags, the module applies appropriate optimizations:
+
+- **Apple Silicon**: Force CPU usage, disable threading for BLAS operations
+- **Colab with GPU**: Ensure tensors are on GPU for maximum performance
+- **Standard CPU**: Regular operation with standard PyTorch settings
+
+## Tensor Safety
+
+To prevent crashes on Apple Silicon, the module implements a robust tensor handling system:
+
+1. **Safe Matrix Multiplication**: `safe_matmul` function with multiple fallback mechanisms:
+   - NumPy-based matrix multiplication (bypasses BLAS)
+   - Manual Python implementation for small matrices
+   - Protected single-threaded PyTorch operations
+
+2. **Safe Tensor Conversion**: `safe_tensor_to_numpy` for device-aware tensor conversion
+
+## Visualization Enhancements
+
+Visualization functions are enhanced for cross-platform compatibility:
+
+- Safe tensor conversion before visualization
+- Device-aware tensor handling
+- Matplotlib backend switching for Apple Silicon
+- Proper figure sizing and saving
+
+## Testing and Validation
+
+Testing utilities ensure the module works across platforms:
+
+- **Minimal Test**: Quick validation of core functionality
+- **Adapted Notebook**: Full notebook using the modular API
+- **Runnable Notebook**: End-to-end test with execution
+
+## Scripts for Testing
+
+The following scripts help test the modular functionality:
+
+- **create_minimal_test.py**: Creates a minimal test notebook
+- **run_neural_plasticity_minimal.py**: Runs the minimal test
+- **adapt_neural_plasticity_notebook.py**: Creates a notebook using the modular API
+- **run_neural_plasticity_notebook.py**: Runs the adapted notebook
+
+## Usage Examples
+
+### Basic Environment Detection
+
+```python
+from utils.neural_plasticity import NeuralPlasticity
+
+# Get environment information
+env_info = NeuralPlasticity.get_environment_info()
+print(f"Platform: {env_info['platform']}")
+print(f"Apple Silicon: {env_info['is_apple_silicon']}")
+print(f"GPU Available: {env_info['has_gpu']}")
+print(f"Device: {env_info['device']}")
+```
+
+### Analyzing Attention Patterns
+
+```python
+# Analyze attention patterns
+attention_data = NeuralPlasticity.analyze_attention_patterns(
+    model=model,
+    input_ids=input_ids,
+    attention_mask=attention_mask
+)
+
+# Extract data
+attention_tensors = attention_data['attention_tensors']
+entropy_values = attention_data['entropy_values']
+```
+
+### Pruning Model
+
+```python
+from utils.neural_plasticity import (
+    calculate_head_gradients,
+    generate_pruning_mask,
+    apply_pruning_mask,
+    PruningStrategy
+)
+
+# Calculate gradients
+grad_norms = calculate_head_gradients(
+    model=model,
+    dataloader=train_dataloader,
+    num_batches=2,
+    device=device
+)
+
+# Generate pruning mask
+pruning_mask = generate_pruning_mask(
+    grad_norm_values=grad_norms,
+    entropy_values=entropy_values[0],
+    prune_percent=0.2,
+    strategy=PruningStrategy.COMBINED
+)
+
+# Apply pruning
+pruned_heads = apply_pruning_mask(
+    model=model,
+    pruning_mask=pruning_mask,
+    mode="zero_weights"
+)
+```
+
+### Visualization
+
+```python
+from utils.neural_plasticity import (
+    visualize_head_entropy,
+    visualize_head_gradients,
+    visualize_pruning_decisions
+)
+
+# Visualize entropy
+entropy_fig = visualize_head_entropy(
+    entropy_values=entropy_values,
+    title="Attention Entropy Heatmap"
+)
+
+# Visualize gradients
+grad_fig = visualize_head_gradients(
+    grad_norm_values=grad_norms,
+    title="Head Gradient Norms"
+)
+
+# Visualize pruning decisions
+mask_fig = visualize_pruning_decisions(
+    grad_norm_values=grad_norms,
+    pruning_mask=pruning_mask,
+    title="Pruning Decisions"
+)
+```
+
+## Complete Pruning Cycle
+
+```python
+results = NeuralPlasticity.run_pruning_cycle(
     model=model,
     train_dataloader=train_dataloader,
     eval_dataloader=eval_dataloader,
     pruning_level=0.2,
-    strategy="gradient",
+    strategy=PruningStrategy.COMBINED,
     learning_rate=5e-5,
-    training_steps=500
-)
-
-# Visualize results
-visualize_head_gradients(
-    results["grad_norm_values"],
-    pruned_heads=results["pruned_heads"],
-    title="Head Gradient Norms with Pruned Heads"
+    training_steps=200
 )
 ```
-
-## Unit Tests
-
-The modularized components have comprehensive unit tests in `tests/unit/utils/test_neural_plasticity.py`:
-
-- `TestNeuralPlasticityCore`: Tests for core neural plasticity functions
-- `TestNeuralPlasticityVisualization`: Tests for visualization functions
-
-## Updating the Notebook
-
-The script `scripts/update_neural_plasticity_notebook.py` will update the original notebook to use the new modularized components. This preserves backward compatibility while adding the benefits of modularization.
-
-## Benefits and Next Steps
-
-This modularization offers several advantages:
-
-1. **Cleaner Notebook**: The notebook is now streamlined, using the core modules instead of defining functions inline
-2. **Code Reuse**: The same functions can be used in other notebooks and scripts
-3. **Improved Testing**: Each component can be tested independently
-4. **Better Documentation**: Added comprehensive docstrings and README files
-5. **Type Hints**: All functions include type hints for better IDE support
-
-Future work could include:
-
-1. Adding more pruning strategies
-2. Enhancing visualization options (e.g., interactive plots for Colab)
-3. Creating a dashboard for monitoring neural plasticity in real-time
-4. Integrating with other model architectures (e.g., vision transformers)
-5. Adding support for distributed training

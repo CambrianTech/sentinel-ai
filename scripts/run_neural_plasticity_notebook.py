@@ -1,138 +1,101 @@
 #!/usr/bin/env python
 """
-Run Neural Plasticity Notebook with Error Handling
+Run the adapted Neural Plasticity notebook
 
-This script runs the NeuralPlasticityDemo notebook with proper error handling
-for BLAS/libtorch issues. It sets environment variables to improve stability
-and runs the notebook in a controlled environment.
+This script creates an adapted notebook from the modular API and optionally runs it.
+It serves as an end-to-end test for the neural plasticity functionality.
+
+Version: v0.0.60 (2025-04-20)
 """
 
 import os
 import sys
-import time
-import subprocess
 import argparse
 from pathlib import Path
+import subprocess
+import tempfile
+import shutil
 
-def set_environment_variables():
-    """Set environment variables to improve stability."""
-    # Disable multithreading in OpenMP, OpenBLAS, and MKL
-    os.environ['OMP_NUM_THREADS'] = '1'
-    os.environ['OPENBLAS_NUM_THREADS'] = '1'
-    os.environ['MKL_NUM_THREADS'] = '1'
-    os.environ['NUMEXPR_NUM_THREADS'] = '1'
-    
-    # Use simpler BLAS implementation when available
-    os.environ['ACCELERATE_USE_SYSTEM_BLAS'] = '1'
-    
-    # Disable JIT Autotuner
-    os.environ['PYTORCH_JIT_USE_AUTOTUNER'] = '0'
-    
-    # Use PyTorch's PyTorch FFT instead of MKL
-    os.environ['TORCH_USE_MKL_FFT'] = '0'
-    
-    # Set PyTorch seed for reproducibility
-    os.environ['PYTHONHASHSEED'] = '0'
-    
-    # Limit GPU memory growth
-    os.environ['TF_GPU_ALLOCATOR'] = 'cuda_malloc_async'
-    
-    print("✅ Set environment variables for improved stability")
+# Add project root to path
+project_root = Path(__file__).parent.parent
+if str(project_root) not in sys.path:
+    sys.path.append(str(project_root))
 
 def run_notebook(notebook_path, output_path=None):
     """
-    Run the notebook with nbconvert.
+    Run a notebook via jupyter nbconvert.
     
     Args:
-        notebook_path: Path to the notebook
-        output_path: Path to save the executed notebook (optional)
-    
+        notebook_path: Path to the notebook to run
+        output_path: Path to save the executed notebook (default: add _executed suffix)
+        
     Returns:
-        True if successful, False otherwise
+        Path to the executed notebook
     """
-    try:
-        cmd = ['jupyter', 'nbconvert', '--to', 'notebook', '--execute', 
-               '--ExecutePreprocessor.timeout=600', notebook_path]
-        
-        if output_path:
-            cmd.extend(['--output', output_path])
-        
-        print(f"Running: {' '.join(cmd)}")
-        subprocess.run(cmd, check=True)
-        print(f"✅ Successfully executed {notebook_path}")
-        return True
-    except subprocess.CalledProcessError as e:
-        print(f"❌ Error executing notebook: {e}")
-        return False
-
-def main():
-    parser = argparse.ArgumentParser(description='Run Neural Plasticity Notebook with improved error handling')
-    parser.add_argument('--notebook', type=str, default='colab_notebooks/NeuralPlasticityDemo.ipynb',
-                        help='Path to the notebook')
-    parser.add_argument('--output', type=str, default=None,
-                        help='Output path for executed notebook')
-    parser.add_argument('--minimal', action='store_true',
-                        help='Run with minimal settings for testing')
+    if output_path is None:
+        # Add _executed suffix to the notebook path
+        notebook_name = Path(notebook_path).stem
+        output_path = Path(notebook_path).parent / f"{notebook_name}_executed.ipynb"
     
-    args = parser.parse_args()
+    # Create the output directory if it doesn't exist
+    os.makedirs(os.path.dirname(output_path), exist_ok=True)
     
-    # Set environment variables
-    set_environment_variables()
+    # Run the notebook
+    print(f"Running notebook: {notebook_path}")
+    print(f"Output will be saved to: {output_path}")
     
-    # If minimal flag is set, modify the notebook temporarily
-    temp_notebook = None
-    if args.minimal:
-        import nbformat
-        import copy
-        from tempfile import NamedTemporaryFile
-        
-        print(f"Creating minimal version of {args.notebook}")
-        with open(args.notebook, 'r') as f:
-            nb = nbformat.read(f, as_version=4)
-        
-        # Create a modified copy
-        modified_nb = copy.deepcopy(nb)
-        
-        # Modify parameters in the configuration cell (usually cell 4)
-        for i, cell in enumerate(modified_nb.cells):
-            if cell.cell_type == 'code' and 'NUM_EPOCHS' in cell.source:
-                print(f"Modifying parameters in cell {i}")
-                cell.source = cell.source.replace("NUM_EPOCHS = 100", "NUM_EPOCHS = 1")
-                cell.source = cell.source.replace("BATCH_SIZE = 4", "BATCH_SIZE = 2")
-                cell.source = cell.source.replace("MAX_LENGTH = 128", "MAX_LENGTH = 64")
-                cell.source = cell.source.replace("ENABLE_LONG_TRAINING = False", "ENABLE_LONG_TRAINING = False")
-                cell.source = cell.source.replace("MAX_STEPS_PER_EPOCH = 200", "MAX_STEPS_PER_EPOCH = 20")
-                # Speed up evaluation
-                cell.source = cell.source.replace("EVAL_INTERVAL = 50", "EVAL_INTERVAL = 10")
-                cell.source = cell.source.replace("VISUALIZATION_INTERVAL = 100", "VISUALIZATION_INTERVAL = 20")
-                cell.source = cell.source.replace("INFERENCE_INTERVAL = 500", "INFERENCE_INTERVAL = 50") 
-                cell.source = cell.source.replace("CHECKPOINT_INTERVAL = 500", "CHECKPOINT_INTERVAL = 50")
-        
-        # Create a temporary file for the modified notebook
-        temp_notebook = Path(f"temp_notebook_{int(time.time())}.ipynb")
-        with open(temp_notebook, 'w', encoding='utf-8') as f:
-            nbformat.write(modified_nb, f)
-        
-        print(f"Created temporary notebook at {temp_notebook}")
-        notebook_to_run = str(temp_notebook)
-    else:
-        notebook_to_run = args.notebook
+    cmd = [
+        "jupyter", "nbconvert", 
+        "--to", "notebook", 
+        "--execute",
+        "--ExecutePreprocessor.timeout=600",  # 10 minute timeout
+        "--output", str(output_path),
+        str(notebook_path)
+    ]
     
     try:
         # Run the notebook
-        success = run_notebook(notebook_to_run, args.output)
-        
-        if success:
-            return 0
-        return 1
-    finally:
-        # Clean up temporary file
-        if temp_notebook and os.path.exists(temp_notebook):
-            os.unlink(temp_notebook)
-            print(f"Removed temporary notebook {temp_notebook}")
-        elif temp_notebook and Path(temp_notebook).exists():
-            Path(temp_notebook).unlink()
-            print(f"Removed temporary notebook {temp_notebook}")
+        subprocess.run(cmd, check=True, capture_output=True)
+        print(f"✅ Successfully ran notebook: {output_path}")
+        return output_path
+    except subprocess.CalledProcessError as e:
+        print(f"❌ Error running notebook: {e}")
+        print(f"Stdout: {e.stdout.decode('utf-8')}")
+        print(f"Stderr: {e.stderr.decode('utf-8')}")
+        raise
 
-if __name__ == '__main__':
+def main():
+    parser = argparse.ArgumentParser(description="Run an adapted neural plasticity notebook")
+    parser.add_argument("--run", action="store_true", help="Run the notebook after creating it")
+    parser.add_argument("--short", action="store_true", help="Create a shorter version for quick testing")
+    parser.add_argument("--output", type=str, default=None, help="Output path for the notebook")
+    
+    args = parser.parse_args()
+    
+    # Create the adapted notebook
+    try:
+        from scripts.adapt_neural_plasticity_notebook import create_adapted_notebook
+        
+        created_path = create_adapted_notebook(
+            short_version=args.short, 
+            output_path=args.output
+        )
+        
+        if args.run:
+            # Run the notebook
+            output_path = run_notebook(created_path)
+            print(f"Notebook execution complete: {output_path}")
+            print("\nTo view the executed notebook:")
+            print(f"jupyter notebook {output_path}")
+        else:
+            print("\nNotebook created but not executed. To run the notebook:")
+            print(f"jupyter notebook {created_path}")
+    
+    except Exception as e:
+        print(f"Error: {e}")
+        return 1
+    
+    return 0
+
+if __name__ == "__main__":
     sys.exit(main())
