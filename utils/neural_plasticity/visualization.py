@@ -5,7 +5,7 @@ This module provides visualization utilities for neural plasticity experiments.
 It visualizes head entropy, gradients, pruning decisions, training metrics,
 and attention patterns.
 
-Version: v0.0.63 (2025-04-20 22:15:00)
+Version: v0.0.64 (2025-04-20 23:15:00)
 """
 
 import torch
@@ -641,15 +641,15 @@ class VisualizationReporter:
                 raise ValueError("No model provided for evaluation")
             model = self.model
             
-        # Import here to avoid circular imports
-        from utils.neural_plasticity import NeuralPlasticity
+        # Import directly from core to avoid circular imports
+        from .core import evaluate_model
         
         # Determine device if not provided
         if device is None:
             device = next(model.parameters()).device
             
-        # Use the NeuralPlasticity API for evaluation
-        eval_results = NeuralPlasticity.evaluate_model_performance(
+        # Evaluate the model directly
+        eval_results = evaluate_model(
             model=model,
             dataloader=dataloader,
             device=device

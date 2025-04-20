@@ -1,31 +1,25 @@
 #!/usr/bin/env python
 """
-Test Neural Plasticity End-to-End
+Neural Plasticity End-to-End Test
 
-This script tests the neural plasticity module end-to-end by
-simulating notebook execution. It verifies that all key components
-work correctly after our fixes.
+This script runs a full neural plasticity experiment end-to-end with minimal
+configuration to verify that all components work correctly together.
 
-Version: v0.0.55 (2025-04-19 22:30:00)
+Usage:
+    python scripts/test_neural_plasticity_end_to_end.py [--output_dir OUTPUT_DIR] [--steps STEPS]
+
+Version: v0.0.60 (2025-04-20 23:55:00)
 """
 
-import sys
 import os
+import sys
+import shutil
+import argparse
 import platform
-import time
-from pathlib import Path
+from datetime import datetime
 
-# Try to import torch, but continue if not available
-try:
-    import torch
-    import numpy as np
-    TORCH_AVAILABLE = True
-except ImportError:
-    print("PyTorch not available. Running in simulation mode.")
-    TORCH_AVAILABLE = False
-
-# Add parent directory to path
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# Add parent directory to path to ensure imports work when script is run directly
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 # Set environment variables for improved stability
 os.environ['OMP_NUM_THREADS'] = '1'
@@ -36,146 +30,161 @@ os.environ['TORCH_USE_MKL_FFT'] = '0'
 
 IS_APPLE_SILICON = platform.system() == "Darwin" and platform.processor() == "arm"
 
-if TORCH_AVAILABLE:
-    try:
-        from utils.neural_plasticity.core import (
-            calculate_head_entropy,
-            generate_pruning_mask
-        )
-        from utils.neural_plasticity.visualization import visualize_head_entropy
-        MODULES_AVAILABLE = True
-    except ImportError:
-        print("❌ Error importing neural plasticity modules. This script will simulate execution.")
-        MODULES_AVAILABLE = False
-else:
-    print("PyTorch not available. Running in full simulation mode.")
-    MODULES_AVAILABLE = False
+try:
+    import torch
+    import numpy as np
+    from utils.neural_plasticity.experiment import NeuralPlasticityExperiment
+    MODULES_AVAILABLE = True
+except ImportError as e:
+    print(f"Error importing neural plasticity modules: {e}")
+    print("This script requires PyTorch and the neural plasticity modules to run.")
+    sys.exit(1)
 
-def simulate_notebook_execution():
-    """Simulate the key steps of the neural plasticity notebook."""
-    print("=" * 50)
-    print("NEURAL PLASTICITY END-TO-END TEST (SIMULATION MODE)")
-    print("=" * 50)
+
+def parse_args():
+    """Parse command line arguments."""
+    parser = argparse.ArgumentParser(description="Run neural plasticity end-to-end test")
+    
+    parser.add_argument('--output_dir', type=str, default='test_output/neural_plasticity_test',
+                        help='Directory to save test outputs')
+    parser.add_argument('--steps', type=int, default=5,
+                        help='Number of training steps per phase (warmup, pruning)')
+    parser.add_argument('--model', type=str, default='distilgpt2',
+                        help='Model to use for testing')
+    parser.add_argument('--clean', action='store_true',
+                        help='Clean output directory before starting')
+    parser.add_argument('--dataset', type=str, default='wikitext',
+                        help='Dataset to use')
+    parser.add_argument('--dataset_config', type=str, default='wikitext-2-raw-v1',
+                        help='Dataset configuration')
+    parser.add_argument('--batch_size', type=int, default=2,
+                        help='Batch size for training and evaluation')
+    parser.add_argument('--max_length', type=int, default=64,
+                        help='Maximum sequence length')
+    parser.add_argument('--pruning_level', type=float, default=0.2,
+                        help='Pruning level (0-1)')
+    parser.add_argument('--pruning_strategy', type=str, default='combined',
+                        choices=['entropy', 'gradient', 'random', 'combined'],
+                        help='Pruning strategy to use')
+    
+    return parser.parse_args()
+
+
+def run_test(args):
+    """Run the neural plasticity end-to-end test with the given arguments."""
+    # Print test configuration
+    print(f"Neural Plasticity End-to-End Test")
+    print(f"--------------------------------")
     print(f"Platform: {platform.system()} {platform.processor()}")
     print(f"Apple Silicon detected: {IS_APPLE_SILICON}")
-    print(f"Python version: {sys.version}")
-    if TORCH_AVAILABLE:
-        print(f"PyTorch version: {torch.__version__}")
-    else:
-        print("PyTorch not available")
-    print("-" * 50)
+    print(f"Model: {args.model}")
+    print(f"Dataset: {args.dataset}/{args.dataset_config}")
+    print(f"Steps: {args.steps}")
+    print(f"Output directory: {args.output_dir}")
+    print(f"Pruning: {args.pruning_level*100:.1f}% with {args.pruning_strategy} strategy")
+    print(f"--------------------------------")
     
-    # Simulate notebook cell execution
-    print("\n[Cell 1] - Import modules")
-    print("Importing required modules...")
-    print("✅ Success")
+    # Create or clean output directory
+    if args.clean and os.path.exists(args.output_dir):
+        print(f"Cleaning output directory: {args.output_dir}")
+        shutil.rmtree(args.output_dir)
     
-    print("\n[Cell 2] - Configure parameters")
-    print("Setting up parameters:")
-    print("  NUM_EPOCHS = 1")
-    print("  BATCH_SIZE = 2")
-    print("  MAX_LENGTH = 64")
-    print("✅ Success")
+    os.makedirs(args.output_dir, exist_ok=True)
     
-    print("\n[Cell 3] - Load model")
-    print("Loading small test model...")
-    print("✅ Success")
+    # Initialize experiment
+    print(f"Initializing experiment...")
+    experiment = NeuralPlasticityExperiment(
+        model_name=args.model,
+        dataset=args.dataset,
+        dataset_config=args.dataset_config,
+        output_dir=args.output_dir,
+        batch_size=args.batch_size,
+        max_length=args.max_length,
+        pruning_level=args.pruning_level,
+        pruning_strategy=args.pruning_strategy,
+        learning_rate=5e-5,
+        verbose=True,
+        save_results=True
+    )
     
-    print("\n[Cell 4] - Generate attention maps")
-    print("Creating sample attention maps of shape [2, 4, 32, 32]...")
-    if TORCH_AVAILABLE and MODULES_AVAILABLE:
-        # Create real tensors if torch is available
-        attention_maps = torch.rand(2, 4, 32, 32)
-        attention_maps = attention_maps / attention_maps.sum(dim=-1, keepdim=True)
-        print("Created real attention tensor")
-    else:
-        print("Created simulated attention tensor")
-    print("✅ Success")
+    # Run experiment phases
+    print(f"Setting up experiment...")
+    experiment.setup()
     
-    print("\n[Cell 5] - Calculate entropy")
-    print("Calculating entropy from attention maps...")
-    if TORCH_AVAILABLE and MODULES_AVAILABLE:
-        entropy = calculate_head_entropy(attention_maps)
-        print(f"Entropy shape: {entropy.shape}")
-    else:
-        print("Simulated entropy calculation")
-    print("✅ Success")
+    print(f"Running warmup phase...")
+    warmup_results = experiment.run_warmup(max_epochs=1, max_steps=args.steps)
     
-    print("\n[Cell 6] - Visualize entropy")
-    print("Creating entropy visualization...")
-    if TORCH_AVAILABLE and MODULES_AVAILABLE:
-        # Try to create a visualization if available
-        entropy_tensor = torch.tensor([[0.8, 0.7, 0.9, 0.5],
-                                      [0.6, 0.4, 0.3, 0.7],
-                                      [0.5, 0.8, 0.6, 0.4]])
-        fig = visualize_head_entropy(entropy_tensor)
-        print("Created real entropy visualization")
-    else:
-        print("Created simulated entropy visualization")
-    print("✅ Success")
+    print(f"Analyzing attention patterns...")
+    attention_analysis = experiment.analyze_attention()
     
-    print("\n[Cell 7] - Generate pruning mask")
-    print("Computing pruning mask using entropy strategy...")
-    if TORCH_AVAILABLE and MODULES_AVAILABLE:
-        # Try real computation if available
-        grad_norms = torch.tensor([[0.1, 0.2, 0.3, 0.4], 
-                                  [0.2, 0.1, 0.5, 0.3],
-                                  [0.4, 0.3, 0.2, 0.1]])
-        entropy_values = torch.tensor([[0.8, 0.7, 0.9, 0.5],
-                                      [0.6, 0.4, 0.3, 0.7],
-                                      [0.5, 0.8, 0.6, 0.4]])
-        mask = generate_pruning_mask(
-            grad_norm_values=grad_norms,
-            entropy_values=entropy_values,
-            prune_percent=0.25,
-            strategy="entropy"
-        )
-        print(f"Created pruning mask of shape {mask.shape}")
-        print(f"Pruned {mask.sum().item()} heads out of {mask.numel()}")
-    else:
-        print("Created simulated pruning mask")
-    print("✅ Success")
+    print(f"Running pruning cycle...")
+    pruning_results = experiment.run_pruning_cycle(training_steps=args.steps)
     
-    print("\n[Cell 8] - Train model with pruning")
-    print("Simulating neural network training with pruning...")
-    for i in range(3):
-        print(f"  Epoch 1, Batch {i+1}/3 - Loss: {2.5 - i*0.2:.4f}")
-        time.sleep(0.5)
-    print("✅ Success")
+    print(f"Evaluating model...")
+    eval_metrics = experiment.evaluate()
     
-    print("\n[Cell 9] - Evaluate model")
-    print("Evaluating model performance...")
-    print("  Perplexity: 32.45")
-    print("  Accuracy: 0.67")
-    print("✅ Success")
+    # Display key metrics
+    print(f"\nFinal Results:")
+    print(f"Baseline perplexity: {experiment.baseline_perplexity:.2f}")
+    print(f"Final perplexity: {experiment.final_perplexity:.2f}")
+    print(f"Improvement: {eval_metrics['improvement_percent']:.2f}%")
+    print(f"Pruned heads: {len(experiment.pruned_heads)} out of {attention_analysis['model_structure'][0] * attention_analysis['model_structure'][1]}")
     
-    print("\n[Cell 10] - Generate text")
-    print("Generating text with pruned model...")
-    print("  Output: 'The neural plasticity module now works correctly on Apple Silicon platforms...'")
-    print("✅ Success")
+    # List generated visualizations
+    print(f"\nGenerated visualization directories:")
+    subdirs = [d for d in os.listdir(args.output_dir) if os.path.isdir(os.path.join(args.output_dir, d))]
+    for subdir in sorted(subdirs):
+        png_count = len([f for f in os.listdir(os.path.join(args.output_dir, subdir)) if f.endswith('.png')])
+        if png_count > 0:
+            print(f"- {subdir}/: {png_count} visualizations")
     
-    print("\n" + "=" * 50)
-    print("END-TO-END TEST COMPLETED SUCCESSFULLY")
-    print("=" * 50)
-    
-    return True
+    print("\nTest completed successfully!")
+    return eval_metrics
+
 
 def main():
-    """Run the simulation."""
-    success = simulate_notebook_execution()
+    """Main function to run the test."""
+    args = parse_args()
+    start_time = datetime.now()
     
-    if success:
-        print("\n🎉 Neural plasticity module should now work correctly on Apple Silicon!")
-        print("The key fixes we implemented:")
-        print("1. Added Apple Silicon detection and optimal environment configuration")
-        print("2. Fixed tensor handling in calculate_head_entropy function")
-        print("3. Fixed index out of bounds error in generate_pruning_mask")
-        print("4. Added tensor shape validation and safety checks")
-        print("5. Improved visualization stabilization for Apple Silicon")
+    try:
+        metrics = run_test(args)
+        
+        # Write success summary
+        duration = datetime.now() - start_time
+        with open(os.path.join(args.output_dir, "test_summary.txt"), "w") as f:
+            f.write(f"Neural Plasticity End-to-End Test\n")
+            f.write(f"--------------------------------\n")
+            f.write(f"Completed: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+            f.write(f"Duration: {duration.total_seconds():.1f} seconds\n")
+            f.write(f"Model: {args.model}\n")
+            f.write(f"Dataset: {args.dataset}/{args.dataset_config}\n")
+            f.write(f"Pruning: {args.pruning_level*100:.1f}% with {args.pruning_strategy} strategy\n\n")
+            f.write(f"Results:\n")
+            f.write(f"- Baseline perplexity: {metrics['baseline_perplexity']:.2f}\n")
+            f.write(f"- Final perplexity: {metrics['perplexity']:.2f}\n")
+            f.write(f"- Improvement: {metrics['improvement_percent']:.2f}%\n")
+            f.write(f"- Pruned heads: {metrics['num_pruned_heads']}\n")
+            
+        print(f"Test summary written to: {os.path.join(args.output_dir, 'test_summary.txt')}")
+        print(f"Total duration: {duration.total_seconds():.1f} seconds")
+        
         return 0
-    else:
-        print("\n❌ Simulation failed. See errors above.")
+    except Exception as e:
+        # Write error information
+        with open(os.path.join(args.output_dir, "test_error.log"), "w") as f:
+            f.write(f"Neural Plasticity Test Error\n")
+            f.write(f"------------------------\n")
+            f.write(f"Error occurred at: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n")
+            f.write(f"Error message: {str(e)}\n\n")
+            
+            import traceback
+            f.write(traceback.format_exc())
+        
+        print(f"ERROR: Test failed with exception: {e}")
+        print(f"Error details written to: {os.path.join(args.output_dir, 'test_error.log')}")
         return 1
+
 
 if __name__ == "__main__":
     sys.exit(main())

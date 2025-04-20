@@ -6,7 +6,7 @@ This module implements the fundamental algorithms for neural plasticity, includi
 - Pruning mask generation and application
 - Model evaluation functions
 
-Version: v0.0.57 (2025-04-19 17:30:00)
+Version: v0.0.58 (2025-04-20 23:15:00)
 """
 
 import torch

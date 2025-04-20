@@ -5,7 +5,7 @@ This module provides experiment utilities for running end-to-end neural
 plasticity experiments, including baseline creation, data preparation,
 and results analysis.
 
-Version: v0.0.63 (2025-04-20 22:15:00)
+Version: v0.0.67 (2025-04-20 23:50:00)
 """
 
 import os
@@ -56,6 +56,8 @@ from .core import (
     calculate_head_gradients,
     detect_model_structure,
     evaluate_model,
+    generate_pruning_mask,
+    apply_pruning_mask,
     IS_APPLE_SILICON,
     IS_COLAB,
     HAS_GPU
@@ -566,13 +568,41 @@ class NeuralPlasticityExperiment:
         if self.verbose:
             print("\n=== Analyzing Attention Patterns ===")
             
-        # Use the NeuralPlasticity API to calculate head importance
-        importance_metrics = NeuralPlasticity.calculate_head_importance(
-            model=self.model,
-            dataloader=self.validation_dataloader,
-            num_batches=2,
-            mode="combined"  # Use both entropy and gradient information
-        )
+        # Calculate head importance directly using core functions
+        # Get a batch from the dataloader
+        batch = next(iter(self.validation_dataloader))
+        # Move batch to device
+        inputs = {k: v.to(self.device) for k, v in batch.items() if isinstance(v, torch.Tensor)}
+        
+        # Forward pass with attention outputs
+        with torch.no_grad():
+            outputs = self.model(**inputs, output_attentions=True)
+            
+            # Extract attention maps
+            if hasattr(outputs, 'attentions') and outputs.attentions:
+                # Calculate entropy for each layer and ensure proper shape
+                self.entropy_values = torch.stack([
+                    calculate_head_entropy(layer_attn) 
+                    for layer_attn in outputs.attentions
+                ])
+                
+                # The entropy might have extra dimensions - ensure it matches grad_norm shape
+                if len(self.entropy_values.shape) > 2:
+                    # Take mean over extra dimensions to get [layers, heads] shape
+                    extra_dims = tuple(range(2, len(self.entropy_values.shape)))
+                    if extra_dims:
+                        self.entropy_values = self.entropy_values.mean(dim=extra_dims)
+            else:
+                raise ValueError("Model does not output attention maps")
+                
+        # Calculate gradients
+        self.grad_norm_values = calculate_head_gradients(self.model, self.validation_dataloader)
+        
+        # Store results
+        importance_metrics = {
+            "entropy": self.entropy_values,
+            "gradients": self.grad_norm_values
+        }
         
         # Extract metrics
         self.entropy_values = importance_metrics["entropy"]
@@ -675,19 +705,140 @@ class NeuralPlasticityExperiment:
                       f"Eval loss: {metrics.get('eval_loss', 0):.4f}, "
                       f"Perplexity: {metrics.get('perplexity', 0):.2f}")
         
-        # Run the pruning cycle
-        pruning_results = NeuralPlasticity.run_pruning_cycle(
-            model=self.model,
-            train_dataloader=self.train_dataloader,
-            eval_dataloader=self.validation_dataloader,
-            pruning_level=self.pruning_level,
+        # Run the pruning cycle (direct implementation)
+        
+        # 1. Extract the model structure
+        model_structure = detect_model_structure(self.model)
+        
+        # 2. Generate pruning mask using previously calculated metrics
+        pruning_mask = generate_pruning_mask(
+            grad_norm_values=self.grad_norm_values,
+            prune_percent=self.pruning_level,
             strategy=self.pruning_strategy,
-            learning_rate=self.learning_rate,
-            training_steps=training_steps,
-            callback=tracking_callback,
-            save_visualizations=self.save_results,
-            output_dir=cycle_dir
+            entropy_values=self.entropy_values
         )
+        
+        # 3. Apply the pruning mask to get pruned heads
+        pruned_heads = []
+        for layer_idx, layer_mask in enumerate(pruning_mask):
+            for head_idx, is_pruned in enumerate(layer_mask):
+                if is_pruned:
+                    pruned_heads.append((layer_idx, head_idx))
+                    
+        # 4. Apply pruning to the model (modifies model in-place and returns pruned_heads)
+        pruned_heads = apply_pruning_mask(self.model, pruning_mask)
+        
+        # 5. Evaluate after pruning
+        pruned_metrics = evaluate_model(self.model, self.validation_dataloader, self.device)
+        
+        # 6. Train the pruned model
+        optimizer = torch.optim.AdamW(self.model.parameters(), lr=self.learning_rate)
+        total_steps = training_steps
+        scheduler = get_linear_schedule_with_warmup(
+            optimizer, 
+            num_warmup_steps=total_steps // 10, 
+            num_training_steps=total_steps
+        )
+        
+        training_metrics = []
+        self.model.train()
+        
+        # Training loop
+        for step in range(training_steps):
+            # Get batch
+            try:
+                batch = next(iter(self.train_dataloader))
+            except StopIteration:
+                # Restart iterator
+                batch = next(iter(self.train_dataloader))
+                
+            # Move batch to device
+            batch = {k: v.to(self.device) for k, v in batch.items() if isinstance(v, torch.Tensor)}
+            
+            # Forward pass
+            outputs = self.model(**batch)
+            loss = outputs.loss
+            
+            # Backward pass
+            loss.backward()
+            
+            # Update weights
+            optimizer.step()
+            scheduler.step()
+            optimizer.zero_grad()
+            
+            # Track metrics
+            metrics = {
+                "train_loss": loss.item(),
+                "step": step,
+                "new_pruned": len(pruned_heads),
+                "total_pruned": len(pruned_heads)
+            }
+            
+            # Call callback if provided
+            if tracking_callback:
+                tracking_callback("training", step, metrics)
+                
+            # Store metrics
+            training_metrics.append(metrics)
+            
+        # 7. Evaluate final model
+        final_metrics = evaluate_model(self.model, self.validation_dataloader, self.device)
+        
+        # 8. Create visualizations
+        if self.save_results:
+            # Create visualizations using our visualization module
+            from .visualization import (
+                visualize_head_entropy,
+                visualize_head_gradients,
+                visualize_pruning_decisions,
+                visualize_training_metrics
+            )
+            
+            entropy_fig = visualize_head_entropy(
+                entropy_values=self.entropy_values,
+                title="Head Entropy"
+            )
+            entropy_fig.savefig(os.path.join(cycle_dir, "entropy_heatmap.png"))
+            plt.close(entropy_fig)
+            
+            grad_fig = visualize_head_gradients(
+                grad_norm_values=self.grad_norm_values,
+                pruned_heads=pruned_heads,
+                title="Gradient Norms"
+            )
+            grad_fig.savefig(os.path.join(cycle_dir, "gradient_heatmap.png"))
+            plt.close(grad_fig)
+            
+            pruning_fig = visualize_pruning_decisions(
+                grad_norm_values=self.grad_norm_values, 
+                pruning_mask=pruning_mask,
+                title="Pruning Decisions"
+            )
+            pruning_fig.savefig(os.path.join(cycle_dir, "pruning_decisions.png"))
+            plt.close(pruning_fig)
+        
+        # 9. Prepare results
+        pruning_results = {
+            "pruned_heads": pruned_heads,
+            "pruning_mask": pruning_mask,
+            "model_structure": model_structure,
+            "entropy_values": self.entropy_values,
+            "grad_norm_values": self.grad_norm_values,
+            "baseline_metrics": {
+                "loss": self.baseline_loss,
+                "perplexity": self.baseline_perplexity
+            },
+            "pruned_metrics": pruned_metrics,
+            "final_metrics": final_metrics,
+            "training_metrics": {
+                "step": [m["step"] for m in training_metrics],
+                "train_loss": [m["train_loss"] for m in training_metrics]
+            },
+            "strategy": self.pruning_strategy,
+            "pruning_level": self.pruning_level,
+            "total_heads": model_structure[0] * model_structure[1]
+        }
         
         # Use the reporter to display pruning results
         self.reporter.display_pruning_results(pruning_results)

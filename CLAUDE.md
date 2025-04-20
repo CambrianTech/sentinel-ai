@@ -208,3 +208,5 @@ gh pr create --title "Add my feature" --body "..."
 - Always test tensor operations across all environments before finalizing code
 - For visualization functions, always handle GPU tensors with proper detach+cpu conversion
 - Provide fallback mechanisms for tensor operations to ensure robustness across platforms
+- Check for parameter name consistency across modules (e.g., use prune_percent not pruning_level)
+- Always test function calls with both explicit named parameters and positional parameters
