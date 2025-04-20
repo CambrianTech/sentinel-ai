@@ -145,8 +145,12 @@ class EntropyPruner(PruningStrategy):
                             # Accumulate entropy
                             entropy[layer_idx, head_idx] += head_entropy.sum()
                     
-                    # Increment sample count
-                    sample_count += batch_attention.shape[0]
+                    # Increment sample count if we processed any attention patterns
+                    if attention_patterns:
+                        for layer_idx, attention in attention_patterns.items():
+                            if attention is not None and isinstance(attention, torch.Tensor):
+                                sample_count += attention.shape[0]
+                                break
                     
                     # Process limited batches for efficiency
                     if batch_idx >= 10:  # Limit to 10 batches for efficiency
