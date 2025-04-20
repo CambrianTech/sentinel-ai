@@ -111,9 +111,11 @@ This file tracks our consolidation plan for the neural plasticity feature PR. Th
 
 ## Next Steps
 
-1. Complete a full test of the consolidated implementation with a real run
-2. Update documentation to reflect the new organization
-3. Consider further consolidation of notebook-related utilities
+1. ✅ Implement consolidated output directory structure in `experiment_output/`
+2. ✅ Update documentation to reflect the new organization
+3. ✅ Add proper tests for the neural plasticity module
+4. ✅ Complete a quick test to verify functionality
+5. Run a full test with real data (pending)
 
 ## Open Questions
 
