@@ -9,7 +9,7 @@ object-oriented architecture and outputs results to the /output directory.
 It leverages the comprehensive NeuralPlasticityExperiment class to provide
 a unified workflow for neural plasticity research.
 
-Version: v0.0.36 (2025-04-20 23:45:00)
+Version: v0.0.39 (2025-04-20 19:30:00)
 """
 
 import os
@@ -144,9 +144,10 @@ if __name__ == "__main__":
     # Import the experiment module
     try:
         from utils.neural_plasticity.experiment import NeuralPlasticityExperiment
-        logger.info("Successfully imported NeuralPlasticityExperiment")
+        from utils.neural_plasticity.dashboard.reporter import DashboardReporter
+        logger.info("Successfully imported NeuralPlasticityExperiment and DashboardReporter")
     except ImportError as e:
-        logger.error(f"Failed to import NeuralPlasticityExperiment: {e}")
+        logger.error(f"Failed to import required modules: {e}")
         logger.error("Please ensure the neural_plasticity module is installed correctly")
         sys.exit(1)
     
@@ -154,9 +155,55 @@ if __name__ == "__main__":
     import time
     start_time = time.time()
     
+    # Initialize Weights & Biases for real-time monitoring
+    wandb_dashboard = None
+    if args.use_dashboard:
+        try:
+            logger.info("Initializing Weights & Biases dashboard...")
+            from utils.neural_plasticity.dashboard.wandb_integration import WandbDashboard
+            
+            # Create a timestamp-based experiment name
+            experiment_name = f"np-{args.model_name.split('/')[-1]}-{args.pruning_strategy}-{timestamp}"
+            
+            # Initialize the wandb dashboard
+            wandb_dashboard = WandbDashboard(
+                project_name="neural-plasticity",
+                experiment_name=experiment_name,
+                output_dir=os.path.join(OUTPUT_DIR, "wandb"),
+                config={
+                    "model_name": args.model_name,
+                    "dataset": f"{args.dataset}/{args.dataset_config}",
+                    "pruning_strategy": args.pruning_strategy,
+                    "pruning_level": args.pruning_level,
+                    "learning_rate": args.learning_rate,
+                    "batch_size": args.batch_size,
+                    "cycles": args.cycles,
+                    "quick_test": args.quick_test,
+                    "training_steps": args.training_steps
+                },
+                mode="online" if not args.quick_test else "offline",  # Use offline mode for quick tests
+                tags=["sentinel-ai"]
+            )
+            
+            # Set initial phase
+            wandb_dashboard.set_phase("setup")
+            logger.info(f"Weights & Biases dashboard initialized")
+        except Exception as e:
+            logger.error(f"Failed to initialize Weights & Biases dashboard: {e}")
+            logger.warning("Continuing without real-time dashboard")
+            args.use_dashboard = False
+    
     # Run experiment
     try:
         logger.info("Creating experiment instance...")
+        
+        # Create metrics callback if wandb dashboard is enabled
+        metrics_callback = wandb_dashboard.get_metrics_callback() if wandb_dashboard else None
+        sample_callback = wandb_dashboard.get_sample_callback() if wandb_dashboard else None
+        
+        if wandb_dashboard:
+            # Log that we're starting experiment creation
+            wandb_dashboard.log_metrics({"status": "running", "message": "Creating experiment instance"})
         
         # Create experiment with comprehensive configuration
         experiment = NeuralPlasticityExperiment(
@@ -183,7 +230,11 @@ if __name__ == "__main__":
             
             # Behavior parameters
             verbose=args.verbose,
-            show_samples=not args.quick_test
+            show_samples=not args.quick_test,
+            
+            # Callbacks
+            metrics_callback=metrics_callback,
+            sample_callback=sample_callback
         )
         
         logger.info("Experiment instance created successfully")
@@ -192,6 +243,10 @@ if __name__ == "__main__":
         if args.compare_strategies:
             # Compare different pruning strategies
             logger.info("Running strategy comparison experiment")
+            if wandb_dashboard:
+                wandb_dashboard.log_metrics({"status": "running", "message": "Comparing pruning strategies"})
+                wandb_dashboard.set_phase("analysis")
+            
             strategies = ["entropy", "magnitude", "combined", "random"]
             pruning_levels = [0.1, 0.2, 0.3]
             
@@ -204,6 +259,9 @@ if __name__ == "__main__":
             )
             
             logger.info("Strategy comparison completed")
+            if wandb_dashboard:
+                wandb_dashboard.log_metrics({"status": "completed", "message": "Strategy comparison completed"})
+                wandb_dashboard.set_phase("complete")
         
         else:
             # Use the comprehensive run_full_experiment method for standard execution
@@ -212,6 +270,10 @@ if __name__ == "__main__":
             # Adjust parameters for quick test mode if enabled
             warmup_epochs = 1
             training_steps = min(25, args.training_steps // 10) if args.quick_test else args.training_steps
+            
+            if wandb_dashboard:
+                wandb_dashboard.log_metrics({"status": "running", "message": "Starting warmup phase"})
+                wandb_dashboard.set_phase("warmup")
             
             # Run the complete experiment pipeline
             results = experiment.run_full_experiment(
@@ -224,6 +286,96 @@ if __name__ == "__main__":
             baseline_perplexity = results["baseline_metrics"]["perplexity"]
             final_perplexity = results["final_metrics"]["perplexity"]
             improvement_percent = results["improvement_percent"]
+            
+            # Update dashboard with final metrics
+            if wandb_dashboard:
+                wandb_dashboard.log_metrics({
+                    "baseline_perplexity": baseline_perplexity,
+                    "final_perplexity": final_perplexity,
+                    "improvement_percent": improvement_percent
+                })
+                
+                # Update pruning information if available
+                if "pruned_heads" in results:
+                    pruning_decision = {
+                        "strategy": args.pruning_strategy,
+                        "pruning_level": args.pruning_level,
+                        "pruned_heads": results["pruned_heads"],
+                        "cycle": args.cycles
+                    }
+                    wandb_dashboard.log_pruning_decision(pruning_decision)
+                
+                # Add the inference phase to show model evaluation
+                if not args.quick_test:
+                    wandb_dashboard.set_phase("evaluation")
+                    logger.info("Running inference phase with comprehensive evaluation...")
+                    
+                    # Generate sample texts with both baseline and pruned models
+                    prompts = [
+                        "The future of artificial intelligence seems to be",
+                        "Neural networks have revolutionized how we approach",
+                        "The key challenge in machine learning today is"
+                    ]
+                    
+                    # Generate samples from baseline and pruned models
+                    generation_samples = {}
+                    
+                    # Get baseline model samples
+                    for i, prompt in enumerate(prompts):
+                        baseline_text = experiment.generate_baseline_text(prompt, max_length=100)
+                        pruned_text = experiment.generate_text(prompt, max_length=100)
+                        
+                        # Store samples for dashboard
+                        sample_id = f"sample_{i+1}"
+                        generation_samples[f"baseline"] = {
+                            "prompt": prompt,
+                            "output": baseline_text
+                        }
+                        generation_samples[f"pruned"] = {
+                            "prompt": prompt,
+                            "output": pruned_text
+                        }
+                        
+                        # Log individual samples for different visualizations
+                        wandb_dashboard.log_text_sample(prompt, baseline_text, model_type="baseline")
+                        wandb_dashboard.log_text_sample(prompt, pruned_text, model_type="pruned")
+                        
+                        # Create comparison visualization
+                        wandb_dashboard.log_inference_comparison(
+                            prompt, baseline_text, pruned_text,
+                            metrics={
+                                "baseline_perplexity": baseline_perplexity,
+                                "pruned_perplexity": final_perplexity,
+                                "improvement_percent": improvement_percent
+                            }
+                        )
+                        
+                        # Only need one detailed comparison for the dashboard
+                        if i == 0:
+                            break
+                    
+                    # Get attention visualization data if available
+                    attention_data = experiment.get_attention_maps(prompts[0])
+                    
+                    # Create comprehensive inference dashboard
+                    perplexity_data = {
+                        "baseline": baseline_perplexity,
+                        "pruned": final_perplexity,
+                        "model_size_reduction": results.get("sparsity_percent", 0.0) * 100,
+                        "inference_speedup": results.get("speedup", 1.0)
+                    }
+                    
+                    # Log comprehensive inference dashboard
+                    wandb_dashboard.log_inference_dashboard(
+                        perplexity_data=perplexity_data,
+                        generation_samples=generation_samples,
+                        attention_data=attention_data
+                    )
+                    
+                    logger.info("Inference evaluation dashboard completed")
+                
+                wandb_dashboard.log_metrics({"status": "completed", "message": "Experiment completed successfully"})
+                wandb_dashboard.set_phase("complete")
             
             # Save the model if requested
             if args.save_model:
@@ -278,5 +430,21 @@ if __name__ == "__main__":
         
         sys.exit(1)
     finally:
+        # Clean up custom dashboard resources if started
+        if 'dashboard_reporter' in locals() and dashboard_reporter:
+            try:
+                logger.info("Cleaning up custom dashboard resources...")
+                dashboard_reporter.close()
+            except Exception as e:
+                logger.error(f"Error closing custom dashboard: {e}")
+        
+        # Clean up wandb dashboard if started
+        if 'wandb_dashboard' in locals() and wandb_dashboard:
+            try:
+                logger.info("Cleaning up Weights & Biases dashboard resources...")
+                wandb_dashboard.finish()
+            except Exception as e:
+                logger.error(f"Error finishing wandb dashboard: {e}")
+        
         # Final cleanup
         logger.info(f"Experiment session ended at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")

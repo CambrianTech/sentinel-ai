@@ -5,7 +5,7 @@ This module provides experiment utilities for running end-to-end neural
 plasticity experiments, including baseline creation, data preparation,
 and results analysis.
 
-Version: v0.0.68 (2025-04-20 14:50:00)
+Version: v0.0.69 (2025-04-20 24:25:00)
 """
 
 import os
@@ -314,7 +314,9 @@ class NeuralPlasticityExperiment:
         tokenizer=None,
         use_dashboard: bool = False,
         dashboard_dir: Optional[str] = None,
-        dashboard_name: str = "neural_plasticity_dashboard.html"
+        dashboard_name: str = "neural_plasticity_dashboard.html",
+        metrics_callback: Optional[Callable[[int, Dict[str, Any]], None]] = None,
+        sample_callback: Optional[Callable[[int, Dict[str, Any]], None]] = None
     ):
         """
         Initialize the Neural Plasticity experiment.
@@ -338,6 +340,8 @@ class NeuralPlasticityExperiment:
             use_dashboard: Whether to generate an interactive HTML dashboard
             dashboard_dir: Directory for dashboard files (uses output_dir if None)
             dashboard_name: Name of the main dashboard HTML file
+            metrics_callback: Optional callback function for reporting metrics (step, metrics_dict)
+            sample_callback: Optional callback function for reporting sample generations (step, samples_dict)
         """
         self.model_name = model_name
         self.dataset = dataset
@@ -349,6 +353,10 @@ class NeuralPlasticityExperiment:
         self.use_dashboard = use_dashboard
         self.dashboard_dir = dashboard_dir
         self.dashboard_name = dashboard_name
+        
+        # Callback functions
+        self.metrics_callback = metrics_callback
+        self.sample_callback = sample_callback
         self.pruning_level = pruning_level
         self.pruning_strategy = pruning_strategy
         self.learning_rate = learning_rate
@@ -551,6 +559,10 @@ class NeuralPlasticityExperiment:
             
         if self.verbose:
             print(f"\n=== Running Warmup Phase (max {max_epochs} epochs) ===")
+        
+        # If we have a metrics callback, update it with warmup start
+        if self.metrics_callback:
+            self.metrics_callback(0, {"phase": "warmup_start"})
             
         # Use the modular API's warmup function
         warmup_results = run_warmup_phase(
@@ -580,6 +592,27 @@ class NeuralPlasticityExperiment:
         # Store the warmup results
         self.warmup_results = warmup_results
         
+        # Send metrics to callback
+        if self.metrics_callback:
+            # Extract all losses for step-by-step metrics
+            steps = list(range(len(warmup_results["losses"])))
+            for i, (step, loss) in enumerate(zip(steps, warmup_results["losses"])):
+                self.metrics_callback(step, {
+                    "phase": "warmup",
+                    "warmup_loss": loss,
+                    "epoch": warmup_results.get("epochs", [0])[0] if warmup_results.get("epochs") else 0,
+                    "step": step
+                })
+            
+            # Send final warmup metrics
+            self.metrics_callback(steps[-1] if steps else 0, {
+                "phase": "warmup_complete",
+                "baseline_loss": self.baseline_loss,
+                "baseline_perplexity": self.baseline_perplexity,
+                "warmup_steps": len(warmup_results["losses"]),
+                "is_stable": warmup_results.get("is_stable", False)
+            })
+        
         # Save warmup metrics to CSV
         if self.save_results:
             self.reporter.save_metrics_to_csv(
@@ -591,6 +624,28 @@ class NeuralPlasticityExperiment:
                 filename="warmup_metrics.csv",
                 subfolder="warmup"
             )
+            
+        # Save baseline model checkpoint for later comparison
+        try:
+            baseline_checkpoint_path = os.path.join(self.output_dir, "baseline_checkpoint.pt")
+            if self.verbose:
+                print(f"Saving baseline model checkpoint to {baseline_checkpoint_path}")
+            torch.save(self.model.state_dict(), baseline_checkpoint_path)
+            
+            # Store baseline metrics for later use
+            self.baseline_metrics = {
+                "loss": self.baseline_loss,
+                "perplexity": self.baseline_perplexity
+            }
+            
+            if self.metrics_callback:
+                self.metrics_callback(0, {
+                    "message": "Saved baseline model checkpoint",
+                    "baseline_checkpoint_path": baseline_checkpoint_path
+                })
+        except Exception as e:
+            if self.verbose:
+                print(f"Warning: Failed to save baseline model checkpoint: {e}")
         
         return warmup_results
     
@@ -1244,7 +1299,213 @@ class NeuralPlasticityExperiment:
             subfolder="generation"
         )
         
+        # Send generated examples to the sample callback
+        if self.sample_callback:
+            # If prompts is a dictionary
+            if isinstance(prompts, dict):
+                for name, prompt in prompts.items():
+                    self.sample_callback(0, {
+                        "name": name,
+                        "input_text": prompt,
+                        "predicted_tokens": generated_texts[prompt].split(),  # Simple tokenization for callback
+                        "generated_text": generated_texts[prompt],
+                        "model_type": "current"
+                    })
+            # If prompts is a list
+            elif isinstance(prompts, list):
+                for i, prompt in enumerate(prompts):
+                    self.sample_callback(0, {
+                        "name": f"example_{i}",
+                        "input_text": prompt,
+                        "predicted_tokens": generated_texts[prompt].split(),  # Simple tokenization for callback
+                        "generated_text": generated_texts[prompt],
+                        "model_type": "current"
+                    })
+        
         return generated_texts
+        
+    def generate_text(self, prompt, max_length=100, temperature=0.7):
+        """
+        Generate text using the current model (potentially pruned).
+        
+        Args:
+            prompt: Text prompt to generate from
+            max_length: Maximum length of generated text
+            temperature: Sampling temperature
+            
+        Returns:
+            Generated text string
+        """
+        if self.model is None or self.tokenizer is None:
+            raise ValueError("Model and tokenizer must be set up first. Call setup() method.")
+        
+        # Generate text using reporter
+        generated_text = self.reporter.generate_text(
+            prompt=prompt,
+            max_length=max_length,
+            temperature=temperature
+        )
+        
+        # Send to callback if available
+        if self.sample_callback:
+            self.sample_callback(0, {
+                "input_text": prompt,
+                "generated_text": generated_text,
+                "model_type": "pruned"
+            })
+            
+        return generated_text
+        
+    def generate_baseline_text(self, prompt, max_length=100, temperature=0.7):
+        """
+        Generate text using the baseline model (before pruning).
+        This requires that baseline metrics were captured during warmup.
+        
+        Args:
+            prompt: Text prompt to generate from
+            max_length: Maximum length of generated text
+            temperature: Sampling temperature
+            
+        Returns:
+            Generated text string
+        """
+        if self.model is None or self.tokenizer is None:
+            raise ValueError("Model and tokenizer must be set up first. Call setup() method.")
+        
+        # Check if we have baseline metrics saved
+        if not hasattr(self, 'baseline_metrics') or not self.baseline_metrics:
+            if self.verbose:
+                print("Warning: No baseline metrics found. Using current model for generation.")
+            return self.generate_text(prompt, max_length, temperature)
+            
+        # Create checkpoint for current model state
+        checkpoint = self.model.state_dict().copy()
+        
+        # Try to load the baseline checkpoint if available
+        baseline_checkpoint_path = os.path.join(self.output_dir, "baseline_checkpoint.pt")
+        if os.path.exists(baseline_checkpoint_path):
+            try:
+                self.model.load_state_dict(torch.load(baseline_checkpoint_path))
+                baseline_text = self.reporter.generate_text(
+                    prompt=prompt,
+                    max_length=max_length,
+                    temperature=temperature
+                )
+                
+                # Restore current model
+                self.model.load_state_dict(checkpoint)
+                
+                # Send to callback if available
+                if self.sample_callback:
+                    self.sample_callback(0, {
+                        "input_text": prompt,
+                        "generated_text": baseline_text,
+                        "model_type": "baseline"
+                    })
+                
+                return baseline_text
+            except Exception as e:
+                if self.verbose:
+                    print(f"Failed to load baseline checkpoint: {e}")
+                    print("Using current model state for generation.")
+                
+                # Restore current model just in case
+                self.model.load_state_dict(checkpoint)
+                
+                # Fall back to current model
+                return self.generate_text(prompt, max_length, temperature)
+        else:
+            if self.verbose:
+                print("No baseline checkpoint found. Using current model for generation.")
+            return self.generate_text(prompt, max_length, temperature)
+    
+    def get_attention_maps(self, text=None, input_ids=None):
+        """
+        Get attention maps from both baseline and current models.
+        
+        Args:
+            text: Text to analyze (tokenized if input_ids not provided)
+            input_ids: Pre-tokenized input IDs (used if text is None)
+            
+        Returns:
+            Dictionary with attention maps and related data
+        """
+        if self.model is None or self.tokenizer is None:
+            raise ValueError("Model and tokenizer must be set up first. Call setup() method.")
+        
+        # Tokenize text if provided
+        if text is not None:
+            input_ids = self.tokenizer(text, return_tensors="pt").input_ids.to(self.device)
+        elif input_ids is None:
+            # Use a sample from validation data
+            batch = next(iter(self.validation_dataloader))
+            input_ids = batch["input_ids"][:1].to(self.device)
+            
+        # Get attention from current model
+        with torch.no_grad():
+            outputs = self.model(input_ids=input_ids, output_attentions=True)
+            
+        if not hasattr(outputs, 'attentions') or not outputs.attentions:
+            if self.verbose:
+                print("Model does not output attention maps. Make sure to use output_attentions=True.")
+            return None
+        
+        # Extract current model attention
+        current_attentions = [attn.detach().cpu().numpy() for attn in outputs.attentions]
+        
+        # Store the current model state
+        current_state = self.model.state_dict().copy()
+        baseline_attentions = None
+        
+        # Try to load the baseline checkpoint if available
+        baseline_checkpoint_path = os.path.join(self.output_dir, "baseline_checkpoint.pt")
+        if os.path.exists(baseline_checkpoint_path):
+            try:
+                self.model.load_state_dict(torch.load(baseline_checkpoint_path))
+                
+                # Get baseline model attention
+                with torch.no_grad():
+                    baseline_outputs = self.model(input_ids=input_ids, output_attentions=True)
+                    
+                if hasattr(baseline_outputs, 'attentions') and baseline_outputs.attentions:
+                    baseline_attentions = [attn.detach().cpu().numpy() for attn in baseline_outputs.attentions]
+                
+                # Restore current model state
+                self.model.load_state_dict(current_state)
+            except Exception as e:
+                if self.verbose:
+                    print(f"Failed to get baseline attention maps: {e}")
+                # Ensure model is restored
+                self.model.load_state_dict(current_state)
+        
+        # Format the output for visualization
+        attention_data = {}
+        
+        # If we have both baseline and current attention maps, create comparison data
+        if baseline_attentions is not None:
+            num_layers = min(len(baseline_attentions), len(current_attentions))
+            
+            for layer_idx in range(num_layers):
+                baseline_layer = baseline_attentions[layer_idx]
+                current_layer = current_attentions[layer_idx]
+                
+                num_heads = min(baseline_layer.shape[1], current_layer.shape[1])
+                
+                for head_idx in range(num_heads):
+                    # Skip heads that were pruned
+                    if hasattr(self, 'pruned_heads') and (layer_idx, head_idx) in self.pruned_heads:
+                        continue
+                        
+                    key = f"layer{layer_idx}_head{head_idx}"
+                    attention_data[key] = {
+                        "baseline": baseline_layer[0, head_idx].copy(),  # First batch item
+                        "pruned": current_layer[0, head_idx].copy(),     # First batch item
+                        "text": self.tokenizer.decode(input_ids[0]) if text is None else text,
+                        "layer": layer_idx,
+                        "head": head_idx
+                    }
+        
+        return attention_data
     
     def save_model(self, path=None):
         """
@@ -1726,9 +1987,25 @@ class NeuralPlasticityExperiment:
             # Estimate from first cycle results
             total_heads = None
         
+        # Notify metrics callback we're starting pruning phase
+        if self.metrics_callback:
+            self.metrics_callback(0, {
+                "phase": "pruning_start",
+                "num_cycles": num_cycles,
+                "training_steps": training_steps
+            })
+        
         for cycle in range(num_cycles):
             if self.verbose:
                 print(f"Running pruning cycle {cycle+1}/{num_cycles}")
+            
+            # Notify cycle start via callback
+            if self.metrics_callback:
+                self.metrics_callback(cycle, {
+                    "phase": "pruning_cycle_start",
+                    "cycle": cycle + 1,
+                    "total_cycles": num_cycles
+                })
             
             # Run a pruning cycle with training
             pruning_results = self.run_pruning_cycle(training_steps=training_steps)
@@ -1747,16 +2024,22 @@ class NeuralPlasticityExperiment:
                     newly_pruned_count += 1
             
             # Track metrics for this cycle
-            cycle_metrics["perplexity"].append(pruning_results.get("final_metrics", {}).get("perplexity", 0))
-            cycle_metrics["pruned_heads_count"].append(len(cumulative_pruned_heads))
-            cycle_metrics["loss"].append(pruning_results.get("final_metrics", {}).get("loss", 0))
+            cycle_perplexity = pruning_results.get("final_metrics", {}).get("perplexity", 0)
+            cycle_loss = pruning_results.get("final_metrics", {}).get("loss", 0)
+            pruned_heads_count = len(cumulative_pruned_heads)
+            
+            cycle_metrics["perplexity"].append(cycle_perplexity)
+            cycle_metrics["pruned_heads_count"].append(pruned_heads_count)
+            cycle_metrics["loss"].append(cycle_loss)
             cycle_metrics["newly_pruned_count"].append(newly_pruned_count)
             
             # Calculate sparsity if we have total_heads info
+            cycle_sparsity = None
             if total_heads is not None:
                 if "sparsity" not in cycle_metrics:
                     cycle_metrics["sparsity"] = []
-                cycle_metrics["sparsity"].append(len(cumulative_pruned_heads) / total_heads * 100)
+                cycle_sparsity = len(cumulative_pruned_heads) / total_heads * 100
+                cycle_metrics["sparsity"].append(cycle_sparsity)
             
             # If we don't have total_heads yet but have results, try to extract it
             if total_heads is None and pruning_results.get("model_structure") is not None:
@@ -1764,6 +2047,7 @@ class NeuralPlasticityExperiment:
                 total_heads = num_layers * num_heads
                 # Backfill sparsity calculations
                 cycle_metrics["sparsity"] = [count / total_heads * 100 for count in cycle_metrics["pruned_heads_count"]]
+                cycle_sparsity = cycle_metrics["sparsity"][-1]
             
             # Create visualization showing cumulative pruning state
             from utils.neural_plasticity.visualization import create_pruning_state_heatmap
@@ -1773,6 +2057,31 @@ class NeuralPlasticityExperiment:
                 newly_pruned=newly_pruned,
                 title=f"Neural Plasticity State After Cycle {cycle+1}/{num_cycles}"
             )
+            
+            # Send cycle results to callback
+            if self.metrics_callback:
+                # Notify about newly pruned heads and entropy/gradient values
+                self.metrics_callback(cycle, {
+                    "phase": "pruning_cycle_complete",
+                    "cycle": cycle + 1,
+                    "perplexity": cycle_perplexity,
+                    "loss": cycle_loss,
+                    "pruned_heads_count": pruned_heads_count,
+                    "newly_pruned_count": newly_pruned_count,
+                    "sparsity": cycle_sparsity,
+                    "pruned_heads": newly_pruned
+                })
+                
+                # Send entropy and gradient data if available
+                if "entropy_values" in pruning_results and isinstance(pruning_results["entropy_values"], torch.Tensor):
+                    self.metrics_callback(cycle, {
+                        "entropy_values": pruning_results["entropy_values"].detach().cpu().numpy()
+                    })
+                
+                if "grad_norm_values" in pruning_results and isinstance(pruning_results["grad_norm_values"], torch.Tensor):
+                    self.metrics_callback(cycle, {
+                        "grad_norm_values": pruning_results["grad_norm_values"].detach().cpu().numpy()
+                    })
             
             # Save the heatmap
             if self.save_results:
@@ -1785,6 +2094,16 @@ class NeuralPlasticityExperiment:
             evolution_fig = self._create_metrics_evolution_plot(cycle_metrics, num_cycles)
             if self.save_results:
                 evolution_fig.savefig(os.path.join(self.output_dir, "metrics_evolution.png"), dpi=100, bbox_inches='tight')
+        
+        # Notify all pruning cycles complete
+        if self.metrics_callback:
+            self.metrics_callback(num_cycles, {
+                "phase": "pruning_complete",
+                "total_pruned": len(cumulative_pruned_heads),
+                "sparsity": len(cumulative_pruned_heads) / total_heads * 100 if total_heads else None,
+                "final_perplexity": cycle_metrics["perplexity"][-1] if cycle_metrics["perplexity"] else None,
+                "final_loss": cycle_metrics["loss"][-1] if cycle_metrics["loss"] else None
+            })
         
         # Return comprehensive results
         return {
