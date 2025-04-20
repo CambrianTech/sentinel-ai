@@ -24,19 +24,39 @@ The system is organized into the following components:
 # Activate your virtual environment
 source .venv/bin/activate
 
-# Run a minimal experiment
-python scripts/run_plasticity_experiment.py --quick
+# Run a minimal experiment with synthetic data
+python scripts/run_neural_plasticity.py --quick_test
 ```
 
 ### Complete Experiment
 
 ```bash
-python scripts/run_plasticity_experiment.py \
+# Run with real data
+python scripts/run_neural_plasticity.py \
   --model_name distilgpt2 \
   --dataset wikitext \
   --dataset_config wikitext-2-raw-v1 \
-  --cycles 5 \
-  --mode adaptive
+  --pruning_strategy entropy \
+  --pruning_level 0.2 \
+  --pruning_mode adaptive
+```
+
+### Output Files
+
+All experiment output is stored in the consolidated `experiment_output/neural_plasticity/` directory:
+
+```
+experiment_output/
+  neural_plasticity/
+    run_YYYYMMDD_HHMMSS/    # Timestamp-based run directory
+      warmup/               # Warmup phase data
+      pruning/              # Pruning decisions
+      fine_tuning/          # Fine-tuning results
+      metrics/              # Performance metrics
+      visualizations/       # Visualizations and plots
+      dashboards/           # HTML dashboards
+      models/               # Saved model checkpoints
+      experiment.log        # Complete experiment log
 ```
 
 ### Modes
