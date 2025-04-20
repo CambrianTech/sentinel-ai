@@ -64,6 +64,7 @@ def visualize_head_entropy(
     
     Args:
         entropy_values: Tensor of entropy values with shape [layers, heads]
+                        or dictionary of layers to entropy tensors
         title: Title for the plot
         min_value: Minimum value for the colormap scale
         annotate: Whether to add value annotations to the cells
@@ -74,6 +75,33 @@ def visualize_head_entropy(
     Returns:
         matplotlib Figure object
     """
+    # Handle dictionary of layers to entropy values
+    if isinstance(entropy_values, dict):
+        # Convert dictionary to tensor [layers, heads]
+        layers = sorted(list(entropy_values.keys()))
+        if len(layers) > 0:
+            # Check if the first value is a tensor with multiple dimensions
+            first_val = entropy_values[layers[0]]
+            if isinstance(first_val, torch.Tensor) and first_val.dim() > 1:
+                # Take mean across additional dimensions
+                entropy_stacked = []
+                for layer in layers:
+                    layer_entropy = entropy_values[layer]
+                    if layer_entropy.dim() > 1:
+                        # Reduce to 1D by taking mean across extra dimensions
+                        layer_entropy = layer_entropy.mean(dim=tuple(range(1, layer_entropy.dim())))
+                    entropy_stacked.append(layer_entropy)
+                entropy_values = torch.stack(entropy_stacked)
+            else:
+                # Standard case, just stack the tensors
+                entropy_values = torch.stack([entropy_values[layer] for layer in layers])
+    
+    # Handle tensors with extra dimensions
+    if isinstance(entropy_values, torch.Tensor) and entropy_values.dim() > 2:
+        # Reduce extra dimensions by taking the mean
+        # Keep only the first two dimensions [layers, heads]
+        entropy_values = entropy_values.mean(dim=tuple(range(2, entropy_values.dim())))
+    
     # Convert to numpy if tensor
     if isinstance(entropy_values, torch.Tensor):
         entropy_data = entropy_values.detach().cpu().numpy()
