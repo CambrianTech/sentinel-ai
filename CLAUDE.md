@@ -183,6 +183,7 @@ gh pr create --title "Add my feature" --body "..."
 - When starting a new session, first examine README.md, paper docs, and CLAUDE.md to understand context
 - Read all relevant code thoroughly before making changes to understand dependencies and patterns
 - Review the entire notebook before making edits to understand the full flow and dependencies
+- ALWAYS activate the virtual environment with `source .venv/bin/activate` before running scripts
 - Always run notebooks end-to-end even in CPU mode before committing changes
 - Always check tensor visualization code to ensure proper .detach().cpu().numpy() conversion
 - Verify all files are properly committed (git status) before ending a session
@@ -197,3 +198,6 @@ gh pr create --title "Add my feature" --body "..."
 - Use safe_tensor_imshow for GPU tensor visualization instead of raw plt.imshow
 - Never make assumptions about the current date - get it from the system
 - Carefully test code for syntax errors before committing
+- On Apple Silicon (M1/M2/M3), safeguard against BLAS crashes by moving tensors to CPU for matrix operations
+- Always include architecture-specific optimizations for Apple Silicon to avoid libtorch/BLAS crashes
+- Use platform detection at module import time to automatically adjust execution based on hardware

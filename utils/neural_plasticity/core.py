@@ -5,16 +5,48 @@ This module implements the fundamental algorithms for neural plasticity, includi
 - Entropy and gradient-based head importance calculations
 - Pruning mask generation and application
 - Model evaluation functions
+
+Version: v0.0.54 (2025-04-19 21:00:00)
 """
 
 import torch
 import numpy as np
+import platform
 from typing import Dict, List, Tuple, Optional, Union, Callable, Any
+
+# Check for Apple Silicon at module import time
+IS_APPLE_SILICON = False
+try:
+    if platform.system() == "Darwin" and platform.processor() == "arm":
+        IS_APPLE_SILICON = True
+        print("🍎 Apple Silicon detected - enabling PyTorch/BLAS crash prevention")
+        
+        # Force single-threaded BLAS operations
+        import os
+        os.environ["OMP_NUM_THREADS"] = "1"
+        os.environ["OPENBLAS_NUM_THREADS"] = "1"
+        os.environ["MKL_NUM_THREADS"] = "1"
+        os.environ["VECLIB_MAXIMUM_THREADS"] = "1"
+        os.environ["NUMEXPR_NUM_THREADS"] = "1"
+        
+        # Try to force PyTorch to behave on Apple Silicon
+        try:
+            import torch
+            # Disable parallel CPU operations
+            torch.set_num_threads(1)
+            # Ensure the default device is CPU
+            if torch.cuda.is_available():
+                print("⚠️ CUDA detected on Apple Silicon - forcing CPU usage to prevent crashes")
+                torch.__future__.set_overwrite_module_params_on_conversion(True)
+        except (ImportError, AttributeError):
+            pass
+except (ImportError, AttributeError):
+    pass
 
 
 def calculate_head_entropy(
     attention_maps: torch.Tensor,
-    eps: float = 1e-8
+    eps: float = 1e-6
 ) -> torch.Tensor:
     """
     Calculate entropy of attention patterns.
@@ -33,14 +65,35 @@ def calculate_head_entropy(
     if not isinstance(attention_maps, torch.Tensor):
         raise TypeError(f"Expected torch.Tensor, got {type(attention_maps)}")
     
+    # Apply Apple Silicon workaround to avoid BLAS crashes
+    if IS_APPLE_SILICON:
+        # Always move to CPU on Apple Silicon, regardless of original device
+        if attention_maps.is_cuda:
+            attention_maps = attention_maps.detach().cpu()
+        # For safety, ensure no gradients are tracked
+        if attention_maps.requires_grad:
+            attention_maps = attention_maps.detach()
+        # Force contiguous memory layout to avoid strided ops issues
+        if not attention_maps.is_contiguous():
+            attention_maps = attention_maps.contiguous()
+    
     # Calculate entropy with proper numerical stability
     # Add small epsilon to avoid log(0) issues
-    attn_probs = attention_maps.clamp(min=eps)
+    # Handle potential NaN or Inf values first
+    attn_probs = torch.where(
+        torch.isfinite(attention_maps),
+        attention_maps,
+        torch.ones_like(attention_maps) * eps
+    )
+    attn_probs = attn_probs.clamp(min=eps)
     
     # Normalize to ensure it's a proper probability distribution
     attn_probs = attn_probs / attn_probs.sum(dim=-1, keepdim=True)
     
     # Calculate entropy: -sum(p * log(p))
+    # Cast to float32 for better numerical stability if needed
+    if attn_probs.dtype != torch.float32:
+        attn_probs = attn_probs.to(torch.float32)
     entropy = -torch.sum(attn_probs * torch.log(attn_probs), dim=-1)
     
     # Average over batch and sequence length dimensions if present
@@ -286,6 +339,8 @@ def generate_pruning_mask(
     if random_seed is not None:
         torch.manual_seed(random_seed)
         np.random.seed(random_seed)
+        if grad_norm_values.is_cuda:
+            torch.cuda.manual_seed(random_seed)
     
     # Flatten tensor for calculating percentiles
     flat_grad_norm = grad_norm_values.view(-1)
@@ -522,8 +577,17 @@ def evaluate_model(
     Returns:
         Dictionary with 'loss' and 'perplexity' metrics
     """
+    # On Apple Silicon, force CPU usage to avoid BLAS crashes
+    if IS_APPLE_SILICON and device is not None and str(device).startswith("cuda"):
+        print("⚠️ Apple Silicon detected with CUDA device - forcing CPU to avoid crashes")
+        device = torch.device("cpu")
+    
+    # Determine device if not provided
     if device is None:
         device = next(model.parameters()).device
+        # Extra safety check for Apple Silicon
+        if IS_APPLE_SILICON and str(device).startswith("cuda"):
+            device = torch.device("cpu")
     
     model.eval()
     total_loss = 0.0

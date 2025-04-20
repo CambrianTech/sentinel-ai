@@ -232,8 +232,21 @@ def optimize_for_colab(
         "gradient_accumulation_steps": 1,
         "use_fp16": False,
         "optimize_memory_usage": True, 
-        "stability_level": 1
+        "stability_level": 1,
+        "apple_silicon_fix": False
     }
+    
+    # Check if running on Apple Silicon (M1/M2/M3)
+    is_apple_silicon = False
+    try:
+        import platform
+        if platform.system() == "Darwin" and platform.processor() == "arm":
+            is_apple_silicon = True
+            params["apple_silicon_fix"] = True
+            if verbose:
+                print("🍎 Detected Apple Silicon (M1/M2/M3) - Enabling special optimizations")
+    except ImportError:
+        pass
     
     # Get GPU info if not provided
     if available_memory_mb is None:
@@ -317,7 +330,11 @@ def safe_tensor_imshow(
     # Ensure tensor is properly converted for visualization
     if isinstance(tensor, torch.Tensor):
         # Handle GPU tensors or tensors with gradients
-        tensor_np = tensor.detach().cpu().numpy()
+        if tensor.requires_grad:
+            tensor = tensor.detach()
+        if tensor.is_cuda:
+            tensor = tensor.cpu()
+        tensor_np = tensor.numpy()
     elif isinstance(tensor, np.ndarray):
         tensor_np = tensor
     else:
@@ -325,6 +342,12 @@ def safe_tensor_imshow(
     
     # Create figure and plot
     fig, ax = plt.subplots(figsize=figsize)
+    
+    # Handle potential NaN or Inf values
+    if np.isnan(tensor_np).any() or np.isinf(tensor_np).any():
+        print("⚠️ Warning: Tensor contains NaN or Inf values, replacing with zeros")
+        tensor_np = np.nan_to_num(tensor_np, nan=0.0, posinf=1.0, neginf=0.0)
+    
     im = ax.imshow(tensor_np, cmap=cmap, vmin=vmin, vmax=vmax)
     
     # Add colorbar if requested

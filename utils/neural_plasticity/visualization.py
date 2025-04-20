@@ -4,13 +4,50 @@ Neural Plasticity Visualization
 This module provides visualization utilities for neural plasticity experiments.
 It visualizes head entropy, gradients, pruning decisions, training metrics,
 and attention patterns.
+
+Version: v0.0.54 (2025-04-19 21:00:00)
 """
 
 import torch
 import numpy as np
 import matplotlib.pyplot as plt
+import platform
 from typing import Dict, List, Tuple, Optional, Union, Callable, Any
 from utils.colab.helpers import safe_tensor_imshow
+
+# Check for Apple Silicon at module import time
+IS_APPLE_SILICON = False
+try:
+    if platform.system() == "Darwin" and platform.processor() == "arm":
+        IS_APPLE_SILICON = True
+        print("🍎 Apple Silicon detected - enabling visualization crash prevention")
+        
+        # Force single-threaded image processing
+        import os
+        os.environ["OMP_NUM_THREADS"] = "1"
+        os.environ["OPENBLAS_NUM_THREADS"] = "1"
+        os.environ["MKL_NUM_THREADS"] = "1"
+        os.environ["VECLIB_MAXIMUM_THREADS"] = "1"
+        os.environ["NUMEXPR_NUM_THREADS"] = "1"
+        
+        # Switch matplotlib backend to Agg (non-interactive) on Apple Silicon
+        # This helps prevent some rendering issues
+        try:
+            import matplotlib
+            matplotlib.use('Agg')
+            print("🎨 Switching to Agg matplotlib backend for improved stability")
+        except (ImportError, RuntimeError):
+            pass
+            
+        # Configure PyTorch for Apple Silicon if available
+        try:
+            import torch
+            # Disable parallel CPU operations
+            torch.set_num_threads(1)
+        except (ImportError, AttributeError):
+            pass
+except (ImportError, AttributeError):
+    pass
 
 
 def visualize_head_entropy(
@@ -43,18 +80,15 @@ def visualize_head_entropy(
     else:
         entropy_data = entropy_values
     
-    # Create figure
+    # Create figure (only once)
     fig, ax = plt.subplots(figsize=figsize)
     
-    # Plot heatmap using safe_tensor_imshow
-    im = safe_tensor_imshow(
-        entropy_data, 
-        title=title,
-        cmap=cmap
-    )
+    # Plot heatmap using imshow directly since entropy_data is already numpy
+    im = ax.imshow(entropy_data, cmap=cmap)
+    ax.set_title(title)
     
     # Set proper colormap limits with non-zero range
-    plt.clim(min_value, max(0.1, np.max(entropy_data)))
+    im.set_clim(min_value, max(0.1, np.max(entropy_data)))
     
     # Add colorbar
     plt.colorbar(im, ax=ax, label='Entropy')
@@ -107,15 +141,12 @@ def visualize_head_gradients(
     else:
         grad_data = grad_norm_values
         
-    # Create figure
+    # Create figure (only once)
     fig, ax = plt.subplots(figsize=figsize)
     
-    # Plot heatmap using safe_tensor_imshow
-    im = safe_tensor_imshow(
-        grad_data, 
-        title=title,
-        cmap=cmap
-    )
+    # Plot heatmap directly
+    im = ax.imshow(grad_data, cmap=cmap)
+    ax.set_title(title)
     
     plt.colorbar(im, ax=ax, label="Gradient Norm")
     
@@ -173,15 +204,12 @@ def visualize_pruning_decisions(
     else:
         mask_data = pruning_mask
     
-    # Create figure
+    # Create figure (only once)
     fig, ax = plt.subplots(figsize=figsize)
     
     # Base plot with all gradient values
-    im = safe_tensor_imshow(
-        grad_data, 
-        title=title,
-        cmap="YlOrRd"
-    )
+    im = ax.imshow(grad_data, cmap="YlOrRd")
+    ax.set_title(title)
     
     # Create a masked array where pruned heads are highlighted
     masked_grads = np.ma.array(grad_data, mask=~mask_data)
@@ -337,7 +365,17 @@ def visualize_attention_patterns(
     
     # Ensure tensor is on CPU and converted to numpy
     if isinstance(attention_maps, torch.Tensor):
-        attn = attention_maps.detach().cpu()
+        # Force to CPU on Apple Silicon to avoid BLAS crashes
+        if IS_APPLE_SILICON and attention_maps.is_cuda:
+            attention_maps = attention_maps.cpu()
+        
+        # Use safe_tensor_imshow helper to properly handle GPU tensors
+        if attention_maps.requires_grad:
+            attention_maps = attention_maps.detach()
+        if attention_maps.is_cuda:
+            attention_maps = attention_maps.cpu()
+        
+        attn = attention_maps
     else:
         attn = attention_maps
     
@@ -350,18 +388,26 @@ def visualize_attention_patterns(
         # Single head visualization
         fig, ax = plt.subplots(figsize=figsize)
         
-        # Plot attention pattern using safe_tensor_imshow
-        attention_map = safe_tensor_imshow(
-            attn[0, head_idx], 
-            title=title or f'Attention pattern (layer {layer_idx}, head {head_idx})',
-            cmap='viridis'
-        )
+        # Use the safe_tensor_imshow helper from utils.colab.helpers
+        from utils.colab.helpers import safe_tensor_imshow
+        
+        # Extract the specific head attention and convert to numpy for plotting
+        head_attention = attn[0, head_idx].numpy()
+        
+        # Check for NaN/Inf values to avoid visualization errors
+        if np.isnan(head_attention).any() or np.isinf(head_attention).any():
+            head_attention = np.nan_to_num(head_attention, nan=0.0, posinf=1.0, neginf=0.0)
+            print("⚠️ Warning: Attention tensor contained NaN or Inf values, replacing with safe values")
+        
+        # Plot attention pattern
+        im = ax.imshow(head_attention, cmap='viridis')
+        ax.set_title(title or f'Attention pattern (layer {layer_idx}, head {head_idx})')
         
         # Set proper limits for attention values (0 to 1)
-        plt.clim(0, 1.0)
+        im.set_clim(0, 1.0)
         
         # Add colorbar
-        plt.colorbar(attention_map, label='Attention probability')
+        plt.colorbar(im, label='Attention probability')
         
         # Add labels
         plt.xlabel('Sequence position (to)')
@@ -380,8 +426,15 @@ def visualize_attention_patterns(
         
         # Plot each head
         for i in range(heads_to_show):
+            # Extract head attention and convert to numpy
+            head_attention = attn[0, i].numpy()
+            
+            # Check for NaN/Inf values
+            if np.isnan(head_attention).any() or np.isinf(head_attention).any():
+                head_attention = np.nan_to_num(head_attention, nan=0.0, posinf=1.0, neginf=0.0)
+                
             # Plot attention pattern
-            im = axs[i].imshow(attn[0, i].numpy(), cmap='viridis')
+            im = axs[i].imshow(head_attention, cmap='viridis')
             
             # Set proper limits for attention values (0 to 1)
             im.set_clim(0, 1.0)
