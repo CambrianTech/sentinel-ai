@@ -39,6 +39,12 @@ plasticity_experiments/
 neural_plasticity_test/
 legacy_datasets/
 experiments/
+dynamic_plasticity_experiment/
+neural_plasticity_report/
+neural_plasticity_results.html
+dashboard/
+*_demo_output.txt
+*.bak
 
 # Output directories for experiment results and generated content
 /output/*
