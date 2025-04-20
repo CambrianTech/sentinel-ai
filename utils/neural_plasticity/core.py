@@ -6,7 +6,7 @@ This module implements the fundamental algorithms for neural plasticity, includi
 - Pruning mask generation and application
 - Model evaluation functions
 
-Version: v0.0.55 (2025-04-19 22:30:00)
+Version: v0.0.56 (2025-04-19 23:30:00)
 """
 
 import torch
@@ -34,6 +34,22 @@ try:
             import torch
             # Disable parallel CPU operations
             torch.set_num_threads(1)
+            
+            # Set additional safeguards for BLAS operations
+            try:
+                # Disable BLAS threading at pytorch level too
+                torch.backends.openmp.is_available = lambda: False
+                # Disable fancy optimizations that might crash
+                torch.backends.mkldnn.enabled = False
+                # Set PT deterministic for more consistent behavior
+                torch.use_deterministic_algorithms(True)
+            except (AttributeError, RuntimeError) as e:
+                print(f"⚠️ Could not set all PyTorch safeguards: {e}")
+                
+            # Force use of slower but more stable BLAS implementation
+            os.environ["ACCELERATE_USE_SYSTEM_BLAS"] = "1"
+            os.environ["PYTORCH_JIT_USE_AUTOTUNER"] = "0"
+            
             # Ensure the default device is CPU
             if torch.cuda.is_available():
                 print("⚠️ CUDA detected on Apple Silicon - forcing CPU usage to prevent crashes")
@@ -43,6 +59,44 @@ try:
 except (ImportError, AttributeError):
     pass
 
+
+def safe_matmul(
+    a: torch.Tensor,
+    b: torch.Tensor
+) -> torch.Tensor:
+    """
+    Safely perform matrix multiplication on Apple Silicon.
+    
+    Args:
+        a: First tensor
+        b: Second tensor
+        
+    Returns:
+        Result of matrix multiplication
+    """
+    if not IS_APPLE_SILICON:
+        # Regular matmul for non-Apple Silicon platforms
+        return torch.matmul(a, b)
+    
+    # On Apple Silicon, we need extra precautions
+    # Ensure tensors are on CPU
+    if a.is_cuda:
+        a = a.cpu()
+    if b.is_cuda:
+        b = b.cpu()
+    
+    # Ensure tensors are contiguous for better memory layout
+    if not a.is_contiguous():
+        a = a.contiguous()
+    if not b.is_contiguous():
+        b = b.contiguous()
+    
+    # Ensure gradient tracking is disabled for matmul operation
+    with torch.no_grad():
+        # Perform matrix multiplication
+        result = torch.matmul(a.detach(), b.detach())
+    
+    return result
 
 def calculate_head_entropy(
     attention_maps: torch.Tensor,

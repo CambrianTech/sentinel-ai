@@ -5,7 +5,7 @@ This module provides visualization utilities for neural plasticity experiments.
 It visualizes head entropy, gradients, pruning decisions, training metrics,
 and attention patterns.
 
-Version: v0.0.55 (2025-04-19 22:30:00)
+Version: v0.0.56 (2025-04-19 23:30:00)
 """
 
 import torch

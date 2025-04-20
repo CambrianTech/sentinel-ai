@@ -38,12 +38,40 @@ from utils.neural_plasticity.core import (
     generate_pruning_mask,
     apply_pruning_mask,
     evaluate_model,
+    safe_matmul,
     IS_APPLE_SILICON
 )
 from utils.neural_plasticity.visualization import (
     visualize_head_entropy,
     visualize_pruning_decisions
 )
+
+# Add additional Apple Silicon safeguards
+if IS_APPLE_SILICON:
+    # Explicitly ensure we're using single-threaded for matrix operations
+    import os
+    os.environ["ACCELERATE_USE_SYSTEM_BLAS"] = "1"  # Use safer BLAS implementation
+    os.environ["PYTORCH_JIT_USE_AUTOTUNER"] = "0"   # Disable JIT autotuner
+    
+    # Override torch matmul with our safe version
+    try:
+        import torch
+        original_matmul = torch.matmul
+        
+        def patched_matmul(a, b, *args, **kwargs):
+            """Patched version of matmul that adds extra safeguards on Apple Silicon"""
+            if IS_APPLE_SILICON:
+                # Use our safer implementation
+                return safe_matmul(a, b)
+            else:
+                # Use original implementation for non-Apple Silicon
+                return original_matmul(a, b, *args, **kwargs)
+        
+        # Apply the patch
+        torch.matmul = patched_matmul
+        print("🔒 Applied extra safeguards for matrix operations on Apple Silicon")
+    except Exception as e:
+        print(f"⚠️ Could not apply additional safeguards: {e}")
 
 # Display environment information
 print("=" * 60)
