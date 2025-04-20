@@ -719,3 +719,405 @@ def visualize_head_entropy(
     
     fig.tight_layout()
     return fig
+
+
+def extract_complete_training_data(experiment):
+    """
+    Extract comprehensive training data from the experiment object.
+    
+    Args:
+        experiment: NeuralPlasticityExperiment object or dictionary with experiment results
+        
+    Returns:
+        Dictionary containing all necessary data for visualization:
+        - warmup_losses: List of warmup phase losses 
+        - warmup_steps: List of warmup phase steps
+        - stabilization_point: Index where warmup stabilized
+        - pruning_losses: List of losses during the pruning phase
+        - pruning_steps: List of steps during the pruning phase
+        - fine_tuning_losses: List of losses during fine-tuning
+        - fine_tuning_steps: List of steps during fine-tuning
+        - perplexity_scores: List of perplexity scores throughout all phases
+        - sparsity_history: List of model sparsity values
+        - pruned_head_counts: List of cumulative pruned head counts
+        - phase_markers: Dictionary with indices for transitions between phases
+    """
+    data = {
+        "warmup_losses": [],
+        "warmup_steps": [],
+        "stabilization_point": None,
+        "pruning_losses": [],
+        "pruning_steps": [],
+        "fine_tuning_losses": [],
+        "fine_tuning_steps": [],
+        "perplexity_scores": [],
+        "sparsity_history": [],
+        "pruned_head_counts": [],
+        "phase_markers": {}
+    }
+    
+    # Extract from NeuralPlasticityExperiment object
+    if hasattr(experiment, 'results') and isinstance(experiment.results, dict):
+        results = experiment.results
+    elif isinstance(experiment, dict):
+        results = experiment
+    else:
+        # Try to access experiment data through other common attributes
+        results = {}
+        if hasattr(experiment, 'warmup_results'):
+            results['warmup'] = experiment.warmup_results
+        if hasattr(experiment, 'pruning_results'):
+            results['pruning'] = experiment.pruning_results
+        if hasattr(experiment, 'fine_tuning_results'):
+            results['fine_tuning'] = experiment.fine_tuning_results
+    
+    # Extract warmup phase data
+    warmup_data = results.get('warmup', {})
+    if isinstance(warmup_data, dict):
+        data['warmup_losses'] = warmup_data.get('losses', [])
+        data['warmup_steps'] = list(range(len(data['warmup_losses'])))
+        data['stabilization_point'] = warmup_data.get('stabilization_point')
+        
+        # If stabilization_point is not directly available, calculate from other fields
+        if data['stabilization_point'] is None and warmup_data.get('is_stable'):
+            steps_without_decrease = warmup_data.get('steps_without_decrease', 0)
+            if steps_without_decrease > 0:
+                data['stabilization_point'] = len(data['warmup_losses']) - steps_without_decrease
+    
+    # Extract pruning phase data
+    pruning_data = results.get('pruning', {})
+    if isinstance(pruning_data, dict):
+        # Extract training metrics during pruning phase
+        metrics = pruning_data.get('training_metrics', {})
+        if metrics:
+            data['pruning_losses'] = metrics.get('train_loss', [])
+            data['pruning_steps'] = metrics.get('step', list(range(len(data['pruning_losses']))))
+            pruning_perplexity = metrics.get('perplexity', [])
+            data['perplexity_scores'].extend(pruning_perplexity)
+            data['sparsity_history'] = metrics.get('sparsity', [])
+            data['pruned_head_counts'] = metrics.get('pruned_heads', [])
+    
+    # Extract fine-tuning phase data
+    fine_tuning_data = results.get('fine_tuning', {})
+    if isinstance(fine_tuning_data, dict):
+        # Extract training metrics during fine-tuning phase
+        metrics = fine_tuning_data.get('training_metrics', {})
+        if metrics:
+            data['fine_tuning_losses'] = metrics.get('train_loss', [])
+            data['fine_tuning_steps'] = metrics.get('step', list(range(len(data['fine_tuning_losses']))))
+            ft_perplexity = metrics.get('perplexity', [])
+            data['perplexity_scores'].extend(ft_perplexity)
+    
+    # Calculate phase markers for visualization
+    # Start of warmup is always 0
+    data['phase_markers']['warmup_start'] = 0
+    
+    # End of warmup / start of pruning
+    warmup_length = len(data['warmup_losses'])
+    data['phase_markers']['warmup_end'] = warmup_length
+    data['phase_markers']['pruning_start'] = warmup_length
+    
+    # End of pruning / start of fine-tuning
+    pruning_length = len(data['pruning_losses'])
+    data['phase_markers']['pruning_end'] = warmup_length + pruning_length
+    data['phase_markers']['fine_tuning_start'] = warmup_length + pruning_length
+    
+    # End of fine-tuning
+    fine_tuning_length = len(data['fine_tuning_losses'])
+    data['phase_markers']['fine_tuning_end'] = warmup_length + pruning_length + fine_tuning_length
+    
+    return data
+
+
+def generate_inspirational_quote():
+    """
+    Generate an inspirational quote about neural networks and plasticity.
+    
+    Returns:
+        A random inspirational quote
+    """
+    quotes = [
+        "The brain's plasticity is its most fascinating feature - so is your model's.",
+        "Adapt, prune, refine, learn. That is the path to AI excellence.",
+        "In neural network pruning, less is often more.",
+        "The most efficient networks are not built, they are grown and pruned like gardens.",
+        "A carefully pruned network is like a well-written sentence - nothing extra, nothing missing.",
+        "Plasticity is not an accident of nature, but its core design principle.",
+        "The art of AI is knowing which connections to strengthen and which to prune.",
+        "In the neural world, connections that fire together wire together, and those that don't, don't.",
+        "The wise gardener prunes to promote growth. The wise AI researcher does the same.",
+        "Every neural connection serves a purpose or makes way for one that does.",
+        "Neural plasticity teaches us that adaptation is not just a response to the environment - it is survival.",
+        "Complexity should be pruned, not pursued."
+    ]
+    
+    # Choose random quote
+    import random
+    return random.choice(quotes)
+
+
+def visualize_complete_training_process(
+    experiment,
+    output_dir: Optional[str] = None,
+    filename: Optional[str] = None,
+    title: str = "Complete Neural Plasticity Training Process",
+    show_plot: bool = True,
+    figsize: Tuple[int, int] = (14, 10),
+    show_quote: bool = True
+) -> plt.Figure:
+    """
+    Create a comprehensive visualization of the entire neural plasticity process,
+    showing warmup, stabilization, pruning, and fine-tuning phases.
+    
+    Args:
+        experiment: NeuralPlasticityExperiment object or dictionary with experiment results
+        output_dir: Directory to save the visualization (created if it doesn't exist)
+        filename: Filename for saved visualization
+        title: Title for the visualization
+        show_plot: Whether to display the plot (set to False for headless environments)
+        figsize: Figure size (width, height) in inches
+        show_quote: Whether to include an inspirational quote
+        
+    Returns:
+        matplotlib Figure object
+    """
+    # Extract all training data from experiment
+    training_data = extract_complete_training_data(experiment)
+    
+    # Concatenate all losses and steps for comprehensive visualization
+    all_losses = []
+    all_steps = []
+    
+    # Add warmup phase data
+    warmup_losses = training_data['warmup_losses']
+    warmup_steps = training_data['warmup_steps']
+    all_losses.extend(warmup_losses)
+    all_steps.extend(warmup_steps)
+    
+    # Add pruning phase data
+    pruning_losses = training_data['pruning_losses']
+    pruning_steps = [step + len(warmup_steps) for step in training_data['pruning_steps']]
+    all_losses.extend(pruning_losses)
+    all_steps.extend(pruning_steps)
+    
+    # Add fine-tuning phase data
+    fine_tuning_losses = training_data['fine_tuning_losses']
+    fine_tuning_steps = [step + len(warmup_steps) + len(pruning_steps) for step in training_data['fine_tuning_steps']]
+    all_losses.extend(fine_tuning_losses)
+    all_steps.extend(fine_tuning_steps)
+    
+    # Create a multi-panel figure
+    fig = plt.figure(figsize=figsize)
+    gs = plt.GridSpec(4, 3, figure=fig, height_ratios=[3, 2, 2, 1])
+    
+    # 1. Main Plot: Complete Training Process
+    ax_main = fig.add_subplot(gs[0, :])
+    
+    # Plot all losses
+    if all_losses:
+        ax_main.plot(all_steps, all_losses, 'b-', label='Training Loss')
+    
+    # Add phase markers
+    markers = training_data['phase_markers']
+    
+    # Warmup phase highlighting
+    if 'warmup_start' in markers and 'warmup_end' in markers:
+        ax_main.axvspan(markers['warmup_start'], markers['warmup_end'], 
+                       alpha=0.2, color='blue', label='Warmup Phase')
+    
+    # Pruning phase highlighting
+    if 'pruning_start' in markers and 'pruning_end' in markers:
+        ax_main.axvspan(markers['pruning_start'], markers['pruning_end'], 
+                       alpha=0.2, color='red', label='Pruning Phase')
+    
+    # Fine-tuning phase highlighting
+    if 'fine_tuning_start' in markers and 'fine_tuning_end' in markers:
+        ax_main.axvspan(markers['fine_tuning_start'], markers['fine_tuning_end'], 
+                       alpha=0.2, color='green', label='Fine-tuning Phase')
+    
+    # Add stabilization point if available
+    stabilization_point = training_data['stabilization_point']
+    if stabilization_point is not None and stabilization_point < len(warmup_losses):
+        ax_main.axvline(x=stabilization_point, color='green', linestyle='--', 
+                       label='Stabilization Point')
+        # Add marker at the stabilization point
+        stab_y = warmup_losses[stabilization_point] if stabilization_point < len(warmup_losses) else None
+        if stab_y is not None:
+            ax_main.plot(stabilization_point, stab_y, 'go', markersize=8)
+    
+    # Configure main plot
+    ax_main.set_title(title, fontsize=16)
+    ax_main.set_xlabel('Steps')
+    ax_main.set_ylabel('Loss')
+    ax_main.grid(True, alpha=0.3)
+    ax_main.legend(loc='upper right')
+    
+    # 2. Perplexity Plot
+    ax_perplexity = fig.add_subplot(gs[1, :2])
+    
+    # Plot perplexity if available
+    perplexity_scores = training_data['perplexity_scores']
+    if perplexity_scores:
+        perplexity_steps = list(range(len(perplexity_scores)))
+        ax_perplexity.plot(perplexity_steps, perplexity_scores, 'purple', label='Perplexity')
+        ax_perplexity.set_title('Model Perplexity')
+        ax_perplexity.set_xlabel('Evaluation Steps')
+        ax_perplexity.set_ylabel('Perplexity')
+        ax_perplexity.grid(True, alpha=0.3)
+    else:
+        ax_perplexity.text(0.5, 0.5, 'No perplexity data available', 
+                          ha='center', va='center')
+    
+    # 3. Pruning Statistics
+    ax_sparsity = fig.add_subplot(gs[1, 2])
+    
+    # Plot sparsity/pruning stats if available
+    sparsity_history = training_data['sparsity_history']
+    pruned_head_counts = training_data['pruned_head_counts']
+    
+    if sparsity_history:
+        ax_sparsity.plot(sparsity_history, 'r-', label='Sparsity')
+        ax_sparsity.set_title('Model Sparsity')
+        ax_sparsity.set_xlabel('Pruning Steps')
+        ax_sparsity.set_ylabel('Sparsity (%)')
+        ax_sparsity.grid(True, alpha=0.3)
+    elif pruned_head_counts:
+        ax_sparsity.plot(pruned_head_counts, 'r-', label='Pruned Heads')
+        ax_sparsity.set_title('Pruned Attention Heads')
+        ax_sparsity.set_xlabel('Pruning Steps')
+        ax_sparsity.set_ylabel('Head Count')
+        ax_sparsity.grid(True, alpha=0.3)
+    else:
+        ax_sparsity.text(0.5, 0.5, 'No pruning statistics available', 
+                        ha='center', va='center')
+    
+    # 4. Warmup Detail Plot
+    ax_warmup = fig.add_subplot(gs[2, 0])
+    
+    # Plot warmup phase in detail
+    if warmup_losses:
+        ax_warmup.plot(warmup_steps, warmup_losses, 'b-')
+        ax_warmup.set_title('Warmup Phase Detail')
+        ax_warmup.set_xlabel('Steps')
+        ax_warmup.set_ylabel('Loss')
+        ax_warmup.grid(True, alpha=0.3)
+        
+        # Highlight stabilization point
+        if stabilization_point is not None and stabilization_point < len(warmup_losses):
+            ax_warmup.axvline(x=stabilization_point, color='green', linestyle='--')
+            ax_warmup.plot(stabilization_point, warmup_losses[stabilization_point], 'go', markersize=8)
+    else:
+        ax_warmup.text(0.5, 0.5, 'No warmup data available', 
+                      ha='center', va='center')
+    
+    # 5. Pruning Detail Plot
+    ax_pruning = fig.add_subplot(gs[2, 1])
+    
+    # Plot pruning phase in detail
+    if pruning_losses:
+        pruning_relative_steps = list(range(len(pruning_losses)))
+        ax_pruning.plot(pruning_relative_steps, pruning_losses, 'r-')
+        ax_pruning.set_title('Pruning Phase Detail')
+        ax_pruning.set_xlabel('Steps')
+        ax_pruning.set_ylabel('Loss')
+        ax_pruning.grid(True, alpha=0.3)
+    else:
+        ax_pruning.text(0.5, 0.5, 'No pruning data available', 
+                       ha='center', va='center')
+    
+    # 6. Fine-tuning Detail Plot
+    ax_finetune = fig.add_subplot(gs[2, 2])
+    
+    # Plot fine-tuning phase in detail
+    if fine_tuning_losses:
+        finetune_relative_steps = list(range(len(fine_tuning_losses)))
+        ax_finetune.plot(finetune_relative_steps, fine_tuning_losses, 'g-')
+        ax_finetune.set_title('Fine-tuning Phase Detail')
+        ax_finetune.set_xlabel('Steps')
+        ax_finetune.set_ylabel('Loss')
+        ax_finetune.grid(True, alpha=0.3)
+    else:
+        ax_finetune.text(0.5, 0.5, 'No fine-tuning data available', 
+                        ha='center', va='center')
+    
+    # 7. Summary Box
+    ax_summary = fig.add_subplot(gs[3, :])
+    ax_summary.axis('off')
+    
+    # Create summary text
+    summary_parts = []
+    
+    # Add total steps per phase
+    summary_parts.append(f"Warmup: {len(warmup_losses)} steps")
+    
+    if pruning_losses:
+        summary_parts.append(f"Pruning: {len(pruning_losses)} steps")
+    
+    if fine_tuning_losses:
+        summary_parts.append(f"Fine-tuning: {len(fine_tuning_losses)} steps")
+    
+    # Add stabilization info
+    if stabilization_point is not None:
+        summary_parts.append(f"Stabilization at step {stabilization_point}")
+    
+    # Add pruning stats
+    if sparsity_history and len(sparsity_history) > 0:
+        summary_parts.append(f"Final sparsity: {sparsity_history[-1]:.1f}%")
+    
+    if pruned_head_counts and len(pruned_head_counts) > 0:
+        summary_parts.append(f"Total pruned heads: {pruned_head_counts[-1]}")
+    
+    # Add perplexity improvement if available
+    if perplexity_scores and len(perplexity_scores) > 1:
+        initial_perplexity = perplexity_scores[0]
+        final_perplexity = perplexity_scores[-1]
+        improvement = (initial_perplexity - final_perplexity) / initial_perplexity * 100
+        summary_parts.append(f"Perplexity improvement: {improvement:.1f}%")
+    
+    # Format the summary
+    summary_text = " | ".join(summary_parts)
+    
+    # Add an inspirational quote if enabled
+    if show_quote:
+        quote = generate_inspirational_quote()
+        formatted_quote = f'"{quote}"'
+        ax_summary.text(0.5, 0.2, formatted_quote, ha='center', va='center', 
+                       fontsize=11, fontstyle='italic', color='darkblue')
+    
+    # Add the summary stats
+    ax_summary.text(0.5, 0.7, summary_text, ha='center', va='center', 
+                   fontsize=10, bbox=dict(facecolor='white', alpha=0.8, boxstyle='round'))
+    
+    # Add timestamp
+    from datetime import datetime
+    current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    ax_summary.text(0.99, 0.05, f"Generated: {current_time}", ha='right', va='bottom', 
+                   fontsize=8, fontweight='light', transform=ax_summary.transAxes)
+    
+    # Adjust layout
+    plt.tight_layout()
+    
+    # Save visualization if requested
+    if output_dir:
+        import os
+        os.makedirs(output_dir, exist_ok=True)
+        
+        # Set default filename if not provided
+        if filename is None:
+            current_timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+            filename = f"neural_plasticity_process_{current_timestamp}.png"
+        
+        # Ensure filename has .png extension
+        if not filename.endswith(".png"):
+            filename += ".png"
+            
+        save_path = os.path.join(output_dir, filename)
+        plt.savefig(save_path, dpi=120, bbox_inches='tight')
+        print(f"✅ Visualization saved to: {save_path}")
+    
+    # In Colab, showing is handled by the notebook
+    # In standalone mode, we'll control display differently
+    # We won't call plt.show() here to avoid unwanted popups
+    # The calling code should decide how to display the figure
+    
+    return fig

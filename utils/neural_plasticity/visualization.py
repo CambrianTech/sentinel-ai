@@ -5,7 +5,7 @@ This module provides visualization utilities for neural plasticity experiments.
 It visualizes head entropy, gradients, pruning decisions, training metrics,
 and attention patterns.
 
-Version: v0.0.64 (2025-04-20 23:15:00)
+Version: v0.0.65 (2025-04-20 23:45:00)
 """
 
 import torch
@@ -393,6 +393,252 @@ def visualize_training_metrics(
     return fig
 
 
+def visualize_warmup_dashboard(
+    warmup_results: Dict[str, Any],
+    title: str = "Neural Plasticity Warmup Dashboard",
+    figsize: Tuple[int, int] = (12, 10),
+    save_path: Optional[str] = None
+) -> plt.Figure:
+    """
+    Create a comprehensive dashboard for visualizing warmup results including
+    the stabilization detection process.
+    
+    Args:
+        warmup_results: Dictionary with warmup metrics from run_warmup_phase
+        title: Title for the dashboard
+        figsize: Figure size (width, height) in inches
+        save_path: Optional path to save the dashboard
+        
+    Returns:
+        matplotlib Figure object
+    """
+    # Extract key data from warmup results
+    warmup_losses = warmup_results.get("losses", [])
+    smoothed_losses = warmup_results.get("smoothed_losses", [])
+    initial_loss = warmup_results.get("initial_loss", 0)
+    final_loss = warmup_results.get("final_loss", 0)
+    is_stable = warmup_results.get("is_stable", False)
+    steps_without_decrease = warmup_results.get("steps_without_decrease", 0)
+    
+    # Get stabilization point if available
+    stabilization_point = None
+    if is_stable:
+        # Stabilization occurred at the step when we decided to stop
+        stabilization_point = len(warmup_losses) - steps_without_decrease
+    
+    # Create figure with grid layout
+    fig = plt.figure(figsize=figsize)
+    
+    # Define grid layout
+    gs = plt.GridSpec(3, 2, figure=fig, height_ratios=[2, 1, 1])
+    
+    # 1. Main plot: Raw loss with stabilization indicator
+    ax_raw = fig.add_subplot(gs[0, :])
+    ax_raw.plot(warmup_losses, color='blue', label='Training Loss')
+    ax_raw.set_title('Warmup Phase Loss with Stability Detection')
+    ax_raw.set_xlabel('Step')
+    ax_raw.set_ylabel('Loss')
+    ax_raw.grid(True, alpha=0.3)
+    
+    # Add stabilization point markers if available
+    if stabilization_point is not None and stabilization_point < len(warmup_losses):
+        # Add vertical line at stabilization point
+        ax_raw.axvline(x=stabilization_point, color='green', linestyle='--', alpha=0.7, 
+                   label='Stabilization detected')
+        
+        # Mark the point
+        ax_raw.plot(stabilization_point, warmup_losses[stabilization_point], 
+                'go', markersize=8, label=f'Loss: {warmup_losses[stabilization_point]:.4f}')
+        
+        # Add note about stabilization
+        stabilization_text = f"Stabilization at step {stabilization_point}"
+        ax_raw.text(stabilization_point + len(warmup_losses)*0.01, 
+                warmup_losses[stabilization_point]*0.95, 
+                stabilization_text, fontsize=9, color='green')
+    
+    ax_raw.legend()
+    
+    # 2. Smoothed loss with trend analysis
+    ax_smooth = fig.add_subplot(gs[1, 0])
+    
+    # Plot smoothed loss if available
+    if len(smoothed_losses) > 1:
+        x = range(0, len(smoothed_losses)*5, 5)
+        ax_smooth.plot(x, smoothed_losses, color='purple', label='Smoothed Loss')
+        ax_smooth.set_title('Smoothed Loss (5-step Rolling Average)')
+        ax_smooth.set_xlabel('Step')
+        ax_smooth.set_ylabel('Loss')
+        ax_smooth.grid(True, alpha=0.3)
+        
+        # Add trend line if scipy is available
+        try:
+            from scipy.stats import linregress
+            slope, intercept, r_value, p_value, std_err = linregress(x, smoothed_losses)
+            ax_smooth.plot(x, [slope*xi + intercept for xi in x], 'r--', 
+                       label=f'Trend: slope={slope:.6f}')
+            ax_smooth.legend()
+            
+            # Mark stabilization point on smoothed curve if it falls within the data
+            if stabilization_point is not None:
+                # Calculate which index in smoothed_losses corresponds to stabilization_point
+                smooth_idx = stabilization_point // 5
+                if smooth_idx < len(smoothed_losses):
+                    smooth_x = smooth_idx * 5  # Convert back to original x scale
+                    ax_smooth.axvline(x=smooth_x, color='green', linestyle='--', alpha=0.7)
+                    ax_smooth.plot(smooth_x, smoothed_losses[smooth_idx], 'go', markersize=8)
+        except (ImportError, ValueError) as e:
+            # Skip the trend line if an error occurs
+            pass
+    else:
+        ax_smooth.text(0.5, 0.5, 'Not enough data for smoothed visualization',
+                   ha='center', va='center')
+    
+    # 3. Polynomial fit/stability analysis
+    ax_poly = fig.add_subplot(gs[1, 1])
+    
+    # Try to add polynomial fit for stability analysis
+    if len(warmup_losses) > 10:
+        try:
+            from scipy.optimize import curve_fit
+            
+            # Define polynomial function (degree 2 = quadratic)
+            def poly_func(x, a, b, c):
+                return a * x**2 + b * x + c
+            
+            # Use numpy array for x values
+            x_data = np.array(range(len(warmup_losses)))
+            y_data = np.array(warmup_losses)
+            
+            # Fit polynomial to the loss values
+            params, _ = curve_fit(poly_func, x_data, y_data)
+            a, b, c = params
+            
+            # Plot polynomial fit
+            x_dense = np.linspace(min(x_data), max(x_data), 100)
+            y_fit = poly_func(x_dense, a, b, c)
+            ax_poly.plot(x_data, y_data, 'b.', alpha=0.3, label='Raw data')
+            ax_poly.plot(x_dense, y_fit, 'g-', 
+                      label=f'Poly fit: {a:.5f}x² + {b:.5f}x + {c:.5f}')
+            
+            # Calculate derivatives at the end point
+            x_end = max(x_data)
+            deriv_1 = 2 * a * x_end + b  # First derivative
+            deriv_2 = 2 * a              # Second derivative
+            
+            # Show stabilization info
+            if is_stable:
+                status = "Loss stabilized"
+            else:
+                if a > 0:
+                    status = "Upward curve (stabilizing)"
+                elif abs(deriv_1) < 0.01:
+                    status = "Flat curve (stabilizing)"
+                else:
+                    status = "Still decreasing (not stable)"
+            
+            ax_poly.set_title(f"Polynomial Curve Fitting - {status}")
+            
+            # Add stability indicators
+            poly_stable = (a > 0.0005) or (abs(deriv_1) < 0.01 and abs(deriv_2) < 0.005)
+            if poly_stable:
+                ax_poly.text(0.05, 0.05, "Polynomial analysis suggests stability", 
+                          transform=ax_poly.transAxes, color='green', fontsize=9)
+            
+            # Add markers for stabilization point
+            if stabilization_point is not None:
+                ax_poly.axvline(x=stabilization_point, color='green', linestyle='--', alpha=0.7)
+                ax_poly.plot(stabilization_point, poly_func(stabilization_point, a, b, c), 
+                          'go', markersize=8)
+                
+            ax_poly.set_xlabel('Step')
+            ax_poly.set_ylabel('Loss')
+            ax_poly.grid(True, alpha=0.3)
+            ax_poly.legend()
+        except Exception as e:
+            ax_poly.text(0.5, 0.5, f'Could not perform polynomial fit\n{str(e)}',
+                     ha='center', va='center')
+    else:
+        ax_poly.text(0.5, 0.5, 'Not enough data for polynomial analysis',
+                 ha='center', va='center')
+    
+    # 4. Segment analysis
+    ax_segments = fig.add_subplot(gs[2, 0])
+    
+    # Get segment analysis data
+    segment_analysis = warmup_results.get("segment_analysis", {})
+    
+    if segment_analysis and segment_analysis.get("segment_size", 0) > 0:
+        segment_size = segment_analysis.get("segment_size", 0)
+        first_avg = segment_analysis.get("first_segment_avg", 0)
+        last_avg = segment_analysis.get("last_segment_avg", 0)
+        improvement = segment_analysis.get("improvement", 0)
+        still_improving = segment_analysis.get("still_improving", False)
+        
+        # Create bar chart for segments
+        segments = ['First Segment', 'Last Segment']
+        values = [first_avg, last_avg]
+        bars = ax_segments.bar(segments, values, color=['blue', 'green' if not still_improving else 'orange'])
+        
+        # Add value labels on top of bars
+        for bar in bars:
+            height = bar.get_height()
+            ax_segments.text(bar.get_x() + bar.get_width()/2., height + 0.01,
+                        f'{height:.4f}', ha='center', va='bottom', fontsize=9)
+        
+        ax_segments.set_title(f'Segment Analysis (Improvement: {improvement:.1f}%)')
+        ax_segments.set_ylabel('Average Loss')
+        
+        # Add stability indicator
+        if not still_improving:
+            ax_segments.text(0.5, 0.05, "Loss stabilized (not significantly improving)", 
+                        transform=ax_segments.transAxes, color='green', fontsize=9, ha='center')
+        else:
+            ax_segments.text(0.5, 0.05, "Still improving significantly", 
+                        transform=ax_segments.transAxes, color='orange', fontsize=9, ha='center')
+    else:
+        ax_segments.text(0.5, 0.5, 'Not enough data for segment analysis',
+                    ha='center', va='center')
+    
+    # 5. Summary statistics
+    ax_stats = fig.add_subplot(gs[2, 1])
+    ax_stats.axis('off')  # Turn off axis
+    
+    # Create text summary
+    summary_text = [
+        f"Total Steps: {len(warmup_losses)}",
+        f"Initial Loss: {initial_loss:.4f}",
+        f"Final Loss: {final_loss:.4f}",
+        f"Improvement: {(1 - final_loss/initial_loss)*100:.1f}% reduction",
+        f"Stabilization Detected: {'Yes' if is_stable else 'No'}",
+    ]
+    
+    if stabilization_point is not None:
+        summary_text.append(f"Stabilization Point: Step {stabilization_point}")
+        summary_text.append(f"Loss at Stabilization: {warmup_losses[stabilization_point]:.4f}")
+    
+    if is_stable:
+        summary_text.append(f"Steps without significant decrease: {steps_without_decrease}")
+    
+    # Add text box
+    props = dict(boxstyle='round', facecolor='wheat', alpha=0.5)
+    ax_stats.text(0.05, 0.95, '\n'.join(summary_text), transform=ax_stats.transAxes, fontsize=9,
+               verticalalignment='top', bbox=props)
+    
+    ax_stats.set_title('Warmup Summary Statistics')
+    
+    # Add overall title
+    fig.suptitle(title, fontsize=16)
+    
+    # Adjust layout
+    plt.tight_layout(rect=[0, 0, 1, 0.97])  # Make room for suptitle
+    
+    # Save if path provided
+    if save_path is not None:
+        plt.savefig(save_path, bbox_inches='tight', dpi=100)
+    
+    return fig
+
+
 class VisualizationReporter:
     """
     Reporter for neural plasticity visualizations and metrics.
@@ -438,9 +684,21 @@ class VisualizationReporter:
         # Extract key metrics
         warmup_losses = warmup_results.get("losses", [])
         
-        # Show the visualization if available
+        # Create enhanced warmup dashboard
+        dashboard_fig = visualize_warmup_dashboard(
+            warmup_results,
+            title="Neural Plasticity Warmup Dashboard",
+            figsize=(12, 10),
+            save_path=os.path.join(self.output_dir, "warmup_dashboard.png") if self.save_visualizations else None
+        )
+        
+        # Show the dashboard
+        plt.figure(dashboard_fig.number)
+        plt.show()
+        
+        # Show the original visualization if available (for compatibility)
         warmup_visualization = warmup_results.get("visualization")
-        if warmup_visualization:
+        if warmup_visualization and warmup_visualization != dashboard_fig:
             plt.figure(warmup_visualization.number)
             plt.show()
 
@@ -467,6 +725,11 @@ class VisualizationReporter:
             print("\nSaved visualizations:")
             for name, path in warmup_results["visualization_paths"].items():
                 print(f"- {name}: {path}")
+                
+        # Store the dashboard in the warmup results for future reference
+        warmup_results["dashboard"] = dashboard_fig
+        if self.save_visualizations and self.output_dir:
+            warmup_results["dashboard_path"] = os.path.join(self.output_dir, "warmup_dashboard.png")
                 
         return warmup_results
     
@@ -660,6 +923,163 @@ class VisualizationReporter:
             print(f"Evaluation: Loss = {eval_results['loss']:.4f}, Perplexity = {eval_results['perplexity']:.2f}")
             
         return eval_results["loss"], eval_results["perplexity"]
+    
+    def display_complete_training_process(self, experiment=None):
+        """
+        Display comprehensive visualization of the complete neural plasticity process.
+        
+        Args:
+            experiment: NeuralPlasticityExperiment object or dictionary with experiment results
+                       (defaults to current experiment if None)
+            
+        Returns:
+            Dictionary with visualization information
+        """
+        import os
+        
+        # Use the visualize_complete_training_process function from colab helper module
+        from utils.colab.visualizations import visualize_complete_training_process
+        
+        # Determine the experiment object
+        if experiment is None:
+            # Try to find experiment data from instance variables
+            experiment_data = {}
+            if hasattr(self, 'experiment'):
+                experiment = self.experiment
+            else:
+                # Collect results from individual components if available
+                for attr_name in ['warmup_results', 'pruning_results', 'fine_tuning_results']:
+                    if hasattr(self, attr_name):
+                        experiment_data[attr_name.split('_')[0]] = getattr(self, attr_name)
+                
+                if experiment_data:
+                    experiment = experiment_data
+                else:
+                    raise ValueError("No experiment data available. Please provide an experiment object.")
+        
+        # Determine output directory if saving
+        output_dir = None
+        if self.save_visualizations and self.output_dir:
+            output_dir = os.path.join(self.output_dir, "complete_process")
+            os.makedirs(output_dir, exist_ok=True)
+        
+        # Generate the visualization
+        complete_fig = visualize_complete_training_process(
+            experiment=experiment,
+            output_dir=output_dir,
+            title="Complete Neural Plasticity Training Process",
+            show_plot=False,  # Don't auto-show, we'll handle display
+            show_quote=True
+        )
+        
+        # Display the figure - detect if we're in a notebook
+        try:
+            from IPython import get_ipython
+            if get_ipython() is not None:
+                # In a notebook, display the figure with IPython
+                from IPython.display import display
+                display(complete_fig)
+            else:
+                # In a regular Python environment, just set a reference
+                plt.figure(complete_fig.number)
+        except (ImportError, AttributeError):
+            # Not in IPython, set active figure
+            plt.figure(complete_fig.number)
+        
+        # Store visualization path if saved
+        if output_dir:
+            viz_path = next((f for f in os.listdir(output_dir) if f.startswith("neural_plasticity_process")), None)
+            if viz_path:
+                full_path = os.path.join(output_dir, viz_path)
+                self.viz_paths["complete_training_process"] = full_path
+                
+                if self.verbose:
+                    print(f"\nComplete training process visualization saved to: {full_path}")
+        
+        # Return the figure and info
+        return {
+            "visualization": complete_fig,
+            "saved_path": self.viz_paths.get("complete_training_process")
+        }
+        
+    def generate_comprehensive_dashboard(self, experiment=None, output_dir=None, include_all=True):
+        """
+        Generate a comprehensive set of dashboards for the complete neural plasticity process.
+        
+        This method creates multiple visualizations showing different aspects of the
+        neural plasticity process, including the complete overview, detailed warmup
+        analysis, pruning analysis, and fine-tuning results.
+        
+        Args:
+            experiment: NeuralPlasticityExperiment object or dictionary with experiment results
+                       (defaults to current experiment if None)
+            output_dir: Directory to save visualizations (defaults to self.output_dir/dashboards)
+            include_all: Whether to generate all dashboards or just the comprehensive one
+            
+        Returns:
+            Dictionary mapping dashboard names to figure objects
+        """
+        # Determine the experiment object
+        if experiment is None:
+            # Try to find experiment data from instance variables
+            experiment_data = {}
+            if hasattr(self, 'experiment'):
+                experiment = self.experiment
+            else:
+                # Collect results from individual components if available
+                for attr_name in ['warmup_results', 'pruning_results', 'fine_tuning_results']:
+                    if hasattr(self, attr_name):
+                        experiment_data[attr_name.split('_')[0]] = getattr(self, attr_name)
+                
+                if experiment_data:
+                    experiment = experiment_data
+                else:
+                    raise ValueError("No experiment data available. Please provide an experiment object.")
+        
+        # Import the dashboard generator
+        from scripts.neural_plasticity_dashboard import generate_dashboards
+        
+        # Determine output directory
+        if output_dir is None and self.save_visualizations and self.output_dir:
+            output_dir = os.path.join(self.output_dir, "dashboards")
+            
+        # Generate the dashboards
+        figures = generate_dashboards(
+            experiment=experiment,
+            output_dir=output_dir,
+            show=False  # Don't auto-show, we'll handle display
+        )
+        
+        # Display each figure
+        for name, fig in figures.items():
+            try:
+                plt.figure(fig.number)
+                
+                # Try to use IPython display if available
+                try:
+                    from IPython import get_ipython
+                    if get_ipython() is not None:
+                        from IPython.display import display
+                        display(fig)
+                        # Clear the figure to avoid duplicate display
+                        plt.clf()
+                except (ImportError, AttributeError):
+                    pass
+            except Exception as e:
+                if self.verbose:
+                    print(f"⚠️ Could not display {name} dashboard: {e}")
+        
+        # Update visualization paths
+        if output_dir:
+            for name in figures:
+                path = os.path.join(output_dir, f"{name}_dashboard.png")
+                if os.path.exists(path):
+                    self.viz_paths[f"{name}_dashboard"] = path
+            
+            if self.verbose:
+                print(f"\nGenerated dashboards saved to: {output_dir}")
+        
+        return figures
     
     def generate_text(self, prompt, model=None, tokenizer=None, max_length=100, 
                      temperature=0.7, top_k=50, top_p=0.95, device=None, 
