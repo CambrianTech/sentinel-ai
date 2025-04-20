@@ -51,7 +51,7 @@ class BaseExperiment(ABC):
             enable_colab_integration: Whether to enable Colab-specific features
         """
         # Base configuration
-        self.output_dir = Path(output_dir)
+        self.output_dir = Path(output_dir) if not isinstance(output_dir, Path) else output_dir
         self.experiment_name = experiment_name
         
         # Create output directory
