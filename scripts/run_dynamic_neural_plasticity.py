@@ -196,6 +196,9 @@ def load_and_prepare_data(args, tokenizer):
     """Load and prepare datasets."""
     logger.info(f"Loading dataset: {args.dataset}/{args.dataset_config}")
     
+    # Make sure datasets library is imported
+    from datasets import load_dataset
+    
     # Load datasets
     try:
         if args.dataset == "wikitext":
@@ -204,7 +207,6 @@ def load_and_prepare_data(args, tokenizer):
         elif args.dataset == "gutenberg":
             # Custom handling for Project Gutenberg dataset
             try:
-                from datasets import load_dataset
                 train_dataset = load_dataset("pg19", split="train[:2%]")  # Use a small subset for training
                 validation_dataset = load_dataset("pg19", split="validation[:5%]")  # Use a small subset for validation
                 logger.info("Successfully loaded pg19 (Gutenberg) dataset")
@@ -223,10 +225,45 @@ def load_and_prepare_data(args, tokenizer):
     except Exception as e:
         logger.error(f"Error loading dataset: {e}")
         logger.info("Falling back to wikitext dataset")
-        train_dataset = load_dataset("wikitext", "wikitext-2-raw-v1", split="train")
-        validation_dataset = load_dataset("wikitext", "wikitext-2-raw-v1", split="validation")
-        logger.info(f"Loaded fallback training dataset with {len(train_dataset)} examples")
-        logger.info(f"Loaded fallback validation dataset with {len(validation_dataset)} examples")
+        try:
+            train_dataset = load_dataset("wikitext", "wikitext-2-raw-v1", split="train")
+            validation_dataset = load_dataset("wikitext", "wikitext-2-raw-v1", split="validation")
+            logger.info(f"Loaded fallback training dataset with {len(train_dataset)} examples")
+            logger.info(f"Loaded fallback validation dataset with {len(validation_dataset)} examples")
+        except Exception as fallback_error:
+            logger.error(f"Error loading fallback dataset: {fallback_error}")
+            # Create minimal synthetic datasets as last resort
+            logger.info("Creating synthetic datasets for demonstration")
+            
+            # Create minimal datasets for demonstration purposes
+            from torch.utils.data import Dataset
+            
+            class SimpleDataset(Dataset):
+                def __init__(self, texts, tokenizer, max_length):
+                    self.encodings = tokenizer(texts, padding="max_length", truncation=True, max_length=max_length)
+                    self.labels = self.encodings["input_ids"].copy()
+                
+                def __len__(self):
+                    return len(self.encodings["input_ids"])
+                
+                def __getitem__(self, idx):
+                    item = {key: torch.tensor(val[idx]) for key, val in self.encodings.items()}
+                    item["labels"] = torch.tensor(self.labels[idx])
+                    return item
+            
+            # Sample texts
+            sample_texts = [
+                "The neural plasticity system enables transformer models to adapt dynamically.",
+                "Attention mechanisms allow models to focus on different parts of input sequences.",
+                "Pruning less important attention heads can improve efficiency without sacrificing performance.",
+                "Dynamic stabilization detection identifies when model training has reached a plateau.",
+                "Real-time metrics help visualize the entire neural plasticity process."
+            ] * 5  # Repeat to get more examples
+            
+            train_dataset = SimpleDataset(sample_texts, tokenizer, args.max_length)
+            validation_dataset = SimpleDataset(sample_texts[:3], tokenizer, args.max_length)
+            logger.info(f"Created synthetic training dataset with {len(train_dataset)} examples")
+            logger.info(f"Created synthetic validation dataset with {len(validation_dataset)} examples")
     
     # Define tokenization function
     def tokenize_function(examples):
@@ -518,7 +555,9 @@ def run_experiment(args):
         try:
             dashboard_reporter = DashboardReporter(
                 output_dir=dirs["html"],
-                experiment_name="neural_plasticity_experiment"
+                dashboard_name="neural_plasticity_dashboard.html",
+                auto_update=True,
+                update_interval=max(1, args.training_steps // 10)  # Update every ~10% of training
             )
             logger.info("Created dashboard reporter")
         except Exception as e:
