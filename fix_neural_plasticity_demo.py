@@ -62,11 +62,8 @@ def fix_notebook(notebook_path, output_path=None):
                 major, minor, patch = int(parts[0]), int(parts[1]), int(parts[2])
                 # Increment patch version
                 new_version = f"{major}.{minor}.{patch+1}"
-                # Get current timestamp with correct year
-                # Force current year to be 2023 for this project's versioning
-                current_datetime = datetime.now()
-                current_year = 2023  # Use fixed year for project consistency
-                timestamp = f"{current_year}-{current_datetime.strftime('%m-%d %H:%M:%S')}"
+                # Get current timestamp from system
+                timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 
                 # Replace version in title
                 cell.source = re.sub(
