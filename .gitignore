@@ -22,6 +22,8 @@ logs/
 # Colab-specific
 *.ipynb_uploads
 colab_checkpoints/
+colab_notebooks/sentinel-ai/
+sentinel-ai/
 
 # Tokenized datasets and Hugging Face cache
 *.arrow
