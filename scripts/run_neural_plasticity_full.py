@@ -55,17 +55,17 @@ print(f"Python version: {sys.version.split()[0]}")
 print(f"PyTorch version: {torch.__version__}")
 print("-" * 60)
 
-# Configure parameters (minimal setup for testing)
+# Configure parameters (expanded for more thorough testing)
 print("\n[Config] Setting up parameters")
-NUM_EPOCHS = 1
+NUM_EPOCHS = 2
 BATCH_SIZE = 2
 MAX_LENGTH = 64
 MODEL_NAME = "gpt2"  # Use small model for quick testing
 ENABLE_LONG_TRAINING = False
-MAX_STEPS_PER_EPOCH = 10
+MAX_STEPS_PER_EPOCH = 15
 EVAL_INTERVAL = 5
 VISUALIZATION_INTERVAL = 5
-INFERENCE_INTERVAL = 10
+INFERENCE_INTERVAL = 7
 PRUNE_PERCENT = 0.2
 STRATEGY = "entropy"
 
@@ -323,12 +323,21 @@ try:
 except Exception as e:
     print(f"❌ Error applying pruning: {e}")
 
-# Simulate training loop
+# Tracking metrics for visualization
 print("\n[Training] Training model after pruning")
 try:
     model.train()
+    metrics = {
+        "train_loss": [],
+        "eval_loss": [],
+        "perplexity": [],
+        "epoch": [],
+        "step": []
+    }
+    
     for epoch in range(NUM_EPOCHS):
         print(f"Epoch {epoch+1}/{NUM_EPOCHS}")
+        epoch_losses = []
         
         for step, batch in enumerate(dataloader):
             if step >= MAX_STEPS_PER_EPOCH:
@@ -341,6 +350,12 @@ try:
             # Forward pass
             outputs = model(input_ids=input_ids, attention_mask=attention_mask, labels=labels)
             loss = outputs.loss
+            
+            # Track metrics
+            metrics["train_loss"].append(loss.item())
+            metrics["epoch"].append(epoch)
+            metrics["step"].append(epoch * MAX_STEPS_PER_EPOCH + step)
+            epoch_losses.append(loss.item())
             
             # Print progress
             print(f"  Step {step+1}/{MAX_STEPS_PER_EPOCH}, Loss: {loss.item():.4f}")
@@ -362,9 +377,45 @@ try:
                     
                     eval_outputs = model(input_ids=eval_input_ids, attention_mask=eval_attention_mask, labels=eval_labels)
                     eval_loss = eval_outputs.loss
+                    eval_ppl = torch.exp(eval_loss).item()
+                    
+                    # Track evaluation metrics
+                    metrics["eval_loss"].append(eval_loss.item())
+                    metrics["perplexity"].append(eval_ppl)
                     
                     print(f"  Evaluation loss: {eval_loss.item():.4f}")
-                    print(f"  Perplexity: {torch.exp(eval_loss).item():.2f}")
+                    print(f"  Perplexity: {eval_ppl:.2f}")
+                    
+                    # Extract attention maps for visualization
+                    with torch.no_grad():
+                        eval_outputs = model(input_ids=eval_input_ids, attention_mask=eval_attention_mask, output_attentions=True)
+                    
+                    # Generate a visualization of the current state
+                    if hasattr(eval_outputs, "attentions") and eval_outputs.attentions is not None:
+                        try:
+                            current_attn = eval_outputs.attentions
+                            # Visualize first layer's attention for the first head
+                            head_idx = 0
+                            if isinstance(current_attn, tuple) and len(current_attn) > 0:
+                                layer_attn = current_attn[0]  # First layer
+                                if isinstance(layer_attn, torch.Tensor):
+                                    # Create visualization
+                                    plt.figure(figsize=(8, 6))
+                                    attn_matrix = layer_attn[0, head_idx].detach().cpu().numpy()
+                                    plt.imshow(attn_matrix, cmap='viridis')
+                                    plt.colorbar(label='Attention weight')
+                                    plt.title(f'Attention Pattern (Epoch {epoch+1}, Step {step}, Head {head_idx})')
+                                    plt.xlabel('Token Position (to)')
+                                    plt.ylabel('Token Position (from)')
+                                    
+                                    # Save the visualization
+                                    attn_fig_path = output_dir / f"attention_epoch{epoch+1}_step{step}.png"
+                                    plt.savefig(attn_fig_path)
+                                    plt.close()
+                                    print(f"  ✅ Saved attention visualization to {attn_fig_path}")
+                        except Exception as e:
+                            print(f"  ⚠️ Could not generate attention visualization: {e}")
+                
                 model.train()
             
             # Generate text occasionally
@@ -372,7 +423,14 @@ try:
                 print("  Generating text sample...")
                 model.eval()
                 with torch.no_grad():
-                    prompt = "The future of AI is"
+                    # Try different prompts to see variety
+                    prompts = [
+                        "The future of AI is",
+                        "Neural plasticity enables",
+                        "Attention mechanisms in transformers"
+                    ]
+                    prompt = prompts[step % len(prompts)]
+                    
                     inputs = tokenizer(prompt, return_tensors="pt").to(device)
                     
                     output_ids = model.generate(
@@ -385,7 +443,79 @@ try:
                     
                     generated_text = tokenizer.decode(output_ids[0], skip_special_tokens=True)
                     print(f"  Generated: \"{generated_text}\"")
+                    
+                    # Save the generated text
+                    with open(output_dir / f"generation_epoch{epoch+1}_step{step}.txt", "w") as f:
+                        f.write(f"Prompt: {prompt}\n")
+                        f.write(f"Generated: {generated_text}\n")
+                
                 model.train()
+        
+        # Plot loss curves at the end of each epoch
+        plt.figure(figsize=(10, 6))
+        plt.plot(metrics["step"], metrics["train_loss"], label="Training Loss")
+        
+        # Calculate valid evaluation steps
+        eval_indices = []
+        for i in range(len(metrics["step"])):
+            if i > 0 and i % EVAL_INTERVAL == 0 and len(eval_indices) < len(metrics["eval_loss"]):
+                eval_indices.append(i)
+        
+        # Only plot if we have evaluation data
+        if metrics["eval_loss"] and eval_indices:
+            eval_steps = [metrics["step"][i] for i in eval_indices]
+            plt.plot(eval_steps, metrics["eval_loss"][:len(eval_steps)], label="Evaluation Loss", marker='o')
+            
+        plt.xlabel("Training Step")
+        plt.ylabel("Loss")
+        plt.title(f"Training Progress (Through Epoch {epoch+1})")
+        plt.legend()
+        plt.grid(True, alpha=0.3)
+        loss_fig_path = output_dir / f"loss_curve_epoch{epoch+1}.png"
+        plt.savefig(loss_fig_path)
+        plt.close()
+        print(f"✅ Saved loss curve to {loss_fig_path}")
+        
+        # Calculate epoch statistics
+        avg_epoch_loss = sum(epoch_losses) / len(epoch_losses)
+        print(f"Epoch {epoch+1} complete. Average loss: {avg_epoch_loss:.4f}")
+    
+    # Plot final metrics
+    plt.figure(figsize=(12, 8))
+    plt.subplot(2, 1, 1)
+    plt.plot(metrics["step"], metrics["train_loss"], label="Training Loss")
+    
+    # Calculate valid evaluation steps for final plotting
+    eval_indices = []
+    for i in range(len(metrics["step"])):
+        if i > 0 and i % EVAL_INTERVAL == 0 and len(eval_indices) < len(metrics["eval_loss"]):
+            eval_indices.append(i)
+    
+    # Only plot if we have evaluation data
+    if metrics["eval_loss"] and eval_indices:
+        eval_steps = [metrics["step"][i] for i in eval_indices]
+        plt.plot(eval_steps, metrics["eval_loss"][:len(eval_steps)], label="Evaluation Loss", marker='o')
+    
+    plt.xlabel("Training Step")
+    plt.ylabel("Loss")
+    plt.title("Loss During Training")
+    plt.legend()
+    plt.grid(True, alpha=0.3)
+    
+    plt.subplot(2, 1, 2)
+    if metrics["perplexity"] and eval_indices:
+        eval_steps = [metrics["step"][i] for i in eval_indices]
+        plt.plot(eval_steps, metrics["perplexity"][:len(eval_steps)], label="Perplexity", color="green", marker='o')
+        plt.xlabel("Training Step")
+        plt.ylabel("Perplexity")
+        plt.title("Perplexity During Training")
+        plt.grid(True, alpha=0.3)
+    
+    plt.tight_layout()
+    metrics_fig_path = output_dir / "training_metrics.png"
+    plt.savefig(metrics_fig_path)
+    plt.close()
+    print(f"✅ Saved final training metrics to {metrics_fig_path}")
     
     print("✅ Completed training loop")
 except Exception as e:
