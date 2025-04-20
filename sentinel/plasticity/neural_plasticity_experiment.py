@@ -68,6 +68,7 @@ class NeuralPlasticityExperiment(BaseExperiment):
         self.adaptive_model = adaptive_model
         self.model = None
         self.quick_test = False  # Will be set if --quick_test flag is provided
+        self.batch_size = 4      # Default batch size
         
         # Initialize visualizers if needed
         self._initialize_visualizers()
