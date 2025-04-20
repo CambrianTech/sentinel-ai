@@ -457,8 +457,6 @@ class BaseExperiment(ABC):
         # Create output directory if not exists
         if parsed_args.output_dir is None:
             # Always put output in the /output directory in the project root
-            import os
-            import sys
             script_dir = os.path.dirname(os.path.abspath(sys.argv[0]))
             project_root = os.path.dirname(script_dir)
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
