@@ -6,6 +6,7 @@ These utilities assist with:
 - Detecting Colab hardware (GPU, TPU)
 - Managing memory for optimal training performance
 - Monitoring available resources
+- Visualizing tensors safely across CPU/GPU environments
 """
 
 import os
@@ -14,6 +15,10 @@ import warnings
 import subprocess
 import re
 import logging
+import torch
+import numpy as np
+import matplotlib.pyplot as plt
+from datetime import datetime
 from typing import Dict, Tuple, Union, Optional, List, Any
 
 # Configure logging
@@ -280,3 +285,67 @@ def optimize_for_colab(
         print(f"  - Stability level: {params['stability_level']}")
     
     return params
+
+
+def safe_tensor_imshow(
+    tensor: Union[torch.Tensor, np.ndarray], 
+    title: str = "Tensor Visualization",
+    cmap: str = "viridis",
+    save_path: Optional[str] = None,
+    figsize: Tuple[int, int] = (8, 6),
+    show_colorbar: bool = True,
+    vmin: Optional[float] = None, 
+    vmax: Optional[float] = None
+) -> plt.Figure:
+    """
+    Safely visualize a tensor with proper detach/cpu/numpy handling.
+    
+    Args:
+        tensor: The tensor to visualize (can be on any device)
+        title: Title for the plot
+        cmap: Colormap to use
+        save_path: Optional path to save the visualization 
+                  (default: /tmp/tensor_viz_{timestamp}.png)
+        figsize: Figure size as (width, height) in inches
+        show_colorbar: Whether to show a colorbar
+        vmin: Minimum value for colormap scaling
+        vmax: Maximum value for colormap scaling
+        
+    Returns:
+        The matplotlib figure object
+    """
+    # Ensure tensor is properly converted for visualization
+    if isinstance(tensor, torch.Tensor):
+        # Handle GPU tensors or tensors with gradients
+        tensor_np = tensor.detach().cpu().numpy()
+    elif isinstance(tensor, np.ndarray):
+        tensor_np = tensor
+    else:
+        raise TypeError(f"Expected torch.Tensor or numpy.ndarray, got {type(tensor)}")
+    
+    # Create figure and plot
+    fig, ax = plt.subplots(figsize=figsize)
+    im = ax.imshow(tensor_np, cmap=cmap, vmin=vmin, vmax=vmax)
+    
+    # Add colorbar if requested
+    if show_colorbar:
+        fig.colorbar(im, ax=ax)
+    
+    # Add title
+    ax.set_title(title)
+    
+    # Save if path provided, otherwise use default path
+    if save_path is None:
+        # Create timestamp for unique filename
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        save_path = f"/tmp/tensor_viz_{timestamp}.png"
+    
+    # Save figure
+    plt.savefig(save_path)
+    
+    # Display useful info
+    print(f"Tensor shape: {tensor_np.shape}")
+    print(f"Value range: [{tensor_np.min():.4f}, {tensor_np.max():.4f}]")
+    print(f"Visualization saved to: {save_path}")
+    
+    return fig
