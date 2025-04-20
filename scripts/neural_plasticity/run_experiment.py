@@ -94,6 +94,12 @@ def parse_args():
     
     parser.add_argument("--quick_test", action="store_true", default=False,
                       help="Run a quick test with minimal steps (default: False)")
+                      
+    parser.add_argument("--visualize", action="store_true", default=True,
+                      help="Generate visualizations during execution (default: True)")
+                      
+    parser.add_argument("--no_dashboard", action="store_true", default=False,
+                      help="Skip HTML dashboard generation (default: False)")
     
     return parser.parse_args()
 
@@ -244,7 +250,7 @@ def main():
     # Create output directory with timestamp if not provided
     if args.output_dir is None:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        # Use the consolidated neural_plasticity_output directory
+        # Use the output directory as requested
         args.output_dir = os.path.join(
             "neural_plasticity_output",
             f"run_{timestamp}"
@@ -252,6 +258,16 @@ def main():
     
     # Ensure the output directory exists
     os.makedirs(args.output_dir, exist_ok=True)
+    
+    # Create a timestamp-based experiment ID for consistent naming across functions
+    experiment_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    args.experiment_id = f"{args.pruning_strategy}_{args.pruning_level}_{experiment_timestamp}"
+    
+    # Create experiment and visualization directories
+    experiment_dir = os.path.join(args.output_dir, args.experiment_id)
+    visualization_dir = os.path.join(experiment_dir, "visualizations")
+    os.makedirs(experiment_dir, exist_ok=True)
+    os.makedirs(visualization_dir, exist_ok=True)
     
     # Add file handler to logger
     file_handler = logging.FileHandler(os.path.join(args.output_dir, "experiment.log"))
@@ -295,13 +311,17 @@ def main():
     try:
         # Run the experiment
         logger.info("Running experiment...")
+        # Pass the consistent experiment ID to ensure visualizations are saved in the right place
         results = experiment.run_experiment(
             pruning_strategy=args.pruning_strategy,
             pruning_level=args.pruning_level,
             dataloader_builder_fn=dataloader_builder,
             fine_tuning_steps=args.fine_tuning_steps,
             learning_rate=args.learning_rate,
-            use_differential_lr=True
+            use_differential_lr=True,
+            output_dir=args.output_dir,
+            generate_visualizations=args.visualize,
+            experiment_id=args.experiment_id  # Pass the consistent experiment ID
         )
         
         # Output results
@@ -321,37 +341,107 @@ def main():
         pruned_heads_count = len(results.get('pruned_heads', []))
         logger.info(f"Pruned {pruned_heads_count} attention heads")
         
-        # Generate dashboard
-        try:
-            from scripts.neural_plasticity.visualization.dashboard_generator import generate_dashboard
-            dashboard_dir = os.path.join(args.output_dir, "dashboards")
-            os.makedirs(dashboard_dir, exist_ok=True)
-            dashboard_path = os.path.join(dashboard_dir, "dashboard.html")
-            
-            logger.info(f"Generating dashboard at {dashboard_path}...")
-            generate_dashboard(
-                experiment_dir=args.output_dir,
-                output_path=dashboard_path,
-                model_name=args.model_name,
-                pruning_strategy=args.pruning_strategy,
-                pruning_level=args.pruning_level
-            )
-            logger.info(f"Dashboard generated successfully at {dashboard_path}")
-        except Exception as e:
-            logger.error(f"Error generating dashboard: {e}")
+        # Generate dashboard if not explicitly disabled
+        if not args.no_dashboard:
+            try:
+                from scripts.neural_plasticity.visualization.dashboard_generator import create_neural_plasticity_dashboard
+                dashboard_dir = os.path.join(args.output_dir, "dashboards")
+                os.makedirs(dashboard_dir, exist_ok=True)
+                dashboard_path = os.path.join(dashboard_dir, "dashboard.html")
+                
+                # Load experiment data
+                from scripts.neural_plasticity.visualization.dashboard_generator import load_experiment_data
+                experiment_data = load_experiment_data(args.output_dir)
+                
+                logger.info(f"Generating dashboard at {dashboard_path}...")
+                create_neural_plasticity_dashboard(experiment_data, dashboard_path)
+                logger.info(f"Dashboard generated successfully at {dashboard_path}")
+                
+                # Generate enhanced dashboard
+                try:
+                    from scripts.neural_plasticity.visualization.enhanced_dashboard import generate_dashboard as generate_enhanced_dashboard
+                    from scripts.neural_plasticity.visualization.enhanced_dashboard import load_experiment_data
+                    
+                    enhanced_dashboard_path = os.path.join(dashboard_dir, "enhanced_dashboard.html")
+                    logger.info(f"Generating enhanced dashboard at {enhanced_dashboard_path}...")
+                    
+                    # Load experiment data
+                    experiment_data = load_experiment_data(args.output_dir)
+                    
+                    # Generate enhanced dashboard
+                    generate_enhanced_dashboard(experiment_data, enhanced_dashboard_path)
+                    logger.info(f"Enhanced dashboard generated successfully at {enhanced_dashboard_path}")
+                except Exception as e:
+                    logger.warning(f"Error generating enhanced dashboard: {e}")
+                
+                # Generate comprehensive dashboard
+                try:
+                    from scripts.neural_plasticity.visualization.comprehensive_dashboard import generate_comprehensive_dashboard
+                    
+                    comprehensive_dir = os.path.join(dashboard_dir, "comprehensive")
+                    logger.info(f"Generating comprehensive dashboard in {comprehensive_dir}...")
+                    
+                    # Load experiment data
+                    from scripts.neural_plasticity.visualization.comprehensive_dashboard import load_experiment_data
+                    experiment_data = load_experiment_data(args.output_dir)
+                    
+                    # Generate dashboard
+                    outputs = generate_comprehensive_dashboard(experiment_data, comprehensive_dir)
+                    
+                    if 'complete_process' in outputs:
+                        logger.info(f"Complete process visualization generated at: {outputs['complete_process']}")
+                    
+                    logger.info(f"Comprehensive dashboard generated in {comprehensive_dir}")
+                except Exception as e:
+                    logger.warning(f"Error generating comprehensive dashboard: {e}")
+                    
+            except Exception as e:
+                logger.error(f"Error generating dashboard: {e}")
+        else:
+            logger.info("HTML dashboard generation skipped (--no_dashboard flag set)")
             
         # Final log message
         logger.info(f"Results saved to: {args.output_dir}")
         
+        # Construct the path to the visualizations directory
+        experiment_viz_dir = os.path.join(args.output_dir, args.experiment_id, "visualizations")
+        
         # Print helpful next steps
         print("\nExperiment completed successfully!")
         print(f"Results saved to: {args.output_dir}")
+        print(f"Visualizations saved to: {experiment_viz_dir}")
         print("\nNext steps:")
         print(f"- View log file: {os.path.join(args.output_dir, 'experiment.log')}")
-        print(f"- Check metrics: {os.path.join(args.output_dir, 'metrics.json')}")
-        print(f"- View dashboard: {os.path.join(args.output_dir, 'dashboards/dashboard.html')}")
-        print("\nTo run a quick test with synthetic data:")
+        print(f"- Check metrics: {os.path.join(args.output_dir, args.experiment_id, 'metrics.json')}")
+        print(f"- View visualizations: {experiment_viz_dir}")
+        
+        # Direct to visualizations based on what was generated
+        if args.visualize:
+            viz_dir = os.path.join(args.output_dir, args.experiment_id, "visualizations")
+            print("\nVisualizations:")
+            print(f"- Direct visualizations: {viz_dir}")
+            print(f"  - Training Progress: {os.path.join(viz_dir, 'training_progress_complete.png')}")
+            print(f"  - Entropy Heatmaps: {os.path.join(viz_dir, 'entropy_heatmap_*.png')}")
+            print(f"  - Entropy Changes: {os.path.join(viz_dir, 'entropy_changes.png')}")
+            print(f"  - Pruned Heads: {os.path.join(viz_dir, 'pruned_heads*.png')}")
+            print(f"  - Recovery Analysis: {os.path.join(viz_dir, 'recovery_analysis.png')}")
+        
+        # Direct to dashboards if they were generated
+        if not args.no_dashboard:
+            print("\nDashboards (HTML):")
+            print(f"- Simple dashboard: {os.path.join(args.output_dir, 'dashboards/dashboard.html')}")
+            print(f"- Enhanced dashboard: {os.path.join(args.output_dir, 'dashboards/enhanced_dashboard.html')}")
+            print(f"- Comprehensive dashboard: {os.path.join(args.output_dir, 'dashboards/comprehensive/complete_process/neural_plasticity_process.png')}")
+        
+        print("\nRun examples:")
+        print("- With visualizations (default):")
+        print(f"  python scripts/run_neural_plasticity.py --model_name distilgpt2 --pruning_level 0.2")
+        print("- Skip HTML dashboards (images only):")
+        print(f"  python scripts/run_neural_plasticity.py --no_dashboard")
+        print("- Quick test with synthetic data:")
         print(f"  python scripts/run_neural_plasticity.py --quick_test")
+        print("- No visualizations:")
+        print(f"  python scripts/run_neural_plasticity.py --visualize=False")
         
         return results
         
