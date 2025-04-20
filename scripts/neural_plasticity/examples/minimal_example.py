@@ -4,110 +4,97 @@
 """
 Minimal Neural Plasticity Example
 
-This script provides a minimal example of how to use the neural plasticity
-functionality from the sentinel package.
+This script demonstrates how to use the neural plasticity framework programmatically
+with minimal code. It's designed to show the core workflow of setting up an experiment,
+running the pruning cycle, and evaluating the results.
 
-Usage:
-    python scripts/neural_plasticity/examples/minimal_example.py
+Version: v0.0.1 (2025-04-20 23:55:00)
 """
 
 import os
 import sys
-import torch
-import logging
+from pathlib import Path
+from datetime import datetime
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
-logger = logging.getLogger(__name__)
+# Add project root to path
+script_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+project_root = os.path.dirname(script_dir)
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
 
-# Add project root to path if needed
-if __name__ == "__main__":
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    project_root = os.path.dirname(os.path.dirname(os.path.dirname(script_dir)))
-    if project_root not in sys.path:
-        sys.path.insert(0, project_root)
+# Import neural plasticity experiment class
+from utils.neural_plasticity.experiment import NeuralPlasticityExperiment
 
-# Import from the sentinel package
-from sentinel.pruning.plasticity_controller import create_plasticity_controller, PruningMode
-from transformers import AutoModelForCausalLM, AutoTokenizer
-
-
-def main():
-    """Run a minimal neural plasticity example."""
-    # Load a model
-    model_name = "distilgpt2"
-    model = AutoModelForCausalLM.from_pretrained(model_name)
-    tokenizer = AutoTokenizer.from_pretrained(model_name)
+def run_minimal_experiment():
+    """Run a minimal neural plasticity experiment."""
     
-    print(f"Loaded model: {model_name}")
+    # Setup output directory with timestamp
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    output_dir = os.path.join(project_root, "output", f"minimal_experiment_{timestamp}")
+    os.makedirs(output_dir, exist_ok=True)
     
-    # Create a plasticity controller
-    controller = create_plasticity_controller(
-        model=model,
-        mode=PruningMode.ADAPTIVE,
-        high_entropy_threshold=0.8,
-        low_entropy_threshold=0.4,
-        grad_threshold=1e-4
-    )
+    print(f"Running minimal neural plasticity experiment...")
+    print(f"Output directory: {output_dir}")
     
-    print(f"Created plasticity controller")
-    
-    # Generate some input data
-    if tokenizer.pad_token is None:
-        tokenizer.pad_token = tokenizer.eos_token
+    # Create experiment with minimal configuration
+    experiment = NeuralPlasticityExperiment(
+        # Use a small model for quick execution
+        model_name="distilgpt2",
         
-    inputs = tokenizer(
-        ["This is a test sentence to analyze attention patterns."], 
-        return_tensors="pt",
-        padding=True
-    )
-    
-    # Create a simple dataloader with one batch
-    from torch.utils.data import TensorDataset, DataLoader
-    
-    dataset = TensorDataset(
-        inputs["input_ids"], 
-        inputs["attention_mask"]
-    )
-    dataloader = DataLoader(dataset, batch_size=1)
-    
-    # Collect head metrics
-    print("Collecting head metrics...")
-    entropy_values, grad_norm_values = controller.collect_head_metrics(dataloader)
-    
-    # Print metrics shape
-    print(f"Entropy values shape: {entropy_values.shape}")
-    print(f"Gradient norm values shape: {grad_norm_values.shape}")
-    
-    # Make pruning decisions
-    print("Applying plasticity decisions...")
-    pruned_heads, revived_heads = controller.apply_plasticity(
-        entropy_values, 
-        grad_norm_values,
+        # Use minimal dataset
+        dataset="wikitext",
+        dataset_config="wikitext-2-raw-v1",
+        
+        # Use small batch size and sequence length for speed
+        batch_size=2,
+        max_length=64,
+        
+        # Entropy-based pruning with 20% pruning level
+        pruning_strategy="entropy",
+        pruning_level=0.2,
+        
+        # Output configuration
+        output_dir=output_dir,
+        save_results=True,
+        use_dashboard=True,
         verbose=True
     )
     
-    # Print pruning results
-    print(f"Pruned {len(pruned_heads)} heads")
-    if pruned_heads:
-        print("Pruned heads:")
-        for layer_idx, head_idx in pruned_heads:
-            print(f"  Layer {layer_idx}, Head {head_idx}")
+    # Setup the experiment
+    experiment.setup()
     
-    # Get summary
-    summary = controller.get_summary()
-    print("\nPlasticity Summary:")
-    print(f"Total Heads: {summary['total_heads']}")
-    print(f"Pruned Heads: {summary['pruned_heads']}")
-    print(f"Pruning Rate: {summary['pruning_rate']:.2%}")
-    print(f"Model Size: {summary['model_size_mb']:.2f} MB")
+    # Run minimal warmup (1 epoch)
+    print("Running warmup phase...")
+    experiment.run_warmup(max_epochs=1)
     
-    print("\nThis example shows how to use the plasticity controller to analyze and prune attention heads.")
-    print("For a complete experiment, use the PlasticityExperiment class from sentinel.plasticity.plasticity_loop")
-
+    # Analyze attention patterns to determine pruning targets
+    print("Analyzing attention patterns...")
+    experiment.analyze_attention()
+    
+    # Run pruning cycle with minimal training steps
+    print("Running pruning cycle...")
+    experiment.run_pruning_cycle(training_steps=50)
+    
+    # Evaluate final model
+    print("Evaluating model...")
+    eval_metrics = experiment.evaluate()
+    
+    # Generate a few text examples
+    experiment.generate_examples({
+        "example": "Neural plasticity allows models to",
+        "test": "The result of pruning attention heads is"
+    })
+    
+    # Display results
+    print("\n=== Experiment Results ===")
+    print(f"Baseline perplexity: {eval_metrics['baseline_perplexity']:.2f}")
+    print(f"Final perplexity: {eval_metrics['perplexity']:.2f}")
+    print(f"Improvement: {eval_metrics['improvement_percent']:.2f}%")
+    print(f"Pruned {len(eval_metrics['pruned_heads'])} attention heads")
+    print(f"Results saved to: {output_dir}")
+    
+    return experiment, eval_metrics
 
 if __name__ == "__main__":
-    main()
+    run_minimal_experiment()
+EOF < /dev/null

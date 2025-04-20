@@ -1,87 +1,145 @@
-# Neural Plasticity Experiment Scripts
+# Neural Plasticity Experiments
 
-This directory contains the main scripts for running neural plasticity experiments with real models and data.
+This directory contains scripts and utilities for running neural plasticity experiments with the Sentinel-AI framework. Neural plasticity refers to the system's ability to dynamically prune and regrow attention heads in transformer models, optimizing for both performance and efficiency.
 
-## Available Scripts
+## Overview
 
-1. **simple_experiment.py** - A simplified neural plasticity experiment runner
-   - Runs a complete experiment with minimal parameters
-   - Useful for quick testing and demonstrations
-   - Supports all core neural plasticity features
-   - Example usage: `python scripts/neural_plasticity/simple_experiment.py`
-
-2. **full_experiment.py** - Comprehensive neural plasticity experiment runner
-   - Provides extensive command-line options and customization
-   - Includes detailed logging and error handling
-   - Generates comprehensive visualizations and HTML dashboards
-   - Example usage: `python scripts/neural_plasticity/full_experiment.py --model_name gpt2 --dataset gutenberg`
-
-## Running Experiments
-
-Both scripts use the modular neural plasticity implementation from `utils/neural_plasticity/` and provide a complete experimental workflow:
-
-1. Warmup training with dynamic stabilization detection
-2. Attention head analysis using entropy and gradient metrics
-3. Pruning of low-importance heads based on mathematical criteria
-4. Fine-tuning with differential learning rates
-5. Comprehensive visualization and evaluation
-
-### Simple Example
-
-```bash
-# Activate your virtual environment
-source .venv/bin/activate
-
-# Run a quick experiment with small parameters
-python scripts/neural_plasticity/simple_experiment.py
-```
-
-### Full Example with Customization
-
-```bash
-# Full experiment with custom parameters
-python scripts/neural_plasticity/full_experiment.py \
-  --model_name distilgpt2 \
-  --dataset wikitext \
-  --dataset_config wikitext-2-raw-v1 \
-  --batch_size 4 \
-  --pruning_level 0.15 \
-  --pruning_strategy combined \
-  --max_warmup_steps 100 \
-  --training_steps 100 \
-  --output_dir experiment_results/custom_run
-```
+Neural plasticity is a biologically-inspired approach that allows transformer models to adapt their structure during training. The system uses entropy and gradient-based metrics to identify and prune less important attention heads, then applies focused training to recover or improve performance with the reduced structure.
 
 ## Key Features
 
-- **Real Models & Data**: Uses actual HuggingFace models and datasets, not simulated data
-- **Mathematical Decision Making**: Uses entropy and gradient metrics for pruning decisions
-- **Dynamic Stabilization**: Detects training stabilization using polynomial curve fitting
-- **HTML Dashboards**: Generates interactive dashboards showing the entire process
-- **Text Evaluation**: Generates text samples at each phase to evaluate model quality
-- **Environment Awareness**: Works seamlessly in both local and Google Colab environments
+- **Dynamic Head Pruning**: Identifies and removes underperforming attention heads
+- **Differential Learning Rates**: Applies higher learning rates to areas that need to adapt after pruning
+- **Multiple Pruning Strategies**: Supports entropy-based, gradient-based, combined, and random pruning
+- **Performance Visualization**: Comprehensive dashboards to analyze pruning decisions and performance
+- **Interactive Dashboards**: HTML dashboards with visualizations of attention patterns and metrics
+- **Attention Analysis**: Detailed visualization of attention head behavior before and after pruning
 
-## Configuration Options
+## Running Experiments
 
-Both scripts support various command-line arguments, with sensible defaults. Key options include:
+The main entry point is `scripts/run_neural_plasticity.py`, which provides a comprehensive CLI for running experiments.
 
-- `--model_name`: HuggingFace model name/path (default: "distilgpt2")
-- `--dataset`: Dataset name (default: "wikitext")
-- `--dataset_config`: Dataset configuration (default: "wikitext-2-raw-v1") 
-- `--pruning_level`: Percentage of heads to prune (default: 0.15)
-- `--pruning_strategy`: Strategy to use (options: "gradient", "entropy", "random", "combined")
-- `--device`: Device to use for computation (default: auto-detect)
+### Basic Usage
+
+```bash
+# Run a basic experiment with default settings
+python scripts/run_neural_plasticity.py
+
+# Run a quick test with minimal data
+python scripts/run_neural_plasticity.py --quick_test
+
+# Run with a specific model and pruning strategy
+python scripts/run_neural_plasticity.py --model_name distilgpt2 --pruning_strategy entropy --pruning_level 0.2
+```
+
+### Advanced Usage
+
+```bash
+# Run multiple pruning cycles
+python scripts/run_neural_plasticity.py --cycles 3 --training_steps 200
+
+# Compare different pruning strategies
+python scripts/run_neural_plasticity.py --compare_strategies
+
+# Generate interactive dashboard
+python scripts/run_neural_plasticity.py --use_dashboard
+
+# Save the pruned model
+python scripts/run_neural_plasticity.py --save_model
+```
+
+### Full Options
+
+Run `python scripts/run_neural_plasticity.py --help` for a complete list of options:
+
+- **Model Configuration**:
+  - `--model_name`: Model name or path (default: "distilgpt2")
+  - `--device`: Device to run on (cpu, cuda, auto)
+
+- **Dataset Configuration**:
+  - `--dataset`: Dataset name (default: "wikitext")
+  - `--dataset_config`: Dataset configuration (default: "wikitext-2-raw-v1")
+  - `--batch_size`: Batch size
+  - `--max_length`: Maximum sequence length (default: 128)
+
+- **Pruning Configuration**:
+  - `--pruning_strategy`: Pruning strategy (entropy, magnitude, random, combined)
+  - `--pruning_level`: Pruning level (0.0 to 1.0) (default: 0.2)
+  - `--learning_rate`: Learning rate (default: 5e-5)
+  - `--cycles`: Number of pruning cycles (default: 1)
+  - `--training_steps`: Training steps per cycle (default: 100)
+
+- **Experiment Mode**:
+  - `--quick_test`: Run quick test with minimal data
+  - `--compare_strategies`: Compare multiple pruning strategies
+
+- **Output Configuration**:
+  - `--output_dir`: Output directory
+  - `--save_model`: Save model after experiment
+  - `--no_visualize`: Disable visualization generation
+  - `--use_dashboard`: Generate interactive HTML dashboard
+  - `--verbose`: Enable verbose output
 
 ## Output Structure
 
-Both scripts create a structured output directory containing:
+All experiment outputs are saved to the `/output/neural_plasticity_TIMESTAMP` directory, organized as follows:
 
-- `/warmup` - Warmup phase results and visualizations
-- `/pruning` - Pruning phase data and head selection information
-- `/fine_tuning` - Fine-tuning metrics and checkpoints
-- `/visualizations` - Comprehensive visualizations and plots
-- `/inference` - Generated text samples at each phase
-- `/html` - Interactive HTML dashboards
-- `/metrics` - JSON files with all experiment metrics
-- `/model` - Saved model and tokenizer
-- `/logs` - Detailed log files
+```
+/output/neural_plasticity_YYYYMMDD_HHMMSS/
+├── dashboards/               # Interactive HTML dashboards
+├── logs/                     # Experiment logs
+├── models/                   # Saved model checkpoints
+│   └── pruned_model/         # Final pruned model
+└── visualizations/           # Generated visualizations
+    ├── metrics_dashboard.png # Summary dashboard
+    ├── entropy_heatmap.png   # Attention entropy visualization
+    ├── pruning_decisions.png # Pruning decision visualization
+    └── ...
+```
+
+## Advanced Topics
+
+### Custom Pruning Strategies
+
+The system supports multiple pruning strategies:
+
+- **Entropy**: Prunes heads with high entropy (unfocused attention)
+- **Magnitude**: Prunes heads with low gradient magnitudes (less learning)
+- **Combined**: Uses a weighted combination of entropy and gradient metrics
+- **Random**: Randomly selects heads to prune (useful as a baseline)
+
+### Multi-cycle Pruning
+
+Running multiple pruning cycles allows for incremental pruning and fine-tuning, often leading to better results than aggressive single-cycle pruning:
+
+```bash
+python scripts/run_neural_plasticity.py --cycles 3 --pruning_level 0.1
+```
+
+### Strategy Comparison
+
+To identify the best pruning strategy for your specific model and task:
+
+```bash
+python scripts/run_neural_plasticity.py --compare_strategies --output_dir output/strategy_comparison
+```
+
+This will run experiments with different combinations of strategies and pruning levels, producing comparative visualizations.
+
+## Extending the System
+
+The neural plasticity framework is designed to be extensible:
+
+1. **New Pruning Strategies**: Add new strategies in `utils/neural_plasticity/core.py`
+2. **Custom Metrics**: Implement new importance metrics in the same file
+3. **Visualization Extensions**: Extend the dashboard in `utils/neural_plasticity/dashboard.py`
+4. **New Models**: The system automatically detects model structure for most HuggingFace models
+
+## References
+
+For more information on the theoretical background:
+
+- Entropy-based attention pruning: See `docs/pruning/entropy_magnitude_pruning.md`
+- Gradient-based head importance: See `docs/pruning/methods_magnitude.md`
+- Neural plasticity principles: See `docs/neural_plasticity.md`
+EOF < /dev/null

@@ -4,154 +4,278 @@
 """
 Neural Plasticity Experiment Runner
 
-This script executes neural plasticity experiments using a modular architecture
-that works consistently in both command-line and notebook environments.
-All outputs are stored in the /output directory with a standardized structure.
+This script executes neural plasticity experiments using the standardized
+object-oriented architecture and outputs results to the /output directory.
+It leverages the comprehensive NeuralPlasticityExperiment class to provide
+a unified workflow for neural plasticity research.
 
-Version: v0.0.34 (2025-04-20 16:30:00)
+Version: v0.0.36 (2025-04-20 23:45:00)
 """
 
 import os
 import sys
-import json
 import logging
-import argparse
+import time
 from pathlib import Path
 from datetime import datetime
 
 # Add project root to path if needed
 if __name__ == "__main__":
+    # Configure paths and environment
     script_dir = os.path.dirname(os.path.abspath(__file__))
     project_root = os.path.dirname(script_dir)
     if project_root not in sys.path:
         sys.path.insert(0, project_root)
 
-    # Import the neural plasticity experiment
-    from sentinel.plasticity.neural_plasticity_experiment import NeuralPlasticityExperiment
+    # Import project configuration
+    try:
+        from config.paths import OUTPUT_DIR
+    except ImportError:
+        # Fallback if config module is not available
+        OUTPUT_DIR = os.path.join(project_root, "output")
+
+    # Configure logging with both console and file output
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    logging_dir = os.path.join(OUTPUT_DIR, "logs")
+    os.makedirs(logging_dir, exist_ok=True)
     
-    # Create argument parser to override default output directory
-    parser = argparse.ArgumentParser(description="Run neural plasticity experiment")
-    parser.add_argument(
-        "--output_dir", 
-        type=str,
-        default=None,
-        help="Output directory. If not specified, defaults to /output/neural_plasticity_[timestamp]"
+    log_file = os.path.join(logging_dir, f"neural_plasticity_experiment_{timestamp}.log")
+    
+    # Configure logging format with timestamps
+    log_format = '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    logging.basicConfig(level=logging.INFO, 
+                       format=log_format,
+                       handlers=[
+                           logging.FileHandler(log_file),
+                           logging.StreamHandler()
+                       ])
+    
+    logger = logging.getLogger("neural_plasticity")
+    logger.info(f"Starting neural plasticity experiment at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    logger.info(f"Log file: {log_file}")
+    
+    # Setup output directory within the project's output directory
+    output_dir = os.path.join(OUTPUT_DIR, f"neural_plasticity_{timestamp}")
+    dashboard_dir = os.path.join(output_dir, "dashboards")
+    models_dir = os.path.join(output_dir, "models")
+    visualizations_dir = os.path.join(output_dir, "visualizations")
+    
+    # Create all necessary directories
+    for directory in [output_dir, dashboard_dir, models_dir, visualizations_dir]:
+        os.makedirs(directory, exist_ok=True)
+        logger.debug(f"Created directory: {directory}")
+    
+    # Parse command line arguments with comprehensive options
+    import argparse
+    parser = argparse.ArgumentParser(
+        description="Run neural plasticity experiment with comprehensive analysis",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter
     )
     
-    # Parse only the output directory argument before passing to experiment
-    args, remaining = parser.parse_known_args()
+    # Model configuration group
+    model_group = parser.add_argument_group("Model Configuration")
+    model_group.add_argument("--model_name", type=str, default="distilgpt2", 
+                           help="Model name or path (e.g., distilgpt2, gpt2, facebook/opt-125m)")
+    model_group.add_argument("--device", type=str, default=None, 
+                           help="Device to run on (cpu, cuda, auto). Auto-detected if not specified.")
     
-    # Set standard output directory in /output if not specified
-    if args.output_dir is None:
-        # Ensure /output directory exists in project root
-        output_base_dir = os.path.join(project_root, "output")
-        if not os.path.exists(output_base_dir):
-            os.makedirs(output_base_dir, exist_ok=True)
-            
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        output_dir = os.path.join(output_base_dir, f"neural_plasticity_{timestamp}")
-        os.makedirs(output_dir, exist_ok=True)
-        sys.argv.extend(["--output_dir", output_dir])
+    # Dataset configuration group
+    data_group = parser.add_argument_group("Dataset Configuration")
+    data_group.add_argument("--dataset", type=str, default="wikitext",
+                          help="Dataset name (e.g., wikitext, cnn_dailymail)")
+    data_group.add_argument("--dataset_config", type=str, default="wikitext-2-raw-v1",
+                          help="Dataset configuration")
+    data_group.add_argument("--batch_size", type=int, default=None,
+                          help="Batch size (default: 4 for quick test, 8 for full run)")
+    data_group.add_argument("--max_length", type=int, default=128,
+                          help="Maximum sequence length")
     
-    # For reliable testing, use the fallback approach directly
-    # This way we can test the directory structure and visualization regardless of model issues
-    from sentinel.plasticity.neural_plasticity_experiment import NeuralPlasticityExperiment
+    # Pruning configuration group
+    pruning_group = parser.add_argument_group("Pruning Configuration")
+    pruning_group.add_argument("--pruning_strategy", type=str, default="entropy", 
+                             choices=["entropy", "magnitude", "random", "combined"],
+                             help="Pruning strategy to use")
+    pruning_group.add_argument("--pruning_level", type=float, default=0.2, 
+                             help="Pruning level (0.0 to 1.0)")
+    pruning_group.add_argument("--learning_rate", type=float, default=5e-5,
+                             help="Learning rate for training")
+    pruning_group.add_argument("--cycles", type=int, default=1, 
+                             help="Number of pruning cycles to run")
+    pruning_group.add_argument("--training_steps", type=int, default=100, 
+                             help="Number of training steps per cycle")
+    
+    # Experiment mode group
+    mode_group = parser.add_argument_group("Experiment Mode")
+    mode_group.add_argument("--quick_test", action="store_true", 
+                          help="Run quick test with minimal data and faster execution")
+    mode_group.add_argument("--compare_strategies", action="store_true",
+                          help="Compare multiple pruning strategies and levels")
+    
+    # Output configuration group
+    output_group = parser.add_argument_group("Output Configuration")
+    output_group.add_argument("--output_dir", type=str, default=output_dir, 
+                            help="Output directory for experiment results")
+    output_group.add_argument("--save_model", action="store_true", 
+                            help="Save the model after experiment")
+    output_group.add_argument("--no_visualize", action="store_true", 
+                            help="Disable visualization generation")
+    output_group.add_argument("--use_dashboard", action="store_true", 
+                            help="Generate interactive HTML dashboard")
+    output_group.add_argument("--verbose", action="store_true", default=True,
+                            help="Enable verbose output")
+    
+    args = parser.parse_args()
+    
+    # Log key experiment settings
+    logger.info(f"Model: {args.model_name}")
+    logger.info(f"Dataset: {args.dataset}/{args.dataset_config}")
+    logger.info(f"Pruning Strategy: {args.pruning_strategy}")
+    logger.info(f"Pruning Level: {args.pruning_level}")
+    logger.info(f"Output Directory: {args.output_dir}")
+    
+    # Ensure all output paths are absolute
+    args.output_dir = os.path.abspath(args.output_dir)
+    dashboard_path = os.path.join(args.output_dir, "dashboard.html")
+    
+    # Set batch size based on mode if not explicitly specified
+    if args.batch_size is None:
+        args.batch_size = 4 if args.quick_test else 8
+    
+    # Import the experiment module
     try:
-        logging.basicConfig(level=logging.INFO)
+        from utils.neural_plasticity.experiment import NeuralPlasticityExperiment
+        logger.info("Successfully imported NeuralPlasticityExperiment")
+    except ImportError as e:
+        logger.error(f"Failed to import NeuralPlasticityExperiment: {e}")
+        logger.error("Please ensure the neural_plasticity module is installed correctly")
+        sys.exit(1)
+    
+    # Record experiment start time for performance measurement
+    start_time = time.time()
+    
+    # Run experiment
+    try:
+        logger.info("Creating experiment instance...")
         
-        # Create experiment with explicit output directory
+        # Create experiment with comprehensive configuration
         experiment = NeuralPlasticityExperiment(
-            output_dir=output_dir,
-            model_name="distilgpt2"
+            # Model parameters
+            model_name=args.model_name,
+            device=args.device,
+            
+            # Dataset parameters
+            dataset=args.dataset,
+            dataset_config=args.dataset_config,
+            batch_size=args.batch_size,
+            max_length=args.max_length,
+            
+            # Pruning parameters
+            pruning_strategy=args.pruning_strategy,
+            pruning_level=args.pruning_level,
+            learning_rate=args.learning_rate,
+            
+            # Output parameters
+            output_dir=args.output_dir,
+            save_results=not args.no_visualize,
+            use_dashboard=args.use_dashboard,
+            dashboard_dir=dashboard_dir,
+            
+            # Behavior parameters
+            verbose=args.verbose,
+            show_samples=not args.quick_test
         )
-        # Set quick_test attribute directly
-        experiment.quick_test = True
         
-        # Create an experiment run
-        experiment_id = experiment.create_experiment_run("entropy_0.2")
+        logger.info("Experiment instance created successfully")
         
-        # Create and save fake experiment results
-        params = {
-            "model_name": "distilgpt2",
-            "pruning_strategy": "entropy",
-            "pruning_level": 0.2,
-            "quick_test": True,
-            "output_dir": output_dir
-        }
-        experiment.save_experiment_params(params, experiment_id)
-        
-        # Create fake metrics
-        baseline_metrics = {"loss": 6.5, "perplexity": 665.1, "total_tokens": 1000}
-        post_pruning_metrics = {"loss": 7.2, "perplexity": 1339.4, "total_tokens": 1000}
-        final_metrics = {"loss": 4.8, "perplexity": 121.5, "total_tokens": 1000}
-        
-        # Create fake pruned heads (from 6 layers with 12 heads)
-        pruned_heads = []
-        for layer in range(6):
-            for head in range(3):  # Prune 3 heads per layer
-                pruned_heads.append([layer, head, 0.1 * layer + 0.01 * head])
-                
-        # Create fake results
-        recovery_metrics = {
-            "perplexity_recovery_pct": 92.5,
-            "loss_recovery_pct": 89.3,
-            "overall_recovery_pct": 92.5
-        }
-        
-        # Create fake regrowth data
-        regrowth_data = {
-            "0_2": {"initial_gate": 0.01, "final_gate": 0.35, "growth": 0.34, "growth_percent": 3400.0},
-            "1_1": {"initial_gate": 0.02, "final_gate": 0.41, "growth": 0.39, "growth_percent": 1950.0}
-        }
-        
-        # Create fake entropy data
-        import torch
-        import numpy as np
-        fake_entropy = {}
-        for layer in range(6):
-            fake_entropy[layer] = torch.rand(12)  # 12 heads per layer
+        # Run the experiment differently based on selected mode
+        if args.compare_strategies:
+            # Compare different pruning strategies
+            logger.info("Running strategy comparison experiment")
+            strategies = ["entropy", "magnitude", "combined", "random"]
+            pruning_levels = [0.1, 0.2, 0.3]
             
-        # Save all fake data
-        experiment_dir = Path(output_dir) / experiment_id
-        
-        # Save pre-entropy (as tensor dict)
-        pre_entropy_path = experiment_dir / "pre_entropy.json"
-        serializable_dict = {}
-        for layer_idx, tensor in fake_entropy.items():
-            serializable_dict[str(layer_idx)] = tensor.numpy().tolist()
-        with open(pre_entropy_path, "w") as f:
-            json.dump(serializable_dict, f)
+            comparison_results = experiment.compare_pruning_strategies(
+                strategies=strategies,
+                pruning_levels=pruning_levels,
+                cycles=1,
+                training_steps=args.training_steps // 2 if args.quick_test else args.training_steps,
+                save_path=os.path.join(visualizations_dir, "strategy_comparison.png")
+            )
             
-        # Save post-entropy (as tensor dict)
-        post_entropy_path = experiment_dir / "post_entropy.json"
-        with open(post_entropy_path, "w") as f:
-            json.dump(serializable_dict, f)
+            logger.info("Strategy comparison completed")
+        
+        else:
+            # Use the comprehensive run_full_experiment method for standard execution
+            logger.info("Running full neural plasticity experiment")
             
-        # Save pruned heads
-        pruned_heads_path = experiment_dir / "pruned_heads.json"
-        with open(pruned_heads_path, "w") as f:
-            json.dump(pruned_heads, f)
+            # Adjust parameters for quick test mode if enabled
+            warmup_epochs = 1
+            training_steps = args.training_steps // 5 if args.quick_test else args.training_steps
             
-        # Save results
-        results = {
-            "metrics": {
-                "baseline": baseline_metrics,
-                "post_pruning": post_pruning_metrics,
-                "final": final_metrics
-            },
-            "pruned_heads": pruned_heads,
-            "regrowth_data": regrowth_data,
-            "recovery_metrics": recovery_metrics
-        }
-        experiment.save_experiment_results(results, experiment_id)
+            # Run the complete experiment pipeline
+            results = experiment.run_full_experiment(
+                warmup_epochs=warmup_epochs,
+                pruning_cycles=args.cycles,
+                training_steps=training_steps
+            )
+            
+            # Extract key metrics for logging
+            baseline_perplexity = results["baseline_metrics"]["perplexity"]
+            final_perplexity = results["final_metrics"]["perplexity"]
+            improvement_percent = results["improvement_percent"]
+            
+            # Save the model if requested
+            if args.save_model:
+                logger.info("Saving trained model...")
+                model_path = os.path.join(models_dir, "pruned_model")
+                experiment.save_model(path=model_path)
+                logger.info(f"Model saved to {model_path}")
+            
+            # Create metrics dashboard
+            if not args.no_visualize:
+                dashboard_path = os.path.join(visualizations_dir, "metrics_dashboard.png")
+                experiment.visualize_metrics_dashboard(save_path=dashboard_path)
+                logger.info(f"Metrics dashboard saved to {dashboard_path}")
         
-        # Create visualization directory
-        os.makedirs(experiment_dir / "visualizations", exist_ok=True)
+        # Calculate and log execution time
+        execution_time = time.time() - start_time
+        minutes, seconds = divmod(execution_time, 60)
         
-        print("\nFallback experiment completed successfully!")
-        print(f"Results saved to: {experiment_dir}")
+        # Log final results
+        logger.info(f"Experiment completed successfully in {int(minutes)} minutes {int(seconds)} seconds")
+        logger.info(f"Results saved to {args.output_dir}")
         
+        if not args.compare_strategies:
+            logger.info(f"Performance Summary:")
+            logger.info(f"  Baseline perplexity: {baseline_perplexity:.2f}")
+            logger.info(f"  Final perplexity: {final_perplexity:.2f}")
+            logger.info(f"  Improvement: {improvement_percent:.2f}%")
+            
+            # Print summary with hyperparameters
+            logger.info(f"Experiment Hyperparameters:")
+            logger.info(f"  Model: {args.model_name}")
+            logger.info(f"  Pruning Strategy: {args.pruning_strategy}")
+            logger.info(f"  Pruning Level: {args.pruning_level}")
+            logger.info(f"  Learning Rate: {args.learning_rate}")
+            logger.info(f"  Batch Size: {args.batch_size}")
+            logger.info(f"  Training Steps: {training_steps}")
+            logger.info(f"  Pruning Cycles: {args.cycles}")
+        
+    except KeyboardInterrupt:
+        logger.warning("Experiment interrupted by user")
+        sys.exit(1)
     except Exception as e:
-        # If that fails, fall back to running the main function normally
-        print(f"Fallback experiment failed: {e}")
-        NeuralPlasticityExperiment.main()
+        logger.error(f"Error running experiment: {e}", exc_info=True)
+        
+        # Try to save partial results if possible
+        try:
+            if 'experiment' in locals() and hasattr(experiment, 'save_metadata'):
+                experiment.save_metadata(os.path.join(args.output_dir, "partial_results_metadata.json"))
+                logger.info("Saved partial results metadata before exiting")
+        except Exception as save_error:
+            logger.error(f"Failed to save partial results: {save_error}")
+        
+        sys.exit(1)
+    finally:
+        # Final cleanup
+        logger.info(f"Experiment session ended at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
