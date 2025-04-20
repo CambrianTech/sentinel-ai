@@ -394,146 +394,254 @@ def visualize_training_metrics(
 
 
 def visualize_attention_patterns(
-    attention_maps: torch.Tensor,
+    attention_maps: Union[torch.Tensor, List[torch.Tensor]],
     layer_idx: int = 0,
     head_idx: Optional[int] = None,
     title: Optional[str] = None,
     figsize: Tuple[int, int] = (10, 8),
     num_heads: int = 4,
-    save_path: Optional[str] = None
+    save_path: Optional[str] = None,
+    use_safe_tensor: bool = True
 ) -> plt.Figure:
     """
-    Visualize attention patterns for one or more heads.
+    Visualize attention patterns for one or more heads with cross-platform compatibility.
     
     Args:
         attention_maps: Attention tensor with shape [batch, heads, seq_len, seq_len]
+                       or list of attention tensors per layer
         layer_idx: Index of layer to visualize
         head_idx: Index of attention head to visualize (if None, shows multiple heads)
         title: Title for the plot
         figsize: Figure size (width, height) in inches
         num_heads: Number of heads to visualize if head_idx is None
         save_path: Optional path to save the visualization
+        use_safe_tensor: Whether to use the safe_tensor_imshow function (recommended for
+                        cross-platform compatibility)
         
     Returns:
         matplotlib Figure object
     """
-    # Handle tensor if it's a list of layers
-    if isinstance(attention_maps, list):
-        attention_maps = attention_maps[layer_idx]
-    
-    # Ensure tensor is properly prepared for visualization
-    if isinstance(attention_maps, torch.Tensor):
-        # Handle environment-specific processing
-        if IS_APPLE_SILICON:
-            # Force to CPU on Apple Silicon to avoid BLAS crashes
-            if attention_maps.is_cuda:
-                attention_maps = attention_maps.detach().cpu()
-            # Detach for safety
-            if attention_maps.requires_grad:
-                attention_maps = attention_maps.detach()
-        elif IS_COLAB and HAS_GPU:
-            # In Colab with GPU, we still need to move to CPU for visualization
-            # but we can be more efficient about it
-            if attention_maps.is_cuda:
-                # Only detach if needed
-                if attention_maps.requires_grad:
-                    attention_maps = attention_maps.detach().cpu()
-                else:
-                    attention_maps = attention_maps.cpu()
-        else:
-            # Standard environment handling
-            if attention_maps.requires_grad:
-                attention_maps = attention_maps.detach()
-            if attention_maps.is_cuda:
-                attention_maps = attention_maps.cpu()
-        
-        # Always ensure contiguous memory layout for efficient conversion
-        if not attention_maps.is_contiguous():
-            attention_maps = attention_maps.contiguous()
-            
-        attn = attention_maps
-    else:
-        attn = attention_maps
-    
-    # Check tensor dimensions
-    if attn.dim() != 4:
-        raise ValueError(f"Expected 4D attention tensor [batch, heads, seq_len, seq_len], got shape {attn.shape}")
-    
-    # Use safe_tensor_imshow helper for conversion to numpy
     from utils.colab.helpers import safe_tensor_imshow
     
-    # Create figure
-    if head_idx is not None:
-        # Single head visualization
-        fig, ax = plt.subplots(figsize=figsize)
+    # Handle tensor if it's a list of layers
+    if isinstance(attention_maps, list):
+        if layer_idx >= len(attention_maps):
+            print(f"Warning: Layer {layer_idx} out of bounds (max: {len(attention_maps)-1})")
+            layer_idx = min(layer_idx, len(attention_maps)-1)
+        attention_maps = attention_maps[layer_idx]
+    
+    # Check tensor dimensions
+    if isinstance(attention_maps, torch.Tensor):
+        if attention_maps.dim() not in [3, 4]:
+            raise ValueError(f"Expected 3D or 4D attention tensor, got shape {attention_maps.shape}")
         
-        # Extract the specific head attention and safely convert to numpy
-        if isinstance(attn, torch.Tensor):
-            # Handle potential NaN/Inf values during conversion
-            head_attention = attn[0, head_idx].cpu().numpy()
-            if np.isnan(head_attention).any() or np.isinf(head_attention).any():
-                head_attention = np.nan_to_num(head_attention, nan=0.0, posinf=1.0, neginf=0.0)
-                print("⚠️ Warning: Attention tensor contained NaN or Inf values, replacing with safe values")
-        else:
-            head_attention = attn[0, head_idx]
-        
-        # Plot attention pattern
-        im = ax.imshow(head_attention, cmap='viridis')
-        ax.set_title(title or f'Attention pattern (layer {layer_idx}, head {head_idx})')
-        
-        # Set proper limits for attention values (0 to 1)
-        im.set_clim(0, 1.0)
-        
-        # Add colorbar
-        plt.colorbar(im, label='Attention probability')
-        
-        # Add labels
-        plt.xlabel('Sequence position (to)')
-        plt.ylabel('Sequence position (from)')
-        
-    else:
-        # Multiple heads visualization
-        heads_to_show = min(num_heads, attn.shape[1])
-        fig, axs = plt.subplots(1, heads_to_show, figsize=figsize)
-        
-        # Adjust title
-        if title:
-            fig.suptitle(title, fontsize=14)
-        else:
-            fig.suptitle(f'Attention patterns (layer {layer_idx})', fontsize=14)
-        
-        # Plot each head
-        for i in range(heads_to_show):
-            # Extract head attention and safely convert to numpy
-            if isinstance(attn, torch.Tensor):
-                head_attention = attn[0, i].cpu().numpy()
-                # Check for NaN/Inf values
-                if np.isnan(head_attention).any() or np.isinf(head_attention).any():
-                    head_attention = np.nan_to_num(head_attention, nan=0.0, posinf=1.0, neginf=0.0)
+        # Handle 3D tensor (missing batch dimension)
+        if attention_maps.dim() == 3:
+            attention_maps = attention_maps.unsqueeze(0)
+    
+    # If using safe_tensor_imshow (recommended for cross-platform)
+    if use_safe_tensor:
+        if head_idx is not None:
+            # Single head visualization
+            # Extract the head attention tensor
+            if isinstance(attention_maps, torch.Tensor):
+                head_attention = attention_maps[0, head_idx]
             else:
-                head_attention = attn[0, i]
+                head_attention = attention_maps[0][head_idx]
                 
+            # Use safe_tensor_imshow for cross-platform visualization
+            head_title = title or f'Attention Pattern (Layer {layer_idx}, Head {head_idx})'
+            fig = safe_tensor_imshow(
+                tensor=head_attention,
+                title=head_title,
+                cmap='viridis',
+                figsize=figsize,
+                save_path=save_path,
+                vmin=0.0,
+                vmax=1.0
+            )
+            
+            # Access the created axis for additional customization
+            ax = fig.axes[0]
+            ax.set_xlabel('Sequence Position (To)')
+            ax.set_ylabel('Sequence Position (From)')
+            
+            return fig
+        else:
+            # Multiple heads visualization
+            heads_to_show = min(num_heads, attention_maps.shape[1])
+            fig, axs = plt.subplots(1, heads_to_show, figsize=figsize)
+            
+            # Adjust title
+            main_title = title or f'Attention Patterns (Layer {layer_idx})'
+            fig.suptitle(main_title, fontsize=14)
+            
+            # Ensure axs is always an array even with single subplot
+            if heads_to_show == 1:
+                axs = [axs]
+            
+            # Plot each head
+            for i in range(heads_to_show):
+                # Extract head attention tensor
+                head_attention = attention_maps[0, i]
+                
+                # Use numpy-safe processing that works across platforms
+                if isinstance(head_attention, torch.Tensor):
+                    # Process safely
+                    try:
+                        if head_attention.requires_grad:
+                            head_attention = head_attention.detach()
+                        if head_attention.is_cuda:
+                            head_attention = head_attention.cpu()
+                        head_data = head_attention.numpy()
+                    except Exception:
+                        # Fallback for any conversion issues
+                        head_data = np.zeros((10, 10))  # Empty placeholder
+                else:
+                    head_data = head_attention
+                
+                # Clean up NaN/Inf values
+                head_data = np.nan_to_num(head_data, nan=0.0, posinf=1.0, neginf=0.0)
+                
+                # Plot attention pattern
+                im = axs[i].imshow(head_data, cmap='viridis', vmin=0.0, vmax=1.0)
+                
+                # Add labels only to the first subplot for cleaner display
+                if i == 0:
+                    axs[i].set_ylabel('From Position')
+                
+                axs[i].set_xlabel('To Position')
+                axs[i].set_title(f'Head {i}')
+            
+            # Add colorbar to the rightmost subplot
+            plt.colorbar(im, ax=axs[-1], label='Attention Probability')
+            
+            # Adjust layout
+            plt.tight_layout()
+            
+            # Save figure if path provided
+            if save_path:
+                plt.savefig(save_path, dpi=100, bbox_inches='tight')
+            
+            return fig
+    else:
+        # Legacy implementation without safe_tensor_imshow (less reliable across platforms)
+        # Ensure tensor is properly prepared for visualization
+        if isinstance(attention_maps, torch.Tensor):
+            # Handle environment-specific processing
+            if IS_APPLE_SILICON:
+                # Force to CPU on Apple Silicon to avoid BLAS crashes
+                if attention_maps.is_cuda:
+                    attention_maps = attention_maps.detach().cpu()
+                # Detach for safety
+                if attention_maps.requires_grad:
+                    attention_maps = attention_maps.detach()
+            elif IS_COLAB and HAS_GPU:
+                # In Colab with GPU, move to CPU for visualization
+                if attention_maps.is_cuda:
+                    # Only detach if needed
+                    if attention_maps.requires_grad:
+                        attention_maps = attention_maps.detach().cpu()
+                    else:
+                        attention_maps = attention_maps.cpu()
+            else:
+                # Standard environment handling
+                if attention_maps.requires_grad:
+                    attention_maps = attention_maps.detach()
+                if attention_maps.is_cuda:
+                    attention_maps = attention_maps.cpu()
+            
+            # Always ensure contiguous memory layout for efficient conversion
+            if not attention_maps.is_contiguous():
+                attention_maps = attention_maps.contiguous()
+                
+            attn = attention_maps
+        else:
+            attn = attention_maps
+        
+        # Create figure
+        if head_idx is not None:
+            # Single head visualization
+            fig, ax = plt.subplots(figsize=figsize)
+            
+            # Extract the specific head attention and safely convert to numpy
+            if isinstance(attn, torch.Tensor):
+                # Handle potential NaN/Inf values during conversion
+                try:
+                    head_attention = attn[0, head_idx].cpu().numpy()
+                    if np.isnan(head_attention).any() or np.isinf(head_attention).any():
+                        head_attention = np.nan_to_num(head_attention, nan=0.0, posinf=1.0, neginf=0.0)
+                except Exception as e:
+                    print(f"⚠️ Warning: Error converting attention tensor: {e}")
+                    head_attention = np.zeros((10, 10))  # Empty placeholder
+            else:
+                head_attention = attn[0, head_idx]
+            
             # Plot attention pattern
-            im = axs[i].imshow(head_attention, cmap='viridis')
+            im = ax.imshow(head_attention, cmap='viridis')
+            ax.set_title(title or f'Attention pattern (layer {layer_idx}, head {head_idx})')
             
             # Set proper limits for attention values (0 to 1)
             im.set_clim(0, 1.0)
             
-            # Add labels only to the first subplot for cleaner display
-            if i == 0:
-                axs[i].set_ylabel('From position')
+            # Add colorbar
+            plt.colorbar(im, label='Attention probability')
             
-            axs[i].set_xlabel('To position')
-            axs[i].set_title(f'Head {i}')
+            # Add labels
+            plt.xlabel('Sequence position (to)')
+            plt.ylabel('Sequence position (from)')
+            
+        else:
+            # Multiple heads visualization
+            heads_to_show = min(num_heads, attn.shape[1])
+            fig, axs = plt.subplots(1, heads_to_show, figsize=figsize)
+            
+            # Ensure axs is always an array even with single subplot
+            if heads_to_show == 1:
+                axs = [axs]
+                
+            # Adjust title
+            if title:
+                fig.suptitle(title, fontsize=14)
+            else:
+                fig.suptitle(f'Attention patterns (layer {layer_idx})', fontsize=14)
+            
+            # Plot each head
+            for i in range(heads_to_show):
+                # Extract head attention and safely convert to numpy
+                if isinstance(attn, torch.Tensor):
+                    try:
+                        head_attention = attn[0, i].cpu().numpy()
+                        # Check for NaN/Inf values
+                        if np.isnan(head_attention).any() or np.isinf(head_attention).any():
+                            head_attention = np.nan_to_num(head_attention, nan=0.0, posinf=1.0, neginf=0.0)
+                    except Exception as e:
+                        print(f"⚠️ Warning: Error converting attention tensor for head {i}: {e}")
+                        head_attention = np.zeros((10, 10))  # Empty placeholder
+                else:
+                    head_attention = attn[0, i]
+                    
+                # Plot attention pattern
+                im = axs[i].imshow(head_attention, cmap='viridis')
+                
+                # Set proper limits for attention values (0 to 1)
+                im.set_clim(0, 1.0)
+                
+                # Add labels only to the first subplot for cleaner display
+                if i == 0:
+                    axs[i].set_ylabel('From position')
+                
+                axs[i].set_xlabel('To position')
+                axs[i].set_title(f'Head {i}')
+            
+            # Add colorbar to the right of the last subplot
+            fig.colorbar(im, ax=axs[-1], label='Attention probability')
         
-        # Add colorbar to the right of the last subplot
-        fig.colorbar(im, ax=axs[-1], label='Attention probability')
-    
-    # Adjust layout
-    plt.tight_layout()
-    
-    # Save figure if path provided
-    if save_path:
-        plt.savefig(save_path, dpi=100, bbox_inches='tight')
-    
-    return fig
+        # Adjust layout
+        plt.tight_layout()
+        
+        # Save figure if path provided
+        if save_path:
+            plt.savefig(save_path, dpi=100, bbox_inches='tight')
+        
+        return fig
