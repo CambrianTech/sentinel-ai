@@ -1,0 +1,89 @@
+# Core redundant scripts
+/Users/joel/Development/sentinel-ai/scripts/run_neural_plasticity_e2e.py
+/Users/joel/Development/sentinel-ai/scripts/run_neural_plasticity_simple.py
+/Users/joel/Development/sentinel-ai/scripts/run_dynamic_neural_plasticity.py
+/Users/joel/Development/sentinel-ai/scripts/run_real_neural_plasticity.py
+/Users/joel/Development/sentinel-ai/scripts/run_complete_neural_plasticity.py
+/Users/joel/Development/sentinel-ai/scripts/run_dynamic_plasticity_experiment.py
+/Users/joel/Development/sentinel-ai/scripts/generate_neural_plasticity_html_report.py
+/Users/joel/Development/sentinel-ai/scripts/create_neural_plasticity_dashboard.py
+/Users/joel/Development/sentinel-ai/scripts/run_neural_plasticity_full.py
+/Users/joel/Development/sentinel-ai/scripts/neural_plasticity_dashboard.py
+/Users/joel/Development/sentinel-ai/scripts/neural_plasticity_colab_visualizer.py
+/Users/joel/Development/sentinel-ai/scripts/generate_neural_plasticity_results.py
+/Users/joel/Development/sentinel-ai/scripts/demo_neural_plasticity_dashboard.py
+
+# Test scripts that are redundant
+/Users/joel/Development/sentinel-ai/scripts/test_neural_plasticity_end_to_end.py
+/Users/joel/Development/sentinel-ai/scripts/test_neural_plasticity_core.py
+/Users/joel/Development/sentinel-ai/scripts/test_neural_plasticity_local.py
+/Users/joel/Development/sentinel-ai/scripts/test_neural_plasticity_notebook.py
+/Users/joel/Development/sentinel-ai/test_neural_plasticity.py
+/Users/joel/Development/sentinel-ai/test_plasticity.py
+
+# Notebook maintenance scripts
+/Users/joel/Development/sentinel-ai/scripts/create_minimal_test.py
+/Users/joel/Development/sentinel-ai/scripts/run_neural_plasticity_notebook.py
+/Users/joel/Development/sentinel-ai/scripts/adapt_neural_plasticity_notebook.py
+/Users/joel/Development/sentinel-ai/scripts/run_neural_plasticity_module.py
+/Users/joel/Development/sentinel-ai/scripts/create_minimal_notebook.py
+/Users/joel/Development/sentinel-ai/scripts/run_neural_plasticity_demo.py
+/Users/joel/Development/sentinel-ai/scripts/fix_neural_plasticity_imports.py
+/Users/joel/Development/sentinel-ai/scripts/fix_neural_plasticity_datasets.py
+/Users/joel/Development/sentinel-ai/scripts/install_neural_plasticity_deps.py
+/Users/joel/Development/sentinel-ai/scripts/run_neural_plasticity_notebook_e2e.py
+/Users/joel/Development/sentinel-ai/scripts/test_neural_plasticity_apple_silicon_gpu.py
+/Users/joel/Development/sentinel-ai/scripts/create_updated_neural_plasticity_notebook.py
+/Users/joel/Development/sentinel-ai/scripts/create_ultra_minimal_notebook.py
+/Users/joel/Development/sentinel-ai/scripts/create_minimal_runnable_notebook.py
+
+# Utility scripts
+/Users/joel/Development/sentinel-ai/scripts/test_tensor_handling.py
+/Users/joel/Development/sentinel-ai/scripts/diagnose_neural_plasticity.py
+/Users/joel/Development/sentinel-ai/scripts/fix_neural_plasticity_local.py
+/Users/joel/Development/sentinel-ai/scripts/verify_tensor_handling.py
+/Users/joel/Development/sentinel-ai/scripts/verify_neural_plasticity_basics.py
+/Users/joel/Development/sentinel-ai/scripts/simulate_neural_plasticity_run.py
+/Users/joel/Development/sentinel-ai/scripts/fix_neural_plasticity_title.py
+/Users/joel/Development/sentinel-ai/scripts/test_neural_plasticity_imports.py
+/Users/joel/Development/sentinel-ai/scripts/update_neural_plasticity_timestamp.py
+/Users/joel/Development/sentinel-ai/scripts/fix_neural_plasticity_notebook.py
+/Users/joel/Development/sentinel-ai/scripts/update_neural_plasticity_notebook.py
+/Users/joel/Development/sentinel-ai/scripts/neural_plasticity_demo.py
+/Users/joel/Development/sentinel-ai/scripts/neural_plasticity_cycle.py
+/Users/joel/Development/sentinel-ai/scripts/neural_plasticity_experiment.py
+/Users/joel/Development/sentinel-ai/scripts/run_neural_plasticity_minimal.py
+/Users/joel/Development/sentinel-ai/scripts/run_neural_plasticity_notebook.py
+
+# Redundant utility implementations
+/Users/joel/Development/sentinel-ai/utils/neural_plasticity/visualization.py
+/Users/joel/Development/sentinel-ai/utils/neural_plasticity/training.py
+
+# Redundant root scripts
+/Users/joel/Development/sentinel-ai/fix_dataset_imports.py
+/Users/joel/Development/sentinel-ai/fix_neural_plasticity_demo.py
+/Users/joel/Development/sentinel-ai/fix_notebook.py
+/Users/joel/Development/sentinel-ai/increment_notebook_version.py
+/Users/joel/Development/sentinel-ai/run_neural_plasticity_comprehensive.py
+/Users/joel/Development/sentinel-ai/run_neural_plasticity_demo.py
+/Users/joel/Development/sentinel-ai/run_neural_plasticity_minimal_test.py
+/Users/joel/Development/sentinel-ai/run_neural_plasticity_model_test.py
+/Users/joel/Development/sentinel-ai/run_neural_plasticity_safe.py
+/Users/joel/Development/sentinel-ai/run_neural_plasticity_safe_test.py
+/Users/joel/Development/sentinel-ai/run_neural_plasticity_test.py
+/Users/joel/Development/sentinel-ai/validate_neural_plasticity_notebook.py
+
+# Additional Redundant Files
+/Users/joel/Development/sentinel-ai/utils/neural_plasticity/dashboard.py
+/Users/joel/Development/sentinel-ai/utils/colab/neural_plasticity_dashboard_cell.py
+/Users/joel/Development/sentinel-ai/scripts/neural_plasticity_dashboard.py
+/Users/joel/Development/sentinel-ai/scripts/create_neural_plasticity_dashboard.py
+/Users/joel/Development/sentinel-ai/scripts/generate_neural_plasticity_html_report.py
+/Users/joel/Development/sentinel-ai/neural_plasticity_minimal_test.ipynb
+/Users/joel/Development/sentinel-ai/neural_plasticity_runnable.ipynb
+/Users/joel/Development/sentinel-ai/neural_plasticity_test_executed.ipynb
+/Users/joel/Development/sentinel-ai/neural_plasticity_ultra_minimal.ipynb
+/Users/joel/Development/sentinel-ai/tests/unit/utils/test_neural_plasticity.py
+
+# Keep empty line at the end
+EOL < /dev/null
