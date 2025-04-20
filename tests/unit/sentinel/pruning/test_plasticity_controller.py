@@ -1,8 +1,11 @@
 """
 Unit tests for the PlasticityController.
 
+This tests the neural plasticity controller that manages dynamic pruning
+and revival of attention heads based on entropy and gradient metrics.
+
 To run these tests:
-    pytest -xvs sentinel/pruning/tests/test_plasticity_controller.py
+    pytest -xvs tests/unit/sentinel/pruning/test_plasticity_controller.py
 """
 
 import torch
