@@ -75,6 +75,7 @@ class NeuralPlasticityExperiment(BaseExperiment):
         self.learning_rate = 5e-5          # Default learning rate
         self.no_visualize = False          # Default to generating visualizations
         self.save_model = False            # Default to not saving the model
+        self.max_length = 128              # Default sequence length
         
         # Initialize visualizers if needed
         self._initialize_visualizers()
