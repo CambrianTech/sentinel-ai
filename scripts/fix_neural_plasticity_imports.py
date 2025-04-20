@@ -358,7 +358,7 @@ else:
 if __name__ == "__main__":
     # Default paths
     default_input = os.path.join("notebooks", "NeuralPlasticityDemo.ipynb")
-    default_output = os.path.join("notebooks", "NeuralPlasticityDemo_fixed.ipynb")
+    default_output = os.path.join("notebooks", "NeuralPlasticityDemo.ipynb")  # Overwrite the same file by default
     
     # Get paths from command line arguments if provided
     input_path = sys.argv[1] if len(sys.argv) > 1 else default_input
