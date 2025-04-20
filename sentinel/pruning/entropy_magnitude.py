@@ -28,7 +28,15 @@ def compute_attention_entropy(attn_probs: torch.Tensor, eps: float = 1e-8) -> to
     """
     log_attn = torch.log(attn_probs + eps)
     entropy = -torch.sum(attn_probs * log_attn, dim=-1)  # shape: (batch_size, num_heads, seq_len)
-    return entropy.mean(dim=(0, 2))  # average over batch and sequence
+    
+    # Handle different tensor shapes safely
+    if entropy.dim() == 3:  # shape: (batch_size, num_heads, seq_len)
+        return entropy.mean(dim=(0, 2))  # average over batch and sequence
+    elif entropy.dim() == 2:  # shape: (batch_size, num_heads)
+        return entropy.mean(dim=0)  # average over batch only
+    else:
+        # Fallback for unexpected dimensions
+        return entropy.mean(dim=0)  # average over first dimension
 
 
 def collect_attention_distributions(
