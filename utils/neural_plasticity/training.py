@@ -14,6 +14,8 @@ from tqdm import tqdm
 import time
 import gc
 
+import os
+import traceback
 from .core import (
     calculate_head_entropy,
     calculate_head_gradients,
@@ -22,6 +24,131 @@ from .core import (
     evaluate_model,
     IS_APPLE_SILICON
 )
+
+
+def create_warmup_visualization(
+    warmup_losses: List[float],
+    smoothed_losses: List[float],
+    figsize: Tuple[int, int] = (12, 8)
+) -> plt.Figure:
+    """
+    Create visualization for warmup training.
+    
+    Args:
+        warmup_losses: List of raw loss values
+        smoothed_losses: List of smoothed (rolling average) loss values
+        figsize: Figure size as (width, height) in inches
+        
+    Returns:
+        Matplotlib figure with loss plots
+    """
+    # Create loss visualization
+    fig, axs = plt.subplots(2, 1, figsize=figsize)
+    
+    # Raw loss
+    axs[0].plot(warmup_losses)
+    axs[0].set_title("Warm-up Loss (Raw)")
+    axs[0].set_xlabel("Step")
+    axs[0].set_ylabel("Loss")
+    axs[0].grid(True)
+    
+    # Smoothed loss if we have enough data
+    if len(smoothed_losses) > 1:
+        x = range(0, len(smoothed_losses)*5, 5)
+        axs[1].plot(x, smoothed_losses)
+        axs[1].set_title("Warm-up Loss (5-step Rolling Average)")
+        axs[1].set_xlabel("Step")
+        axs[1].set_ylabel("Loss")
+        axs[1].grid(True)
+        
+        # Add trend line to smoothed plot
+        try:
+            from scipy.stats import linregress
+            slope, intercept, r_value, p_value, std_err = linregress(x, smoothed_losses)
+            axs[1].plot(x, [slope*xi + intercept for xi in x], 'r--', 
+                     label=f'Trend: slope={slope:.6f}, R²={r_value**2:.2f}')
+            axs[1].legend()
+        except (ImportError, ValueError) as e:
+            # Skip the trend line if an error occurs
+            print(f"Could not add trend line: {e}")
+    
+    plt.tight_layout()
+    return fig
+
+
+def analyze_warmup_segments(
+    warmup_losses: List[float],
+    verbose: bool = True,
+    save_path: Optional[str] = None
+) -> Dict[str, Any]:
+    """
+    Analyze training segments to assess improvement during warmup.
+    
+    Args:
+        warmup_losses: List of loss values during warmup
+        verbose: Whether to print analysis results
+        save_path: Optional path to save the analysis results
+        
+    Returns:
+        Dictionary with segment analysis metrics
+    """
+    # Initialize default values
+    first_avg = 0
+    last_avg = 0
+    improvement = 0
+    still_improving = False
+    segment_size = 0
+    
+    # Only perform analysis if we have enough data points
+    if len(warmup_losses) > 6:
+        segment_size = len(warmup_losses) // 3
+        first_segment = warmup_losses[:segment_size]
+        last_segment = warmup_losses[-segment_size:]
+        first_avg = sum(first_segment) / len(first_segment)
+        last_avg = sum(last_segment) / len(last_segment)
+        improvement = (1 - last_avg/first_avg) * 100
+        
+        # Calculate if still improving significantly
+        still_improving = (first_avg - last_avg) / first_avg > 0.01  # More than 1% improvement
+        
+        # Generate and print analysis
+        if verbose:
+            report = [
+                "\nWarm-up Segment Analysis:",
+                f"First {segment_size} steps average loss: {first_avg:.4f}",
+                f"Last {segment_size} steps average loss: {last_avg:.4f}",
+                f"Improvement during warm-up: {improvement:.1f}%",
+                f"Is model still significantly improving? {'Yes' if still_improving else 'No'}"
+            ]
+            
+            # Print to console
+            for line in report:
+                print(line)
+                
+            # Save to file if path provided
+            if save_path:
+                try:
+                    # Create parent directory if needed
+                    os.makedirs(os.path.dirname(save_path), exist_ok=True)
+                    
+                    # Write analysis to file
+                    with open(save_path, 'w') as f:
+                        f.write('\n'.join(report))
+                        
+                    if verbose:
+                        print(f"✅ Saved segment analysis to {save_path}")
+                except Exception as e:
+                    if verbose:
+                        print(f"❌ Error saving segment analysis: {e}")
+    
+    # Return analysis dictionary
+    return {
+        "first_segment_avg": first_avg,
+        "last_segment_avg": last_avg,
+        "improvement": improvement,
+        "still_improving": still_improving,
+        "segment_size": segment_size
+    }
 
 
 class PlasticityTrainer:
@@ -624,7 +751,9 @@ def run_warmup_phase(
     max_warmup_steps: int = 150,
     device: Optional[torch.device] = None,
     verbose: bool = True,
-    visualize: bool = True
+    visualize: bool = True,
+    save_visualizations: bool = False,
+    output_dir: Optional[str] = None
 ) -> Dict[str, Any]:
     """
     Run a warm-up phase until loss stabilizes.
@@ -644,6 +773,8 @@ def run_warmup_phase(
         device: Device to run on (defaults to model's device)
         verbose: Whether to print progress information
         visualize: Whether to generate and return visualization
+        save_visualizations: Whether to save visualizations to disk
+        output_dir: Directory to save visualizations (created if it doesn't exist)
         
     Returns:
         Dictionary with warmup metrics and information
@@ -803,59 +934,20 @@ def run_warmup_phase(
         # Calculate warmup statistics
         warmup_duration = time.time() - warmup_start_time
         
+        # Create visualization if requested
         fig = None
         if visualize and len(warmup_losses) > 5:
-            # Create loss visualization
-            fig, axs = plt.subplots(2, 1, figsize=(12, 8))
-            
-            # Raw loss
-            axs[0].plot(warmup_losses)
-            axs[0].set_title("Warm-up Loss (Raw)")
-            axs[0].set_xlabel("Step")
-            axs[0].set_ylabel("Loss")
-            axs[0].grid(True)
-            
-            # Smoothed loss if we have enough data
-            if len(warmup_step_losses) > 1:
-                axs[1].plot(range(0, len(warmup_step_losses)*5, 5), warmup_step_losses)
-                axs[1].set_title("Warm-up Loss (5-step Rolling Average)")
-                axs[1].set_xlabel("Step")
-                axs[1].set_ylabel("Loss")
-                axs[1].grid(True)
-                
-                # Add trend line to smoothed plot
-                from scipy.stats import linregress
-                x = range(0, len(warmup_step_losses)*5, 5)
-                slope, intercept, r_value, p_value, std_err = linregress(x, warmup_step_losses)
-                axs[1].plot(x, [slope*xi + intercept for xi in x], 'r--', 
-                         label=f'Trend: slope={slope:.6f}, R²={r_value**2:.2f}')
-                axs[1].legend()
-            
-            plt.tight_layout()
+            fig = create_warmup_visualization(
+                warmup_losses=warmup_losses,
+                smoothed_losses=warmup_step_losses
+            )
         
-        # Segment analysis - compare first third vs last third of training
-        first_avg = 0
-        last_avg = 0
-        improvement = 0
-        still_improving = False
-        
-        if len(warmup_losses) > 6:
-            segment_size = len(warmup_losses) // 3
-            first_segment = warmup_losses[:segment_size]
-            last_segment = warmup_losses[-segment_size:]
-            first_avg = sum(first_segment) / len(first_segment)
-            last_avg = sum(last_segment) / len(last_segment)
-            improvement = (1 - last_avg/first_avg) * 100
-            
-            # Calculate if still improving significantly
-            still_improving = (first_avg - last_avg) / first_avg > 0.01  # More than 1% improvement
-            
-            if verbose:
-                print(f"\nWarm-up Segment Analysis:")
-                print(f"First {segment_size} steps average loss: {first_avg:.4f}")
-                print(f"Last {segment_size} steps average loss: {last_avg:.4f}")
-                print(f"Improvement during warm-up: {improvement:.1f}%")
-                print(f"Is model still significantly improving? {'Yes' if still_improving else 'No'}")
+        # Perform segment analysis
+        segment_analysis = analyze_warmup_segments(
+            warmup_losses=warmup_losses,
+            verbose=verbose,
+            save_path=os.path.join(output_dir, "segment_analysis.txt") if save_visualizations and output_dir else None
+        )
         
         # Clean up CUDA memory
         if torch.cuda.is_available():
@@ -863,6 +955,50 @@ def run_warmup_phase(
         
         # Force garbage collection
         gc.collect()
+        
+        # Handle visualization saving
+        viz_paths = {}
+        if save_visualizations:
+            # Create output directory if it doesn't exist
+            if output_dir is None:
+                import datetime
+                
+                # Use a timestamp-based directory in the current working directory
+                timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+                output_dir = os.path.join(os.getcwd(), f"neural_plasticity_warmup_{timestamp}")
+            
+            # Create the directory if it doesn't exist
+            try:
+                os.makedirs(output_dir, exist_ok=True)
+                
+                # Save the warmup visualization
+                if fig is not None:
+                    warmup_viz_path = os.path.join(output_dir, "warmup_loss_visualization.png")
+                    try:
+                        fig.savefig(warmup_viz_path, dpi=100, bbox_inches='tight')
+                        viz_paths["warmup_loss"] = warmup_viz_path
+                        if verbose:
+                            print(f"✅ Saved warmup visualization to {warmup_viz_path}")
+                    except Exception as e:
+                        if verbose:
+                            print(f"❌ Error saving visualization: {e}")
+                
+                # Save raw loss data for external analysis
+                try:
+                    loss_data_path = os.path.join(output_dir, "warmup_loss_data.txt")
+                    with open(loss_data_path, 'w') as f:
+                        f.write("step,loss\n")
+                        for i, loss in enumerate(warmup_losses):
+                            f.write(f"{i},{loss}\n")
+                    viz_paths["loss_data"] = loss_data_path
+                    if verbose:
+                        print(f"✅ Saved loss data to {loss_data_path}")
+                except Exception as e:
+                    if verbose:
+                        print(f"❌ Error saving loss data: {e}")
+            except Exception as e:
+                if verbose:
+                    print(f"❌ Error creating output directory: {e}")
         
         # Return comprehensive warmup information
         return {
@@ -876,21 +1012,40 @@ def run_warmup_phase(
             "improvement_percent": (1 - warmup_losses[-1]/warmup_losses[0])*100 if len(warmup_losses) > 1 else 0,
             "is_stable": is_stable if 'is_stable' in locals() else False,
             "steps_without_decrease": steps_without_decrease if 'steps_without_decrease' in locals() else 0,
-            "segment_analysis": {
-                "first_segment_avg": first_avg,
-                "last_segment_avg": last_avg,
-                "improvement": improvement,
-                "still_improving": still_improving
-            },
-            "visualization": fig
+            "segment_analysis": segment_analysis,
+            "visualization": fig,
+            "visualization_paths": viz_paths
         }
                 
     except Exception as e:
-        print(f"\nError during warm-up: {e}")
+        if verbose:
+            print(f"\n❌ Error during warm-up: {e}")
+        
+        # Try to save error information if output_dir is available
+        if save_visualizations and output_dir:
+            try:
+                os.makedirs(output_dir, exist_ok=True)
+                error_log_path = os.path.join(output_dir, "warmup_error.log")
+                
+                with open(error_log_path, 'w') as f:
+                    import traceback
+                    f.write(f"Error during warm-up: {e}\n\n")
+                    f.write(traceback.format_exc())
+                    f.write("\n\nPartial data:\n")
+                    f.write(f"Total steps completed: {total_steps_completed}\n")
+                    f.write(f"Available loss values: {len(warmup_losses)}\n")
+                
+                if verbose:
+                    print(f"✅ Error details saved to {error_log_path}")
+            except Exception as log_error:
+                if verbose:
+                    print(f"Could not save error log: {log_error}")
+        
         # Return partial data on error
         return {
             "losses": warmup_losses,
             "error": str(e),
+            "error_traceback": traceback.format_exc() if 'traceback' in locals() else None,
             "total_steps": total_steps_completed,
             "duration": time.time() - warmup_start_time
         }

@@ -5,7 +5,7 @@ This module provides visualization utilities for neural plasticity experiments.
 It visualizes head entropy, gradients, pruning decisions, training metrics,
 and attention patterns.
 
-Version: v0.0.57 (2025-04-19 17:30:00)
+Version: v0.0.63 (2025-04-20 22:15:00)
 """
 
 import torch
@@ -385,6 +385,593 @@ def visualize_training_metrics(
     
     # Adjust layout
     plt.tight_layout()
+    
+    # Save figure if path provided
+    if save_path:
+        plt.savefig(save_path, dpi=100, bbox_inches='tight')
+    
+    return fig
+
+
+class VisualizationReporter:
+    """
+    Reporter for neural plasticity visualizations and metrics.
+    
+    This class provides methods to display, save, and summarize
+    neural plasticity experiment results consistently across different
+    environments and contexts.
+    """
+    
+    def __init__(self, model=None, tokenizer=None, output_dir=None, save_visualizations=False, verbose=True):
+        """
+        Initialize the visualization reporter.
+        
+        Args:
+            model: Optional model for evaluation and generation
+            tokenizer: Optional tokenizer for text generation
+            output_dir: Directory to save visualizations (created if it doesn't exist)
+            save_visualizations: Whether to save visualizations to disk
+            verbose: Whether to print detailed information
+        """
+        self.model = model
+        self.tokenizer = tokenizer
+        self.output_dir = output_dir
+        self.save_visualizations = save_visualizations
+        self.verbose = verbose
+        self.viz_paths = {}
+        
+        # Create output directory if needed
+        if self.save_visualizations and self.output_dir:
+            import os
+            os.makedirs(self.output_dir, exist_ok=True)
+            
+    def display_warmup_results(self, warmup_results):
+        """
+        Display warmup results including visualizations and metrics.
+        
+        Args:
+            warmup_results: Dictionary with warmup metrics from run_warmup_phase
+            
+        Returns:
+            Dictionary with additional display information
+        """
+        # Extract key metrics
+        warmup_losses = warmup_results.get("losses", [])
+        
+        # Show the visualization if available
+        warmup_visualization = warmup_results.get("visualization")
+        if warmup_visualization:
+            plt.figure(warmup_visualization.number)
+            plt.show()
+
+        # Display segment analysis
+        segment_analysis = warmup_results.get("segment_analysis", {})
+        if segment_analysis and segment_analysis.get("segment_size", 0) > 0:
+            print(f"\nWarm-up Segment Analysis:")
+            print(f"First segment average loss: {segment_analysis['first_segment_avg']:.4f}")
+            print(f"Last segment average loss: {segment_analysis['last_segment_avg']:.4f}")
+            print(f"Improvement during warm-up: {segment_analysis['improvement']:.1f}%")
+            print(f"Is model still significantly improving? {'Yes' if segment_analysis.get('still_improving', False) else 'No'}")
+
+        # Print warm-up summary
+        print(f"\nWarm-up completed with {len(warmup_losses)} steps across {len(warmup_results.get('epochs', []))}")
+        print(f"Initial loss: {warmup_results.get('initial_loss', 0):.4f}")
+        print(f"Final loss: {warmup_results.get('final_loss', 0):.4f}")
+        
+        # Print improvement percentage if available
+        if 'improvement_percent' in warmup_results:
+            print(f"Overall loss reduction: {warmup_results['improvement_percent']:.1f}%")
+
+        # Display saved visualization paths if available
+        if "visualization_paths" in warmup_results and warmup_results["visualization_paths"]:
+            print("\nSaved visualizations:")
+            for name, path in warmup_results["visualization_paths"].items():
+                print(f"- {name}: {path}")
+                
+        return warmup_results
+    
+    def display_pruning_results(self, pruning_results):
+        """
+        Display pruning results including visualizations and metrics.
+        
+        Args:
+            pruning_results: Dictionary with pruning metrics from run_pruning_cycle
+            
+        Returns:
+            Dictionary with additional display information
+        """
+        # Extract key metrics
+        baseline_metrics = pruning_results.get("baseline_metrics", {})
+        pruned_metrics = pruning_results.get("pruned_metrics", {})
+        final_metrics = pruning_results.get("final_metrics", {})
+        
+        # Print baseline, pruned and final metrics
+        print("\nMetrics Comparison:")
+        print(f"  Baseline:  Loss = {baseline_metrics.get('loss', 0):.4f}, Perplexity = {baseline_metrics.get('perplexity', 0):.2f}")
+        print(f"  After Pruning: Loss = {pruned_metrics.get('loss', 0):.4f}, Perplexity = {pruned_metrics.get('perplexity', 0):.2f}")
+        print(f"  After Training: Loss = {final_metrics.get('loss', 0):.4f}, Perplexity = {final_metrics.get('perplexity', 0):.2f}")
+        
+        # Print improvement metrics
+        if 'perplexity_improvement' in pruning_results:
+            print(f"\nPerplexity improvement: {pruning_results['perplexity_improvement']*100:.2f}%")
+            
+        if 'recovery_rate' in pruning_results:
+            print(f"Recovery rate: {pruning_results['recovery_rate']*100:.2f}%")
+        
+        # Print pruning summary
+        pruned_heads = pruning_results.get("pruned_heads", [])
+        print(f"\nPruning Summary:")
+        print(f"  Pruned {len(pruned_heads)} out of {pruning_results.get('total_heads', 0)} heads")
+        print(f"  Pruning strategy: {pruning_results.get('strategy', 'unknown')}")
+        print(f"  Pruning level: {pruning_results.get('pruning_level', 0)*100:.1f}%")
+        
+        # Display visualizations
+        training_metrics = pruning_results.get("training_metrics", {})
+        if training_metrics:
+            try:
+                metrics_fig = visualize_training_metrics(
+                    metrics_history=training_metrics,
+                    title="Training After Pruning"
+                )
+                plt.figure(metrics_fig.number)
+                plt.show()
+            except Exception as e:
+                if self.verbose:
+                    print(f"Could not display training metrics: {e}")
+        
+        # Display visualization directory if available
+        if "visualization_dir" in pruning_results:
+            print(f"\nVisualization directory: {pruning_results['visualization_dir']}")
+            
+        return pruning_results
+    
+    def report_model_stats(self, model, sparsity=None, pruned_heads=None):
+        """
+        Display summary statistics for a model.
+        
+        Args:
+            model: The transformer model
+            sparsity: Optional sparsity value to display
+            pruned_heads: Optional list of pruned heads to display
+            
+        Returns:
+            Dictionary with model statistics
+        """
+        # Estimate model size
+        param_size = 0
+        for param in model.parameters():
+            param_size += param.nelement() * param.element_size()
+        buffer_size = 0
+        for buffer in model.buffers():
+            buffer_size += buffer.nelement() * buffer.element_size()
+            
+        model_size_mb = (param_size + buffer_size) / 1024**2
+        
+        # Count total parameters
+        total_params = sum(p.numel() for p in model.parameters())
+        
+        # Print model statistics
+        print(f"\nModel Statistics:")
+        print(f"  Size: {model_size_mb:.2f} MB")
+        print(f"  Parameters: {total_params:,}")
+        
+        if sparsity is not None:
+            print(f"  Sparsity: {sparsity:.2%}")
+            
+        if pruned_heads is not None:
+            print(f"  Pruned heads: {len(pruned_heads)}")
+            
+        return {
+            "model_size_mb": model_size_mb,
+            "total_params": total_params,
+            "sparsity": sparsity,
+            "pruned_heads_count": len(pruned_heads) if pruned_heads else 0
+        }
+    
+    def save_figure(self, fig, name, subfolder=None):
+        """
+        Save a figure to disk.
+        
+        Args:
+            fig: Matplotlib figure to save
+            name: Name for the saved figure file
+            subfolder: Optional subfolder within output_dir
+            
+        Returns:
+            Path to saved figure or None if not saved
+        """
+        if not self.save_visualizations or not self.output_dir:
+            return None
+            
+        try:
+            import os
+            
+            # Create subfolder if needed
+            if subfolder:
+                save_dir = os.path.join(self.output_dir, subfolder)
+                os.makedirs(save_dir, exist_ok=True)
+            else:
+                save_dir = self.output_dir
+                
+            # Ensure filename has .png extension
+            if not name.endswith(".png"):
+                name = f"{name}.png"
+                
+            # Save figure
+            save_path = os.path.join(save_dir, name)
+            fig.savefig(save_path, dpi=100, bbox_inches='tight')
+            
+            # Store path in visualization paths
+            self.viz_paths[name] = save_path
+            
+            if self.verbose:
+                print(f"✅ Saved visualization to {save_path}")
+                
+            return save_path
+            
+        except Exception as e:
+            if self.verbose:
+                print(f"❌ Error saving visualization: {e}")
+            return None
+            
+    def get_visualization_paths(self):
+        """
+        Get dictionary of all saved visualization paths.
+        
+        Returns:
+            Dictionary mapping visualization names to file paths
+        """
+        return self.viz_paths
+        
+    def evaluate_model(self, model=None, dataloader=None, device=None):
+        """
+        Evaluate model on the given dataloader.
+        
+        Args:
+            model: Model to evaluate (defaults to self.model)
+            dataloader: DataLoader for evaluation
+            device: Device to run evaluation on (defaults to model's device)
+            
+        Returns:
+            Tuple of (loss, perplexity)
+        """
+        # Use model from instance if not provided
+        if model is None:
+            if self.model is None:
+                raise ValueError("No model provided for evaluation")
+            model = self.model
+            
+        # Import here to avoid circular imports
+        from utils.neural_plasticity import NeuralPlasticity
+        
+        # Determine device if not provided
+        if device is None:
+            device = next(model.parameters()).device
+            
+        # Use the NeuralPlasticity API for evaluation
+        eval_results = NeuralPlasticity.evaluate_model_performance(
+            model=model,
+            dataloader=dataloader,
+            device=device
+        )
+        
+        # Print results if verbose
+        if self.verbose:
+            print(f"Evaluation: Loss = {eval_results['loss']:.4f}, Perplexity = {eval_results['perplexity']:.2f}")
+            
+        return eval_results["loss"], eval_results["perplexity"]
+    
+    def generate_text(self, prompt, model=None, tokenizer=None, max_length=100, 
+                     temperature=0.7, top_k=50, top_p=0.95, device=None, 
+                     save_to_file=None):
+        """
+        Generate text from the model.
+        
+        Args:
+            prompt: Text prompt to generate from
+            model: Model to use (defaults to self.model)
+            tokenizer: Tokenizer to use (defaults to self.tokenizer)
+            max_length: Maximum length of generated text
+            temperature: Sampling temperature
+            top_k: Top-k sampling parameter
+            top_p: Top-p sampling parameter
+            device: Device to run generation on
+            save_to_file: Optional file path to save generated text
+            
+        Returns:
+            Generated text string
+        """
+        # Use model and tokenizer from instance if not provided
+        if model is None:
+            if self.model is None:
+                raise ValueError("No model provided for text generation")
+            model = self.model
+            
+        if tokenizer is None:
+            if self.tokenizer is None:
+                raise ValueError("No tokenizer provided for text generation")
+            tokenizer = self.tokenizer
+            
+        # Determine device if not provided
+        if device is None:
+            device = next(model.parameters()).device
+            
+        # Set model to evaluation mode
+        model.eval()
+        
+        # Encode prompt
+        input_ids = tokenizer.encode(prompt, return_tensors="pt").to(device)
+        
+        # Generate text
+        with torch.no_grad():
+            output = model.generate(
+                input_ids=input_ids,
+                max_length=max_length,
+                temperature=temperature,
+                do_sample=True,
+                top_k=top_k,
+                top_p=top_p,
+                pad_token_id=tokenizer.eos_token_id
+            )
+        
+        # Decode and return text
+        generated_text = tokenizer.decode(output[0], skip_special_tokens=True)
+        
+        # Save to file if requested
+        if save_to_file:
+            try:
+                import os
+                
+                # Create parent directory if needed
+                os.makedirs(os.path.dirname(save_to_file), exist_ok=True)
+                
+                with open(save_to_file, 'w') as f:
+                    f.write(f"Prompt: {prompt}\n\n")
+                    f.write(f"Generated text:\n{generated_text}")
+                    
+                if self.verbose:
+                    print(f"✅ Generated text saved to {save_to_file}")
+            except Exception as e:
+                if self.verbose:
+                    print(f"❌ Error saving generated text: {e}")
+        
+        return generated_text
+        
+    def run_text_generation_suite(self, prompts, model=None, tokenizer=None, 
+                                 max_length=100, save_to_file=True, subfolder="generation"):
+        """
+        Run a suite of text generation examples and optionally save them.
+        
+        Args:
+            prompts: List of prompts or dictionary of {name: prompt}
+            model: Model to use (defaults to self.model)
+            tokenizer: Tokenizer to use (defaults to self.tokenizer)
+            max_length: Maximum length of generated text
+            save_to_file: Whether to save generations to files
+            subfolder: Subfolder within output_dir to save generations
+            
+        Returns:
+            Dictionary of prompt to generated text
+        """
+        # Convert list of prompts to dictionary if needed
+        if isinstance(prompts, list):
+            prompts_dict = {f"prompt_{i}": prompt for i, prompt in enumerate(prompts)}
+        else:
+            prompts_dict = prompts
+            
+        results = {}
+        
+        # Print header
+        if self.verbose:
+            print("\n=== Running Text Generation Suite ===\n")
+            
+        # Run generation for each prompt
+        for name, prompt in prompts_dict.items():
+            if self.verbose:
+                print(f"Prompt: {prompt}")
+                
+            # Determine save path
+            save_path = None
+            if save_to_file and self.save_visualizations and self.output_dir:
+                import os
+                save_dir = os.path.join(self.output_dir, subfolder)
+                os.makedirs(save_dir, exist_ok=True)
+                save_path = os.path.join(save_dir, f"{name}.txt")
+                
+            # Generate text
+            generated = self.generate_text(
+                prompt=prompt,
+                model=model,
+                tokenizer=tokenizer,
+                max_length=max_length,
+                save_to_file=save_path
+            )
+            
+            # Store result
+            results[prompt] = generated
+            
+            # Print result
+            if self.verbose:
+                print(f"Generated: {generated[:200]}...")
+                if len(generated) > 200:
+                    print("...")
+                print("-" * 40)
+                
+        return results
+        
+    def save_metrics_to_csv(self, metrics, filename="metrics.csv", subfolder=None):
+        """
+        Save metrics dictionary to CSV file.
+        
+        Args:
+            metrics: Dictionary of metrics to save
+            filename: Name for the CSV file
+            subfolder: Optional subfolder within output_dir
+            
+        Returns:
+            Path to saved CSV file or None if not saved
+        """
+        if not self.save_visualizations or not self.output_dir:
+            return None
+            
+        try:
+            import os
+            import csv
+            
+            # Create subfolder if needed
+            if subfolder:
+                save_dir = os.path.join(self.output_dir, subfolder)
+                os.makedirs(save_dir, exist_ok=True)
+            else:
+                save_dir = self.output_dir
+                
+            # Ensure filename has .csv extension
+            if not filename.endswith(".csv"):
+                filename = f"{filename}.csv"
+                
+            # Save CSV
+            save_path = os.path.join(save_dir, filename)
+            
+            # Prepare data for CSV
+            # Assume each value in metrics is a list of the same length
+            if not metrics:
+                return None
+                
+            # Get list of metric names
+            metric_names = list(metrics.keys())
+            
+            # Get length of first metric array
+            first_metric = next(iter(metrics.values()))
+            rows = len(first_metric) if isinstance(first_metric, list) else 1
+            
+            with open(save_path, 'w', newline='') as csvfile:
+                writer = csv.writer(csvfile)
+                
+                # Write header
+                writer.writerow(metric_names)
+                
+                # Write each row of data
+                if rows > 1:
+                    for i in range(rows):
+                        writer.writerow([metrics[name][i] if i < len(metrics[name]) else "" for name in metric_names])
+                else:
+                    # Just one row of data
+                    writer.writerow([metrics[name] for name in metric_names])
+            
+            # Store path
+            self.viz_paths[filename] = save_path
+            
+            if self.verbose:
+                print(f"✅ Saved metrics to {save_path}")
+                
+            return save_path
+            
+        except Exception as e:
+            if self.verbose:
+                print(f"❌ Error saving metrics: {e}")
+            return None
+
+
+def create_pruning_state_heatmap(
+    model: torch.nn.Module,
+    cumulative_pruned: List[Tuple[int, int]],
+    newly_pruned: List[Tuple[int, int]] = None,
+    title: str = "Cumulative Pruning State",
+    figsize: Tuple[int, int] = (10, 6),
+    save_path: Optional[str] = None
+) -> plt.Figure:
+    """
+    Create a heatmap showing the cumulative state of pruned heads.
+    
+    Args:
+        model: The transformer model
+        cumulative_pruned: List of (layer, head) tuples of all pruned heads
+        newly_pruned: List of (layer, head) tuples of newly pruned heads
+        title: Title for the plot
+        figsize: Figure size (width, height) in inches
+        save_path: Optional path to save the visualization
+        
+    Returns:
+        matplotlib Figure object
+    """
+    # Determine model structure
+    # Attempt to detect model structure directly
+    num_layers = 0
+    num_heads = 0
+    
+    # Check for HF transformer models
+    if hasattr(model, 'config'):
+        if hasattr(model.config, 'num_hidden_layers'):
+            num_layers = model.config.num_hidden_layers
+        elif hasattr(model.config, 'n_layer'):
+            num_layers = model.config.n_layer
+            
+        if hasattr(model.config, 'num_attention_heads'):
+            num_heads = model.config.num_attention_heads
+    
+    # If we couldn't detect from config, try counting transformer blocks
+    if num_layers == 0 or num_heads == 0:
+        # Try to detect from model architecture
+        if hasattr(model, 'transformer') and hasattr(model.transformer, 'h'):
+            # GPT-2 style
+            num_layers = len(model.transformer.h)
+            if num_layers > 0 and hasattr(model.transformer.h[0].attn, 'num_heads'):
+                num_heads = model.transformer.h[0].attn.num_heads
+    
+    # Fallback values if detection fails
+    if num_layers == 0:
+        num_layers = len(cumulative_pruned) // 2 if cumulative_pruned else 6
+    if num_heads == 0:
+        num_heads = 12  # Common default
+    
+    # Create empty matrix for pruning state
+    pruning_state = np.zeros((num_layers, num_heads))
+    
+    # Fill in cumulative pruned heads with 1
+    for layer, head in cumulative_pruned:
+        if 0 <= layer < num_layers and 0 <= head < num_heads:
+            pruning_state[layer, head] = 1
+    
+    # Fill in newly pruned heads with 2 (for different color)
+    if newly_pruned:
+        for layer, head in newly_pruned:
+            if 0 <= layer < num_layers and 0 <= head < num_heads:
+                pruning_state[layer, head] = 2
+    
+    # Create figure
+    fig, ax = plt.subplots(figsize=figsize)
+    
+    # Create custom colormap to distinguish newly pruned and previously pruned
+    import matplotlib.colors as mcolors
+    colors = [(1,1,1), (0.8,0.2,0.2), (0.2,0.8,0.2)]  # white, red, green
+    cmap_custom = mcolors.ListedColormap(colors)
+    bounds = [0, 0.5, 1.5, 2.5]
+    norm = mcolors.BoundaryNorm(bounds, cmap_custom.N)
+    
+    # Plot heatmap
+    im = ax.imshow(pruning_state, cmap=cmap_custom, norm=norm)
+    
+    # Add colorbar with custom labels
+    cbar = plt.colorbar(im, ax=ax, ticks=[0, 1, 2])
+    cbar.set_ticklabels(['Active', 'Previously Pruned', 'Newly Pruned'])
+    
+    # Add title and labels
+    ax.set_title(title)
+    ax.set_xlabel('Head Index')
+    ax.set_ylabel('Layer Index')
+    
+    # Add text annotations showing pruned head counts
+    previously_pruned_count = len(cumulative_pruned) - len(newly_pruned) if newly_pruned else len(cumulative_pruned)
+    newly_pruned_count = len(newly_pruned) if newly_pruned else 0
+    total_heads = num_layers * num_heads
+    
+    pruned_percent = (len(cumulative_pruned) / total_heads) * 100
+    ax.text(0.05, -0.15, f"Total pruned: {len(cumulative_pruned)}/{total_heads} heads ({pruned_percent:.1f}%)",
+            transform=ax.transAxes, fontsize=10)
+            
+    if newly_pruned:
+        ax.text(0.05, -0.20, f"Newly pruned this cycle: {newly_pruned_count} heads",
+                transform=ax.transAxes, fontsize=10)
     
     # Save figure if path provided
     if save_path:

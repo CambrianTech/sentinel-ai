@@ -18,7 +18,7 @@ These utilities enable transformer models to become more efficient through
 adaptively modifying their structure during training.
 """
 
-__version__ = "0.0.61"
+__version__ = "0.0.62"
 __date__ = "2025-04-20"
 
 # Import environment detection and core tensor operations
@@ -49,7 +49,8 @@ from .visualization import (
     visualize_head_gradients,
     visualize_pruning_decisions,
     visualize_training_metrics,
-    visualize_attention_patterns
+    visualize_attention_patterns,
+    VisualizationReporter
 )
 
 # Import training utilities
@@ -340,7 +341,8 @@ class NeuralPlasticity:
         )
     
     @staticmethod
-    def visualize_head_metrics(entropy_values, grad_norm_values, pruned_heads=None):
+    def visualize_head_metrics(entropy_values, grad_norm_values, pruned_heads=None, 
+                             save_visualizations=False, output_dir=None):
         """
         Create visualizations for head metrics and pruning decisions.
         
@@ -348,9 +350,11 @@ class NeuralPlasticity:
             entropy_values: Entropy values tensor
             grad_norm_values: Gradient norm values tensor
             pruned_heads: Optional list of (layer, head) tuples of pruned heads
+            save_visualizations: Whether to save visualizations to disk
+            output_dir: Directory to save visualizations (created if it doesn't exist)
             
         Returns:
-            Dictionary of visualization figures
+            Dictionary of visualization figures and saved paths
         """
         # Create entropy visualization
         entropy_fig = visualize_head_entropy(
@@ -366,16 +370,53 @@ class NeuralPlasticity:
             title="Attention Head Gradient Norms"
         )
         
-        return {
+        # Store visualization figures
+        figures = {
             "entropy": entropy_fig,
             "gradients": grad_fig
+        }
+        
+        # Save visualizations if requested
+        saved_paths = {}
+        if save_visualizations and output_dir:
+            try:
+                import os
+                
+                # Create output directory if it doesn't exist
+                os.makedirs(output_dir, exist_ok=True)
+                
+                # Save entropy visualization
+                if entropy_fig:
+                    entropy_path = os.path.join(output_dir, "entropy_heatmap.png")
+                    try:
+                        entropy_fig.savefig(entropy_path, dpi=100, bbox_inches='tight')
+                        saved_paths["entropy"] = entropy_path
+                    except Exception as e:
+                        print(f"Error saving entropy visualization: {e}")
+                
+                # Save gradient visualization
+                if grad_fig:
+                    grad_path = os.path.join(output_dir, "gradient_heatmap.png")
+                    try:
+                        grad_fig.savefig(grad_path, dpi=100, bbox_inches='tight')
+                        saved_paths["gradients"] = grad_path
+                    except Exception as e:
+                        print(f"Error saving gradient visualization: {e}")
+                        
+            except Exception as e:
+                print(f"Error setting up visualization directory: {e}")
+        
+        return {
+            "figures": figures,
+            "saved_paths": saved_paths
         }
     
     @staticmethod
     def run_pruning_cycle(model, train_dataloader, eval_dataloader, 
                           pruning_level=0.2, strategy="combined", 
                           learning_rate=5e-5, training_steps=100,
-                          callback=None):
+                          callback=None, save_visualizations=False,
+                          output_dir=None):
         """
         Run a complete pruning cycle: analyze → prune → train → evaluate.
         
@@ -388,11 +429,65 @@ class NeuralPlasticity:
             learning_rate: Learning rate for fine-tuning
             training_steps: Number of training steps
             callback: Optional callback function for progress tracking
+            save_visualizations: Whether to save visualizations to disk
+            output_dir: Directory to save visualizations (created if it doesn't exist)
             
         Returns:
             Dictionary with pruning results and metrics
         """
-        return run_plasticity_loop(
+        # Define a wrapper callback that also saves visualizations
+        import os
+        
+        # Prepare output directory
+        if save_visualizations and output_dir:
+            os.makedirs(output_dir, exist_ok=True)
+        
+        # Define a wrapper callback that handles visualization saving
+        def viz_callback(event, step, metrics):
+            # Call the original callback if provided
+            if callback:
+                callback(event, step, metrics)
+                
+            # Save visualizations for key events
+            if save_visualizations and output_dir:
+                # Create event-specific directory
+                event_dir = os.path.join(output_dir, f"{event}_step{step}")
+                os.makedirs(event_dir, exist_ok=True)
+                
+                # For pruning event, save pruning mask visualization
+                if event == "pruning" and "pruning_mask" in metrics:
+                    try:
+                        pruning_fig = visualize_pruning_decisions(
+                            grad_norm_values=metrics.get("grad_norm_values", None),
+                            pruning_mask=metrics.get("pruning_mask", None),
+                            title=f"Pruning Decisions (Step {step})"
+                        )
+                        pruning_fig.savefig(os.path.join(event_dir, "pruning_mask.png"), 
+                                          dpi=100, bbox_inches='tight')
+                    except Exception as e:
+                        print(f"Error saving pruning visualization: {e}")
+                        
+                # For training event, save training metrics
+                if event == "training" and "train_loss" in metrics:
+                    try:
+                        # Create metrics history compatible with visualization function
+                        metrics_history = {
+                            "train_loss": [metrics.get("train_loss", 0)],
+                            "eval_loss": [metrics.get("eval_loss", 0)],
+                            "perplexity": [metrics.get("perplexity", 0)],
+                            "step": [step]
+                        }
+                        train_fig = visualize_training_metrics(
+                            metrics_history=metrics_history,
+                            title=f"Training Progress (Step {step})"
+                        )
+                        train_fig.savefig(os.path.join(event_dir, "training_metrics.png"), 
+                                        dpi=100, bbox_inches='tight')
+                    except Exception as e:
+                        print(f"Error saving training visualization: {e}")
+        
+        # Run the plasticity loop with our wrapper callback
+        results = run_plasticity_loop(
             model=model,
             train_dataloader=train_dataloader,
             eval_dataloader=eval_dataloader,
@@ -400,8 +495,14 @@ class NeuralPlasticity:
             strategy=strategy,
             learning_rate=learning_rate,
             training_steps=training_steps,
-            callback=callback
+            callback=viz_callback if save_visualizations else callback
         )
+        
+        # Add visualization paths to results if applicable
+        if save_visualizations and output_dir:
+            results["visualization_dir"] = output_dir
+            
+        return results
     
     @staticmethod
     def compute_entropy_with_diagnostics(attention_maps, eps=1e-8, debug=True):
@@ -440,7 +541,9 @@ class NeuralPlasticity:
     @staticmethod
     def run_warmup_training(model, train_dataloader, max_epochs=1, 
                            learning_rate=5e-5, patience=15,
-                           device=None, verbose=True):
+                           device=None, verbose=True,
+                           save_visualizations=False,
+                           output_dir=None):
         """
         Run a warmup phase until loss stabilizes.
         
@@ -454,9 +557,11 @@ class NeuralPlasticity:
             patience: Steps without improvement to consider stable
             device: Device to run on
             verbose: Whether to print progress info
+            save_visualizations: Whether to save visualizations to disk
+            output_dir: Directory to save visualizations (created if it doesn't exist)
             
         Returns:
-            Dictionary with warmup metrics
+            Dictionary with warmup metrics and saved visualization paths
         """
         return run_warmup_phase(
             model=model,
@@ -465,7 +570,9 @@ class NeuralPlasticity:
             learning_rate=learning_rate,
             patience=patience,
             device=device,
-            verbose=verbose
+            verbose=verbose,
+            save_visualizations=save_visualizations,
+            output_dir=output_dir
         )
     
     @staticmethod
