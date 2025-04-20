@@ -171,7 +171,7 @@ class BaseExperiment(ABC):
     def _setup_logging(self):
         """Set up logging for the experiment."""
         # Create log directory
-        log_dir = self.output_dir / "logs"
+        log_dir = Path(self.output_dir) / "logs"
         os.makedirs(log_dir, exist_ok=True)
         
         # Create timestamped log file
@@ -221,7 +221,7 @@ class BaseExperiment(ABC):
             experiment_id = f"{self.experiment_name}_{timestamp}"
             
         # Create experiment directory
-        experiment_dir = self.output_dir / experiment_id
+        experiment_dir = Path(self.output_dir) / experiment_id
         os.makedirs(experiment_dir, exist_ok=True)
         
         # Create subdirectories
@@ -249,7 +249,7 @@ class BaseExperiment(ABC):
             Path to saved parameters file
         """
         # Create experiment directory
-        experiment_dir = self.output_dir / experiment_id
+        experiment_dir = Path(self.output_dir) / experiment_id
         os.makedirs(experiment_dir, exist_ok=True)
         
         # Add timestamp to parameters
@@ -347,7 +347,7 @@ class BaseExperiment(ABC):
             Dictionary of experiment results
         """
         # Create experiment directory path
-        experiment_dir = self.output_dir / experiment_id
+        experiment_dir = Path(self.output_dir) / experiment_id
         
         # Load results from JSON file
         results_path = experiment_dir / filename

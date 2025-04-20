@@ -241,7 +241,7 @@ class NeuralPlasticityExperiment(BaseExperiment):
             entropy_data = pruner.collect_distributions(self.model, eval_dataloader)
             
             # Save pre-pruning entropy
-            experiment_dir = self.output_dir / experiment_id
+            experiment_dir = Path(self.output_dir) / experiment_id
             entropy_path = experiment_dir / "pre_entropy.json"
             self._save_tensor_dict(entropy_data, entropy_path)
                 
@@ -260,7 +260,7 @@ class NeuralPlasticityExperiment(BaseExperiment):
         logger.info(f"Pruned {len(pruned_heads)} heads")
         
         # Save pruned heads
-        experiment_dir = self.output_dir / experiment_id
+        experiment_dir = Path(self.output_dir) / experiment_id
         pruned_heads_path = experiment_dir / "pruned_heads.json"
         with open(pruned_heads_path, "w") as f:
             import json
@@ -330,6 +330,7 @@ class NeuralPlasticityExperiment(BaseExperiment):
             post_entropy_data = pruner.collect_distributions(self.model, eval_dataloader)
             
             # Save post-pruning entropy
+            experiment_dir = Path(self.output_dir) / experiment_id
             post_entropy_path = experiment_dir / "post_entropy.json"
             self._save_tensor_dict(post_entropy_data, post_entropy_path)
                 
@@ -385,6 +386,7 @@ class NeuralPlasticityExperiment(BaseExperiment):
         if save_model:
             self.update_colab_progress("Saving model...", 0.9)
             logger.info("Saving model")
+            experiment_dir = Path(self.output_dir) / experiment_id
             model_path = experiment_dir / "models" / "final_model"
             self.model.save_pretrained(str(model_path))
             logger.info(f"Model saved to {model_path}")
