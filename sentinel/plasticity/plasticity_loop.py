@@ -202,7 +202,9 @@ class PlasticityTracker:
         
         # Identify regrown heads
         for layer_idx, head_idx, _ in self.pruned_heads:
-            if layer_idx in initial_gates and layer_idx in final_gates:
+            if (layer_idx in initial_gates and layer_idx in final_gates and 
+                0 <= head_idx < len(initial_gates[layer_idx]) and 
+                0 <= head_idx < len(final_gates[layer_idx])):
                 initial_value = initial_gates[layer_idx][head_idx].item()
                 final_value = final_gates[layer_idx][head_idx].item()
                 
@@ -216,9 +218,16 @@ class PlasticityTracker:
                     
                     # Add entropy change if available
                     if self.entropy_history and min(self.entropy_history.keys()) in self.entropy_history and max(self.entropy_history.keys()) in self.entropy_history:
-                        if layer_idx in self.entropy_history[min(self.entropy_history.keys())] and layer_idx in self.entropy_history[max(self.entropy_history.keys())]:
-                            initial_entropy = self.entropy_history[min(self.entropy_history.keys())][layer_idx][head_idx].item()
-                            final_entropy = self.entropy_history[max(self.entropy_history.keys())][layer_idx][head_idx].item()
+                        min_key = min(self.entropy_history.keys())
+                        max_key = max(self.entropy_history.keys())
+                        
+                        if (layer_idx in self.entropy_history[min_key] and 
+                            layer_idx in self.entropy_history[max_key] and
+                            0 <= head_idx < len(self.entropy_history[min_key][layer_idx]) and
+                            0 <= head_idx < len(self.entropy_history[max_key][layer_idx])):
+                            
+                            initial_entropy = self.entropy_history[min_key][layer_idx][head_idx].item()
+                            final_entropy = self.entropy_history[max_key][layer_idx][head_idx].item()
                             entropy_change = final_entropy - initial_entropy
                             regrowth_data[(layer_idx, head_idx)]['initial_entropy'] = initial_entropy
                             regrowth_data[(layer_idx, head_idx)]['final_entropy'] = final_entropy
