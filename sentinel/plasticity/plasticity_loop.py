@@ -1422,8 +1422,8 @@ class PlasticityExperiment:
         # Save figure
         filename = "recovery_analysis.png"
         save_path = os.path.join(viz_dir, filename)
-        fig.savefig(save_path, bbox_inches='tight', dpi=300)
-        plt.close(fig)
+        plt.savefig(save_path, bbox_inches='tight', dpi=300)
+        plt.close()
         
         logger.info(f"Saved recovery analysis visualization to {save_path}")
         return save_path
