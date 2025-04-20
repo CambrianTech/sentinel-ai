@@ -473,7 +473,7 @@ class BaseExperiment(ABC):
         
         # Set instance attributes from parsed arguments
         for key, value in vars(parsed_args).items():
-            if hasattr(instance, key):
+            if hasattr(instance, key) or key == 'quick_test':
                 setattr(instance, key, value)
                 
         return instance

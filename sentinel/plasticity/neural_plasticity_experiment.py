@@ -67,6 +67,7 @@ class NeuralPlasticityExperiment(BaseExperiment):
         self.model_name = model_name
         self.adaptive_model = adaptive_model
         self.model = None
+        self.quick_test = False  # Will be set if --quick_test flag is provided
         
         # Initialize visualizers if needed
         self._initialize_visualizers()
