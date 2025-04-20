@@ -73,6 +73,7 @@ class NeuralPlasticityExperiment(BaseExperiment):
         self.pruning_level = 0.2           # Default pruning level
         self.fine_tuning_steps = 500       # Default number of fine-tuning steps
         self.learning_rate = 5e-5          # Default learning rate
+        self.no_visualize = False          # Default to generating visualizations
         
         # Initialize visualizers if needed
         self._initialize_visualizers()
