@@ -1,95 +1,154 @@
-# Neural Plasticity on Apple Silicon
+# Neural Plasticity Cross-Platform Guide
 
-## Core Features and Optimizations for Apple Silicon
+This guide provides instructions for running the Neural Plasticity notebook across different platforms, with special focus on resolving issues on Apple Silicon (M1/M2/M3) chips and ensuring cross-platform compatibility.
 
-This implementation of Neural Plasticity has been optimized to work reliably on Apple Silicon (M1/M2/M3) while maintaining full GPU support on Colab. The key features include:
+## Overview
 
-### 1. Environment Detection
+The Neural Plasticity Demo showcases how transformer models can adapt their structure through dynamic pruning and regrowth of attention heads. This mimics how biological brains form efficient neural pathways by strengthening useful connections and pruning unused ones.
 
-- Automatically detects Apple Silicon vs. Colab environments
-- Configures optimizations based on the specific hardware
-- Seamlessly adapts tensor operations for best performance on each platform
+## Key Features
 
-### 2. Apple Silicon Optimizations
+- **Attention Head Entropy Analysis**: Identify unfocused/dispersed attention patterns
+- **Gradient-Based Importance**: Measure each head's contribution to the model's output
+- **Dynamic Pruning**: Selectively remove heads with high entropy and low gradient impact
+- **Adaptive Recovery**: Optionally restore pruned heads that become more useful
+- **Visualization**: Track and visualize the pruning decisions and model performance
 
-- Prevents BLAS/libtorch crashes on Apple Silicon with multi-level fallback:
-  - Level 1: Uses NumPy-based matrix multiplication when possible
-  - Level 2: Uses manual Python implementation for smaller matrices
-  - Level 3: Uses protected single-threaded PyTorch operations
-- Forces single-threaded BLAS operations
-- Disables problematic optimizations that cause crashes
-- Handles memory layout and contiguity issues automatically
-- Auto-handles tensor devices and gradients
+## Platform-Specific Optimizations
 
-### 3. Colab GPU Support
+The notebook automatically detects your environment and applies appropriate optimizations:
 
-- Automatically detects and utilizes GPU in Colab
-- Places tensors on GPU for maximum speed
-- Handles device transitions seamlessly
-- Optimizes batch sizes based on available GPU memory
+### Apple Silicon (M1/M2/M3)
 
-### 4. Universal Compatibility
+On Apple Silicon, the code:
+- Detects Apple chips using platform module
+- Forces CPU execution to avoid BLAS/libtorch crashes
+- Disables multi-threading for BLAS operations
+- Uses safer tensor operations with multiple fallback mechanisms
+- Implements safe matrix multiplication that avoids native BLAS issues
+- Adds special handling for visualization operations
 
-- Works consistently across all environments:
-  - Apple Silicon (M1/M2/M3)
-  - Colab with GPU
-  - Colab without GPU
-  - Standard x86 CPUs
-- No code changes needed when moving between environments
+### Google Colab
 
-### 5. Robust Error Handling
+In Colab environments, the code:
+- Detects GPU availability and optimizes operations accordingly
+- Utilizes GPU acceleration when available for improved performance
+- Handles proper tensor placement between CPU/GPU for visualizations
+- Pre-installs required dependencies and resolves import conflicts
 
-- Proper handling of NaN/Inf values
-- Graceful degradation when operations fail
-- Detailed error reporting for debugging
-- Auto-recovery from numerical issues
+### Standard Hardware
 
-## Key Components
+On regular systems (Intel/AMD), the code:
+- Utilizes GPU if available while preserving CPU compatibility
+- Uses standard PyTorch operations without special handling
+- Takes advantage of multi-threading for better performance
 
-1. **safe_matmul**: A robust matrix multiplication function that works reliably on all platforms
-2. **calculate_head_entropy**: Entropy calculation for attention heads with proper numerical stability
-3. **IS_APPLE_SILICON**: Detection flag for Apple Silicon optimization
-4. **Visualization enhancements**: Proper tensor handling for visualization on all platforms
+## Running the Notebook
 
-## Testing
+### Setting Up Environment
 
-All components have been thoroughly tested on Apple Silicon with comprehensive tests:
+First, ensure you're in a virtual environment:
 
-1. **Matrix Stability Test**: Tests matrix multiplication with various sizes (small to large)
-2. **Entropy Calculation Test**: Tests entropy calculation on attention maps
-3. **Large Tensor Test**: Tests handling of very large tensors (1000x1000 and larger)
-4. **Visualization Test**: Tests visualization capabilities with proper tensor handling
-
-## Usage
-
-Simply use the functions provided by the Neural Plasticity module. The environment detection and optimization happens automatically.
-
-```python
-from utils.neural_plasticity.core import safe_matmul, calculate_head_entropy
-
-# Matrix multiplication (works on all platforms)
-result = safe_matmul(matrix_a, matrix_b)
-
-# Entropy calculation (works on all platforms)
-entropy = calculate_head_entropy(attention_maps)
+```bash
+# Activate the existing virtual environment
+source .venv/bin/activate  # On Linux/Mac
+.venv\Scripts\activate     # On Windows
 ```
 
-## Running the NeuralPlasticityDemo Notebook
+### Installing Dependencies
 
-To run the NeuralPlasticityDemo notebook safely on Apple Silicon:
+Next, install all required dependencies:
 
-1. Use the provided runner script:
-   ```bash
-   python run_neural_plasticity_safe.py
-   ```
+```bash
+# Automatically install all required dependencies
+python scripts/install_neural_plasticity_deps.py
+```
 
-2. Or manually run the verified test:
-   ```bash
-   python neural_plasticity_test_verified.py
-   ```
+This will install:
+- PyTorch: Base deep learning framework
+- Transformers: For loading and using transformer models
+- Datasets: For data loading and processing
+- Matplotlib & Seaborn: For visualizations
+- nbformat & jupyter: For notebook processing
 
-The implementation successfully passes all tests on Apple Silicon, ensuring reliable operation without crashes.
+### Fixing the Dataset Import Conflict
 
-## Version History
+The notebook requires the `datasets` module, but there's a known circular import issue. We've created scripts to fix this problem:
 
-- v0.0.58 (2025-04-19): Added comprehensive Apple Silicon support with multi-level fallback and cross-platform compatibility
+```bash
+# Option 1: Fix dataset imports only
+python scripts/fix_neural_plasticity_datasets.py
+
+# Option 2: Fix all issues (imports, Apple Silicon compatibility, etc.)
+python scripts/fix_neural_plasticity_imports.py
+
+# Option 3: Fix and execute the notebook end-to-end
+python scripts/run_neural_plasticity_notebook_e2e.py
+```
+
+### Running on Apple Silicon (M1/M2/M3)
+
+```bash
+# Method 1: Run with fixes and safety measures
+python scripts/run_neural_plasticity_notebook_e2e.py
+
+# Method 2: Fix dataset imports first
+python scripts/fix_neural_plasticity_datasets.py
+# Then open and run the fixed notebook in JupyterLab
+jupyter lab notebooks/NeuralPlasticityDemo_datasets_fixed.ipynb
+```
+
+### Running in Google Colab
+
+1. Upload the notebook to Colab
+2. Ensure you've selected a GPU runtime (Runtime > Change runtime type > Hardware accelerator > GPU)
+3. Run all cells - the first few cells will automatically clone the repository and set up the environment
+
+### Running on Standard Hardware
+
+```bash
+# Fix and run the notebook
+python scripts/run_neural_plasticity_notebook_e2e.py
+```
+
+## Troubleshooting
+
+### Apple Silicon Issues
+
+**Problem**: BLAS/libtorch crashes during matrix operations
+**Solution**: We've implemented a comprehensive solution with multiple fallbacks:
+1. First attempt: Safely convert tensors and use NumPy's matrix multiplication
+2. Second attempt: Use a Python-based implementation for small matrices
+3. Last resort: Use PyTorch with single-threading and safety measures
+
+### Dataset Import Conflicts
+
+**Problem**: Circular imports with the `datasets` module
+**Solution**: We pre-import the module and inject the necessary functions to avoid circular references
+
+### GPU Memory Issues
+
+**Problem**: Out of memory errors on GPU
+**Solution**: Reduce batch size or sequence length in the notebook configuration section
+
+## Scripts
+
+| Script | Description |
+|--------|-------------|
+| `scripts/fix_neural_plasticity_datasets.py` | Fixes dataset import conflicts |
+| `scripts/fix_neural_plasticity_imports.py` | Comprehensive fixes for imports and cross-platform compatibility |
+| `scripts/run_neural_plasticity_notebook_e2e.py` | Fixes and executes the notebook end-to-end |
+| `scripts/run_neural_plasticity_minimal.py` | Runs a minimal version of the notebook |
+| `scripts/fix_neural_plasticity_local.py` | Applies local environment fixes |
+
+## Core Modules
+
+The neural plasticity functionality is implemented in these core modules:
+
+- `utils/neural_plasticity/core.py`: Core algorithms for entropy calculation, gradient analysis, and pruning
+- `utils/neural_plasticity/visualization.py`: Visualization utilities for attention patterns and metrics
+- `utils/colab/helpers.py`: Colab-specific utilities for environment detection and tensor handling
+
+## Conclusion
+
+With the fixes and optimizations we've implemented, the Neural Plasticity Demo should now run reliably across all platforms, including Apple Silicon Macs that previously experienced BLAS/libtorch crashes.
