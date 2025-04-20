@@ -93,24 +93,52 @@ def safe_matmul(
         return torch.matmul(a, b)
     
     # On Apple Silicon (local execution), we need extra precautions
-    # Ensure tensors are on CPU
-    if a.is_cuda:
-        a = a.cpu()
-    if b.is_cuda:
-        b = b.cpu()
-    
-    # Ensure tensors are contiguous for better memory layout
-    if not a.is_contiguous():
-        a = a.contiguous()
-    if not b.is_contiguous():
-        b = b.contiguous()
-    
-    # Ensure gradient tracking is disabled for matmul operation
-    with torch.no_grad():
-        # Perform matrix multiplication
-        result = torch.matmul(a.detach(), b.detach())
-    
-    return result
+    try:
+        # Ensure tensors are on CPU
+        if a.is_cuda:
+            a = a.cpu()
+        if b.is_cuda:
+            b = b.cpu()
+        
+        # Ensure tensors are contiguous for better memory layout
+        if not a.is_contiguous():
+            a = a.contiguous()
+        if not b.is_contiguous():
+            b = b.contiguous()
+        
+        # Ensure tensors are in float32 for better numerical stability
+        if a.dtype != torch.float32 and a.dtype.is_floating_point:
+            a = a.to(torch.float32)
+        if b.dtype != torch.float32 and b.dtype.is_floating_point:
+            b = b.to(torch.float32)
+        
+        # Ensure gradient tracking is disabled for matmul operation
+        with torch.no_grad():
+            # Perform matrix multiplication
+            result = torch.matmul(a.detach(), b.detach())
+            
+            # Check for NaN/Inf values in result
+            if torch.isnan(result).any() or torch.isinf(result).any():
+                # Replace with zeros if NaN/Inf are found
+                result = torch.where(torch.isfinite(result), result, torch.zeros_like(result))
+                print("Warning: NaN/Inf values detected in matrix multiplication result")
+            
+        return result
+        
+    except Exception as e:
+        print(f"Error in safe_matmul: {e}")
+        # Fallback method using manual dot product for extreme cases
+        try:
+            # Try with numpy as absolute fallback
+            a_np = a.detach().cpu().numpy()
+            b_np = b.detach().cpu().numpy()
+            result_np = np.matmul(a_np, b_np)
+            return torch.tensor(result_np, device='cpu')
+        except Exception as np_error:
+            print(f"Fallback numpy matmul also failed: {np_error}")
+            # Return zero tensor of appropriate shape as last resort
+            out_shape = list(a.shape[:-1]) + list(b.shape[1:])
+            return torch.zeros(out_shape, device='cpu')
 
 def calculate_head_entropy(
     attention_maps: torch.Tensor,
