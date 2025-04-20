@@ -2,7 +2,7 @@
 
 ## Claude Notes - Sentinel-AI Project
 - ALWAYS increment version numbers when fixing bugs (e.g., v0.0.33 → v0.0.34)
-- ALWAYS include full timestamps in version numbers (e.g., v0.0.34 (2025-04-19 18:30:00))
+- ALWAYS include full timestamps in version numbers with CURRENT YEAR 2025 (e.g., v0.0.34 (2025-04-19 18:30:00))
 - Version numbers go in file content, NOT in filenames (we use git for versioning)
 - When loading notebooks in Colab, always load from the current branch, not main
 - Only switch back to main branch after PR is merged 
@@ -193,3 +193,7 @@ gh pr create --title "Add my feature" --body "..."
 - Close and release resources like matplotlib figures when done with visualizations
 - Monitor disk space usage and clean up temporary files regularly
 - Use smaller/sampled datasets for testing and demonstrations
+- Always check system date (currently 2025) before adding timestamps
+- Use safe_tensor_imshow for GPU tensor visualization instead of raw plt.imshow
+- Never make assumptions about the current date - get it from the system
+- Carefully test code for syntax errors before committing
