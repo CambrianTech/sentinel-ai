@@ -105,14 +105,40 @@ def parse_args():
 
 
 def create_simple_dataset(tokenizer, num_samples=50, seq_length=64):
-    """Create a simple dataset for testing."""
+    """Create a simple dataset for testing using actual coherent text."""
     from datasets import Dataset
     import numpy as np
     
-    # Generate random token IDs
-    vocab_size = tokenizer.vocab_size
-    input_ids = torch.randint(100, vocab_size-100, (num_samples, seq_length)).numpy()
-    attention_mask = torch.ones((num_samples, seq_length), dtype=torch.long).numpy()
+    # Use real pre-defined sentences that make sense for language modeling
+    # This ensures the model can actually predict the sequence, giving realistic perplexity
+    texts = [
+        "The quick brown fox jumps over the lazy dog.",
+        "In a world where technology continues to advance, humans seek deeper connections.",
+        "Artificial intelligence systems are designed to process and learn from vast amounts of data.",
+        "The history of computing can be traced back to ancient calculating devices.",
+        "Neural networks consist of interconnected layers of artificial neurons.",
+        "Machine learning algorithms improve through experience without explicit programming.",
+        "The field of deep learning has revolutionized computer vision and natural language processing.",
+        "Transformer models use attention mechanisms to process sequential data efficiently.",
+        "Natural language understanding remains a challenging problem in artificial intelligence.",
+        "The development of large language models has led to significant advances in text generation."
+    ]
+    
+    # Create enough samples by repeating and combining these texts
+    all_texts = []
+    for _ in range(num_samples // len(texts) + 1):
+        all_texts.extend(texts)
+    all_texts = all_texts[:num_samples]
+    
+    # Tokenize the texts with padding and truncation
+    encodings = tokenizer(all_texts, padding="max_length", truncation=True, 
+                         max_length=seq_length, return_tensors="pt")
+    
+    # Extract input_ids and attention_mask
+    input_ids = encodings["input_ids"].numpy()
+    attention_mask = encodings["attention_mask"].numpy()
+    
+    # For causal language modeling, labels are the same as input_ids
     labels = input_ids.copy()
     
     # Create dataset with dictionaries that HuggingFace data collator expects
@@ -130,12 +156,55 @@ def create_simple_dataset(tokenizer, num_samples=50, seq_length=64):
 def create_dataloader_builder(args, tokenizer, quick_test=False):
     """Create a function that builds dataloaders."""
     def build_dataloaders(batch_size=args.batch_size):
-        # For quick tests, create a synthetic dataset
+        # For quick tests, use a small subset of a real dataset
         if quick_test:
-            # Create simple datasets
-            logger.info("Creating synthetic datasets for quick test...")
-            train_dataset = create_simple_dataset(tokenizer, num_samples=50, seq_length=64)
-            eval_dataset = create_simple_dataset(tokenizer, num_samples=10, seq_length=64)
+            try:
+                # Use wikitext as a small but real dataset instead of synthetic data
+                logger.info("Loading small wikitext sample for quick test...")
+                
+                # Always use real text data, just with a small sample for quick testing
+                train_dataset = load_dataset("wikitext", "wikitext-2-raw-v1", split="train[:100]")
+                eval_dataset = load_dataset("wikitext", "wikitext-2-raw-v1", split="validation[:20]")
+                
+                # Check if dataset has a text column
+                if "text" in train_dataset.column_names:
+                    # Define tokenization function
+                    def tokenize_function(examples):
+                        return tokenizer(
+                            examples["text"], 
+                            padding="max_length", 
+                            truncation=True, 
+                            max_length=args.max_length
+                        )
+                    
+                    # Process datasets
+                    train_dataset = train_dataset.map(tokenize_function, batched=True)
+                    eval_dataset = eval_dataset.map(tokenize_function, batched=True)
+                    
+                    # Remove original text columns
+                    train_dataset = train_dataset.remove_columns(["text"])
+                    eval_dataset = eval_dataset.remove_columns(["text"])
+                    
+                    # Add labels for language modeling
+                    def add_labels(examples):
+                        examples["labels"] = examples["input_ids"].copy()
+                        return examples
+                    
+                    train_dataset = train_dataset.map(add_labels)
+                    eval_dataset = eval_dataset.map(add_labels)
+                    
+                    # Set torch format
+                    train_dataset = train_dataset.with_format("torch")
+                    eval_dataset = eval_dataset.with_format("torch")
+                    
+                    logger.info(f"Using real wikitext data (small sample) for quick test")
+                else:
+                    raise ValueError("Wikitext dataset missing 'text' column")
+            except Exception as e:
+                # Only use the text-based synthetic dataset as fallback, not random tokens
+                logger.warning(f"Failed to load wikitext for quick test: {e}. Using fallback text dataset.")
+                train_dataset = create_simple_dataset(tokenizer, num_samples=50, seq_length=64)
+                eval_dataset = create_simple_dataset(tokenizer, num_samples=10, seq_length=64)
             
         else:
             # Load real dataset
@@ -250,9 +319,9 @@ def main():
     # Create output directory with timestamp if not provided
     if args.output_dir is None:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        # Use the output directory as requested
+        # Use the /output directory as requested
         args.output_dir = os.path.join(
-            "neural_plasticity_output",
+            "output",
             f"run_{timestamp}"
         )
     

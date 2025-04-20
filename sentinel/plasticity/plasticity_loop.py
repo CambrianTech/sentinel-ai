@@ -13,6 +13,7 @@ import os
 import numpy as np
 import json
 import logging
+import math
 import matplotlib.pyplot as plt
 from typing import Optional, List, Dict, Tuple, Callable, Union, Any
 from pathlib import Path
@@ -695,8 +696,16 @@ class PlasticityExperiment:
                     losses.append(loss.item())
             
             avg_loss = sum(losses) / len(losses)
+            
+            # Calculate perplexity directly from loss
+            # This should now be safe since we're using real text data
             perplexity = torch.exp(torch.tensor(avg_loss)).item()
             
+            # Add a simple sanity check warning if perplexity seems unreasonable
+            if perplexity > 10000:
+                logger.warning(f"Unusually high perplexity: {perplexity:.1f}. This suggests the model is struggling with the data.")
+                
+            # Report both values for clarity
             return {
                 "loss": avg_loss,
                 "perplexity": perplexity
@@ -797,18 +806,18 @@ class PlasticityExperiment:
                 
                 ax2 = ax.twinx()
                 
-                # Determine if log scale is needed
-                if max_perplexity > 1000:
-                    # Use log scale for very large values
+                # Set up the perplexity axis based on the range of values
+                if max_perplexity > 100:
+                    # Use log scale for better visualization when values span multiple orders of magnitude
                     ax2.set_yscale('log')
                     ax2.plot(x_range, perplexities, 'g-', linewidth=2, label='Perplexity (log scale)')
                     ax2.set_ylabel('Perplexity (log scale)', color='g')
                 else:
-                    # Use linear scale with reasonable upper bound
+                    # Use linear scale for smaller, similar-magnitude values
                     ax2.plot(x_range, perplexities, 'g-', linewidth=2, label='Perplexity')
                     ax2.set_ylabel('Perplexity', color='g')
                     # Set reasonable upper limit with some headroom
-                    ax2.set_ylim(0, min(max_perplexity * 1.2, 100))
+                    ax2.set_ylim(0, max_perplexity * 1.2)
                 
                 ax2.tick_params(axis='y', labelcolor='g')
                 
@@ -1266,21 +1275,15 @@ class PlasticityExperiment:
                 for bar_idx, bar in enumerate(bars):
                     height = bar.get_height()
                     
-                    # Check if values are log-scaled
-                    if "perplexity_scaled" in baseline_metrics and metric == "perplexity":
-                        # Show both the log value and the actual value in a more readable format
-                        if bar_idx == 0 and "original_perplexity" in baseline_metrics:
-                            original = baseline_metrics["original_perplexity"]
-                            label = f'log₁₀({original:.0f})={values[bar_idx]:.2f}'
-                        elif bar_idx == 1 and "original_perplexity" in pruned_metrics:
-                            original = pruned_metrics["original_perplexity"]
-                            label = f'log₁₀({original:.0f})={values[bar_idx]:.2f}'
-                        elif bar_idx == 2 and "original_perplexity" in final_metrics:
-                            original = final_metrics["original_perplexity"]
-                            label = f'log₁₀({original:.0f})={values[bar_idx]:.2f}'
+                    # Format perplexity values for better readability
+                    if metric == "perplexity":
+                        # For perplexity, use K notation for thousands
+                        if values[bar_idx] > 1000:
+                            label = f'{values[bar_idx]/1000:.1f}K'
                         else:
-                            label = f'log₁₀({10**values[bar_idx]:.0f})={values[bar_idx]:.2f}'
+                            label = f'{values[bar_idx]:.1f}'
                     else:
+                        # For other metrics like loss, show full precision
                         label = f'{values[bar_idx]:.2f}'
                     
                     ax1.text(
@@ -1294,11 +1297,8 @@ class PlasticityExperiment:
         ax1.set_xlabel('Training Stage', fontsize=14, labelpad=10)
         ax1.set_ylabel('Metric Value', fontsize=14, labelpad=10)
         
-        # Check if perplexity values are log-scaled and update title accordingly
-        if "perplexity_scaled" in baseline_metrics:
-            ax1.set_title('Model Recovery Analysis (log₁₀-scaled perplexity)', fontsize=16, weight='bold', pad=20)
-        else:
-            ax1.set_title('Model Recovery Analysis', fontsize=16, weight='bold', pad=20)
+        # Add title with clear explanation
+        ax1.set_title('Model Recovery Analysis', fontsize=16, weight='bold', pad=20)
         ax1.set_xticks(x)
         ax1.set_xticklabels(stages, fontsize=12)
         ax1.legend(fontsize=12)
@@ -1327,55 +1327,16 @@ class PlasticityExperiment:
                 pruned = pruned_metrics[metric]
                 final = final_metrics[metric]
                 
-                # Check if we're dealing with log-scaled perplexity
-                if metric == "perplexity" and "perplexity_scaled" in baseline_metrics:
-                    # For log-scaled values, we need to convert back to original for meaningful recovery percentage
-                    if "original_perplexity" in baseline_metrics and \
-                       "original_perplexity" in pruned_metrics and \
-                       "original_perplexity" in final_metrics:
-                        orig_baseline = baseline_metrics["original_perplexity"]
-                        orig_pruned = pruned_metrics["original_perplexity"] 
-                        orig_final = final_metrics["original_perplexity"]
-                        
-                        # Calculate using original values
-                        degradation = orig_pruned - orig_baseline
-                        recovery_amount = orig_pruned - orig_final
-                        
-                        if degradation > 0:  # Only calculate recovery if there was degradation
-                            recovery_percent = (recovery_amount / degradation) * 100
-                            recovery_metrics[metric] = {
-                                'degradation': degradation,
-                                'recovery': recovery_amount,
-                                'recovery_percent': recovery_percent
-                            }
-                    else:
-                        # Convert log values back to original for calculations
-                        orig_baseline = 10 ** baseline
-                        orig_pruned = 10 ** pruned
-                        orig_final = 10 ** final
-                        
-                        degradation = orig_pruned - orig_baseline
-                        recovery_amount = orig_pruned - orig_final
-                        
-                        if degradation > 0:  # Only calculate recovery if there was degradation
-                            recovery_percent = (recovery_amount / degradation) * 100
-                            recovery_metrics[metric] = {
-                                'degradation': degradation,
-                                'recovery': recovery_amount,
-                                'recovery_percent': recovery_percent
-                            }
-                else:
-                    # Standard calculation for non-log-scaled metrics
-                    # Calculate degradation and recovery
-                    degradation = pruned - baseline
-                    recovery_amount = pruned - final
-                    
-                    if degradation > 0:  # Only calculate recovery if there was degradation
-                        recovery_percent = (recovery_amount / degradation) * 100
-                        recovery_metrics[metric] = {
-                            'degradation': degradation,
-                            'recovery': recovery_amount,
-                            'recovery_percent': recovery_percent
+                # Direct calculation - no need for special handling since we fixed the perplexity calculation
+                degradation = pruned - baseline
+                recovery_amount = pruned - final
+                
+                if degradation > 0:  # Only calculate recovery if there was degradation
+                    recovery_percent = (recovery_amount / degradation) * 100
+                    recovery_metrics[metric] = {
+                        'degradation': degradation,
+                        'recovery': recovery_amount,
+                        'recovery_percent': recovery_percent
                         }
         
         # Create recovery visualization
@@ -2026,33 +1987,26 @@ class PlasticityExperiment:
                             f"After pruning: {viz_pruned.get('perplexity', 0):.2f}, " + 
                             f"After fine-tuning: {viz_final.get('perplexity', 0):.2f}")
                 
-                # Apply log scaling for large values
-                if max_perplexity > 1000:
-                    # Store original values before scaling
-                    if "perplexity" in viz_baseline:
-                        viz_baseline["original_perplexity"] = viz_baseline["perplexity"]
-                        viz_baseline["perplexity"] = np.log10(viz_baseline["perplexity"])
-                    if "perplexity" in viz_pruned:
-                        viz_pruned["original_perplexity"] = viz_pruned["perplexity"]
-                        viz_pruned["perplexity"] = np.log10(viz_pruned["perplexity"])
-                    if "perplexity" in viz_final:
-                        viz_final["original_perplexity"] = viz_final["perplexity"]
-                        viz_final["perplexity"] = np.log10(viz_final["perplexity"])
+                # Use logarithmic scale for perplexity when values are large
+                # This maintains relative comparison while making the visualization readable
+                if max_perplexity > 100:
+                    logger.info(f"Using logarithmic scale for perplexity comparison visualization")
                     
-                    # Note the scaling in the visualization
-                    viz_baseline["perplexity_scaled"] = True
-                    viz_pruned["perplexity_scaled"] = True
-                    viz_final["perplexity_scaled"] = True
-                    logger.info(f"Applied log10 scaling to perplexity values")
+                    # Store original values and create log-scaled versions for better visualization
+                    for viz_data in [viz_baseline, viz_pruned, viz_final]:
+                        if "perplexity" in viz_data:
+                            viz_data["original_perplexity"] = viz_data["perplexity"]
+                            # Use log scale for the visualization
+                            viz_data["perplexity"] = np.log(viz_data["perplexity"])
+                            viz_data["perplexity_scaled"] = True
+                    
+                    # Add note to the visualization about the scaling
+                    viz_baseline["scale_note"] = "log scale"
                 else:
-                    # For smaller values, just cap them at a reasonable maximum
-                    scale_cap = 100
-                    if "perplexity" in viz_baseline and viz_baseline["perplexity"] > scale_cap:
-                        viz_baseline["perplexity"] = scale_cap
-                    if "perplexity" in viz_pruned and viz_pruned["perplexity"] > scale_cap:
-                        viz_pruned["perplexity"] = scale_cap
-                    if "perplexity" in viz_final and viz_final["perplexity"] > scale_cap:
-                        viz_final["perplexity"] = scale_cap
+                    # For small perplexity values, we can use the original values directly
+                    for viz_data in [viz_baseline, viz_pruned, viz_final]:
+                        if "perplexity" in viz_data:
+                            viz_data["original_perplexity"] = viz_data["perplexity"]
             
             recovery_path = self._visualize_recovery_analysis(
                 baseline_metrics=viz_baseline,
