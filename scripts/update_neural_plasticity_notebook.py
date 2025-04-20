@@ -20,6 +20,7 @@ import json
 import nbformat
 from datetime import datetime
 from pathlib import Path
+import uuid
 
 
 def update_notebook_to_use_modules(notebook_path, output_path=None):
@@ -38,6 +39,10 @@ def update_notebook_to_use_modules(notebook_path, output_path=None):
     if output_path is None:
         output_path = notebook_path
     
+    # Create unique identifier to bypass cache
+    unique_id = str(uuid.uuid4())[:8]
+    current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    
     # Update version and timestamp in title cell
     try:
         title_cell = notebook.cells[0]
@@ -51,22 +56,39 @@ def update_notebook_to_use_modules(notebook_path, output_path=None):
                 version_parts = current_version.split('.')
                 new_version = f"{version_parts[0]}.{version_parts[1]}.{int(version_parts[2]) + 1}"
                 
-                # Get current timestamp
-                timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                # No need to do this replacement since we're rebuilding the entire content
+                # Just kept for reference of the original approach
                 
-                # Update title with new version and timestamp
-                title_cell.source = title_cell.source.replace(
-                    f"v{current_version}", f"v{new_version} {timestamp}"
-                )
+                # Create new changelog entry (now directly used in the title cell)
                 
-                # Add new changelog entry at the top of the "New in v..." section
-                changelog_entry = f"\n### New in v{new_version}:\n- Modularized notebook components for better reusability\n- Integrated with utils.neural_plasticity module\n- Improved tensor handling with safe_tensor_imshow\n- Enhanced visualization utilities\n- Added type hints and documentation\n- Removed duplicated code\n"
+                # Create completely fresh title cell with only the current version's changes
+                new_content = f"""# Neural Plasticity Demo: Dynamic Pruning & Regrowth (v{new_version} {current_time})
+
+### Changes in v{new_version}:
+- Modularized notebook components for better reusability
+- Integrated with utils.neural_plasticity module
+- Improved tensor handling with safe_tensor_imshow
+- Enhanced visualization utilities
+- Added type hints and documentation
+- Removed duplicated code
+- Added unique ID ({unique_id}) to bypass Colab caching
+
+This notebook demonstrates Sentinel AI's neural plasticity system, which allows transformer models to dynamically prune and regrow attention heads during training based on utility metrics.
+
+## What is Neural Plasticity?
+
+Neural plasticity is the ability of neural networks to adapt their structure over time through pruning (removing unused connections) and regrowth (restoring useful connections). This mimics how biological brains form efficient neural pathways.
+
+In this demo, we:
+1. Track the entropy and gradient patterns of each attention head
+2. Dynamically prune high-entropy, low-gradient heads (unfocused, less useful)
+3. Selectively revive low-entropy, higher-gradient heads (potentially useful)
+4. Visualize the "brain dynamics" over time
+
+This allows models to form more efficient neural structures during training."""
                 
-                new_in_match = re.search(r'### New in v', title_cell.source)
-                if new_in_match:
-                    # Insert at the beginning of the changelog section
-                    insert_pos = new_in_match.start()
-                    title_cell.source = title_cell.source[:insert_pos] + changelog_entry + title_cell.source[insert_pos:]
+                # Replace the entire cell content
+                title_cell.source = new_content
     except Exception as e:
         print(f"Error updating title: {e}")
     
@@ -178,6 +200,9 @@ validation_dataloader = DataLoader(
 
 print(f"Train dataset size: {len(train_dataset)} examples")
 print(f"Validation dataset size: {len(validation_dataset)} examples")
+
+# Print unique ID to verify cache bypass
+print(f"Running modularized neural plasticity code [ID: {unique_id}]")
 """
             # Update the import cell
             cell.source = updated_imports
@@ -192,7 +217,7 @@ print(f"Validation dataset size: {len(validation_dataset)} examples")
             # Replace with import from module
             cell.source = """# Custom function to apply pruning based purely on gradients
 def gradient_based_pruning(grad_norm_values, prune_percent=0.1):
-    """
+    \"\"\"
     Make pruning decisions based only on gradient norms.
     We want to prune heads with LOWEST gradient norms, as they're
     learning the least.
@@ -203,7 +228,7 @@ def gradient_based_pruning(grad_norm_values, prune_percent=0.1):
         
     Returns:
         pruning_mask: Boolean tensor where True indicates a head should be pruned
-    """
+    \"\"\"
     # Use the module function
     return generate_pruning_mask(
         grad_norm_values=grad_norm_values,
@@ -212,10 +237,17 @@ def gradient_based_pruning(grad_norm_values, prune_percent=0.1):
     )
 """
     
-    # Update visualization cells to use the module functions
+    # Update visualization cells to use the module functions and fix CPU conversion
     for i, cell in enumerate(notebook.cells):
+        # First fix redundant .cpu().numpy() calls
+        if cell.cell_type == 'code' and 'detach().cpu().numpy().cpu().numpy()' in cell.source:
+            cell.source = cell.source.replace('.detach().cpu().numpy().cpu().numpy()', '.detach().cpu().numpy()')
+            cell.source = cell.source.replace('.cpu().numpy().cpu().numpy()', '.cpu().numpy()')
+            cell.source = cell.source.replace('.cpu().numpy())).cpu().numpy()', '.cpu().numpy())')
+            cell.source = cell.source.replace('.cpu().numpy()))))', '.cpu().numpy())')
+
+        # Then update to use the module visualization functions
         if cell.cell_type == 'code' and 'safe_tensor_imshow(' in cell.source:
-            # Update to use the module visualization functions
             if 'entropy_values' in cell.source and 'visualize_entropy' in cell.source:
                 cell.source = cell.source.replace(
                     'safe_tensor_imshow(entropy_values',
@@ -238,6 +270,8 @@ def gradient_based_pruning(grad_norm_values, prune_percent=0.1):
     with open(output_path, 'w') as f:
         nbformat.write(notebook, f)
 
+    return unique_id
+
 
 if __name__ == "__main__":
     # Path to the notebook
@@ -250,5 +284,6 @@ if __name__ == "__main__":
     print(f"Created backup at {backup_path}")
     
     # Update notebook
-    update_notebook_to_use_modules(notebook_path)
-    print("Notebook updated successfully")
+    unique_id = update_notebook_to_use_modules(notebook_path)
+    print(f"Notebook updated successfully with unique ID: {unique_id}")
+    print("You can verify you're running the updated version by checking for this ID in the notebook title and logs.")
