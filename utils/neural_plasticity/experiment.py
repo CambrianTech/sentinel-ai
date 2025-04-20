@@ -73,6 +73,13 @@ from .visualization import (
     VisualizationReporter
 )
 
+# Try to import dashboard utilities
+try:
+    from .dashboard import DashboardReporter
+    DASHBOARD_AVAILABLE = True
+except ImportError:
+    DASHBOARD_AVAILABLE = False
+
 
 def get_dataloader_builder(
     dataset_name: str = "wikitext",
@@ -304,7 +311,10 @@ class NeuralPlasticityExperiment:
         save_results: bool = True,
         show_samples: bool = False,
         sample_interval: int = 20,
-        tokenizer=None
+        tokenizer=None,
+        use_dashboard: bool = False,
+        dashboard_dir: Optional[str] = None,
+        dashboard_name: str = "neural_plasticity_dashboard.html"
     ):
         """
         Initialize the Neural Plasticity experiment.
@@ -322,12 +332,23 @@ class NeuralPlasticityExperiment:
             device: Device to use (auto-detected if None)
             verbose: Whether to print status information
             save_results: Whether to save experiment results
+            show_samples: Whether to display sample predictions during training
+            sample_interval: Interval for showing sample predictions
+            tokenizer: Optional tokenizer (loaded from model_name if None)
+            use_dashboard: Whether to generate an interactive HTML dashboard
+            dashboard_dir: Directory for dashboard files (uses output_dir if None)
+            dashboard_name: Name of the main dashboard HTML file
         """
         self.model_name = model_name
         self.dataset = dataset
         self.dataset_config = dataset_config
         self.batch_size = batch_size
         self.max_length = max_length
+        
+        # Dashboard parameters
+        self.use_dashboard = use_dashboard
+        self.dashboard_dir = dashboard_dir
+        self.dashboard_name = dashboard_name
         self.pruning_level = pruning_level
         self.pruning_strategy = pruning_strategy
         self.learning_rate = learning_rate
@@ -477,6 +498,15 @@ class NeuralPlasticityExperiment:
             save_visualizations=self.save_results,
             verbose=self.verbose
         )
+        
+        # Initialize dashboard if requested
+        if self.use_dashboard and DASHBOARD_AVAILABLE:
+            # Set dashboard directory to output_dir if not specified
+            self.dashboard_dir = self.dashboard_dir or os.path.join(self.output_dir, "dashboard")
+            os.makedirs(self.dashboard_dir, exist_ok=True)
+            
+            if self.verbose:
+                print(f"🔍 Dashboard will be available at: {os.path.join(self.dashboard_dir, self.dashboard_name)}")
         
         # Log environment information
         if self.save_results:
@@ -661,6 +691,26 @@ class NeuralPlasticityExperiment:
         return analysis_results
     
     def run_pruning_cycle(self, training_steps=100, callback=None):
+        # Initialize dashboard reporter if requested
+        dashboard_reporter = None
+        dashboard_path = None
+        if self.use_dashboard and DASHBOARD_AVAILABLE:
+            # Set dashboard directory to output_dir if not specified
+            dashboard_dir = self.dashboard_dir or os.path.join(self.output_dir, "dashboard")
+            os.makedirs(dashboard_dir, exist_ok=True)
+            
+            # Create dashboard reporter
+            dashboard_reporter = DashboardReporter(
+                output_dir=dashboard_dir,
+                dashboard_name=self.dashboard_name,
+                auto_update=True,
+                update_interval=min(training_steps // 10, 10)  # Update every ~10% of training or 10 steps, whichever is smaller
+            )
+            if self.verbose:
+                print(f"🔍 Interactive dashboard will be available at: {os.path.join(dashboard_dir, self.dashboard_name)}")
+        elif self.use_dashboard and not DASHBOARD_AVAILABLE:
+            if self.verbose:
+                print("⚠️ Dashboard visualization requested but not available. Make sure dashboard.py is accessible.")
         """
         Run a complete pruning cycle: analyze, prune, train, evaluate.
         
@@ -765,11 +815,55 @@ class NeuralPlasticityExperiment:
                 metrics["new_pruned"] = len(pruned_heads)
                 metrics["total_pruned"] = len(pruned_heads)
                 tracking_callback("training", step, metrics)
+            
+            # Update dashboard with training metrics
+            if dashboard_reporter:
+                # Add sparsity metric to track pruning level
+                dashboard_metrics = metrics.copy()
+                if "sparsity" not in dashboard_metrics:
+                    # Calculate sparsity as fraction of pruned heads
+                    if hasattr(self.model, "config"):
+                        total_heads = self.model.config.num_hidden_layers * self.model.config.num_attention_heads
+                        dashboard_metrics["sparsity"] = len(pruned_heads) / total_heads
+                
+                dashboard_reporter.add_metrics(dashboard_metrics, step)
         
         # Define a sample callback if samples are being shown
         def sample_callback(step, sample_data):
             if tracking_callback:
                 tracking_callback("sample", step, sample_data)
+            
+            # Update dashboard with sample data
+            if dashboard_reporter and sample_data:
+                try:
+                    # Transform prediction format for dashboard
+                    input_text = sample_data.get("input_text", "")
+                    predictions = sample_data.get("predictions", [])
+                    
+                    if predictions:
+                        predicted_tokens = [p["predicted_token"] for p in predictions]
+                        predicted_probs = [p["predicted_prob"] for p in predictions]
+                        actual_tokens = [p["actual_token"] for p in predictions]
+                        actual_probs = [p["actual_prob"] for p in predictions]
+                        perplexities = [p["perplexity"] for p in predictions]
+                        
+                        dashboard_reporter.add_sample(
+                            step=step,
+                            input_text=input_text,
+                            predicted_tokens=predicted_tokens,
+                            predicted_probs=predicted_probs,
+                            actual_tokens=actual_tokens,
+                            actual_probs=actual_probs,
+                            perplexities=perplexities
+                        )
+                except Exception as e:
+                    if self.verbose:
+                        print(f"⚠️ Error adding sample to dashboard: {e}")
+        
+        # Set up dashboard sample callback
+        dashboard_sample_callback = None
+        if dashboard_reporter and self.show_samples:
+            dashboard_sample_callback = dashboard_reporter.get_sample_callback()
         
         # Train the model with sample display if requested
         training_metrics = trainer.train(
@@ -781,11 +875,47 @@ class NeuralPlasticityExperiment:
             show_samples=self.show_samples,
             tokenizer=self.tokenizer if self.show_samples else None,
             sample_interval=self.sample_interval,
-            sample_callback=sample_callback if tracking_callback else None
+            sample_callback=sample_callback if tracking_callback else dashboard_sample_callback
         )
             
         # 7. Evaluate final model
         final_metrics = evaluate_model(self.model, self.validation_dataloader, self.device)
+        
+        # Update dashboard with final metrics
+        if dashboard_reporter:
+            # Add final metrics and sparsity
+            if hasattr(self.model, "config"):
+                total_heads = self.model.config.num_hidden_layers * self.model.config.num_attention_heads
+                sparsity = len(pruned_heads) / total_heads
+            else:
+                sparsity = len(pruned_heads) / (grad_norm_values.numel()) if grad_norm_values is not None else 0.0
+            
+            dashboard_reporter.add_metrics({
+                "eval_loss": final_metrics['loss'],
+                "perplexity": final_metrics['perplexity'],
+                "sparsity": sparsity,
+                "train_loss": training_metrics.get("train_loss", [-1])[-1] if "train_loss" in training_metrics else -1
+            }, training_steps)
+            
+            # Add attention visualization if possible
+            try:
+                # Get attention maps for visualization
+                with torch.no_grad():
+                    batch = next(iter(self.validation_dataloader))
+                    
+                    # Move batch to device
+                    inputs = {k: v.to(self.device) for k, v in batch.items() if isinstance(v, torch.Tensor)}
+                    
+                    # Forward pass with attention outputs
+                    outputs = self.model(**inputs, output_attentions=True)
+                    
+                    # Add attention maps to dashboard
+                    if hasattr(outputs, 'attentions') and outputs.attentions:
+                        for layer_idx, layer_attn in enumerate(outputs.attentions):
+                            dashboard_reporter.add_attention_map(layer_attn, layer_idx)
+            except Exception as e:
+                if self.verbose:
+                    print(f"⚠️ Error adding attention visualization to dashboard: {e}")
         
         # 8. Create visualizations
         if self.save_results:
@@ -862,6 +992,14 @@ class NeuralPlasticityExperiment:
                 filename=f"metrics_cycle{self.current_cycle}.csv",
                 subfolder=f"cycle_{self.current_cycle}"
             )
+        
+        # Generate final dashboard and add path to results
+        if dashboard_reporter:
+            dashboard_path = dashboard_reporter.update_dashboard()
+            if self.verbose:
+                print(f"🔍 Final dashboard generated at: {dashboard_path}")
+            # Add dashboard path to results
+            pruning_results["dashboard_path"] = dashboard_path
         
         return pruning_results
     

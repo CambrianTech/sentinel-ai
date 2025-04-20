@@ -126,7 +126,7 @@ pruned_heads = apply_pruning_mask(
 
 ### Visualization Functions
 
-Functions for visualizing attention patterns and pruning decisions:
+Functions for visualizing attention patterns, pruning decisions, and the complete neural plasticity process:
 
 ```python
 from utils.neural_plasticity import (
@@ -135,6 +135,13 @@ from utils.neural_plasticity import (
     visualize_pruning_decisions,
     visualize_attention_patterns
 )
+
+from utils.neural_plasticity.visualization import (
+    visualize_warmup_dashboard,
+    VisualizationReporter
+)
+
+from utils.colab.visualizations import visualize_complete_training_process
 
 # Visualize entropy heatmap
 entropy_fig = visualize_head_entropy(
@@ -164,15 +171,145 @@ attn_fig = visualize_attention_patterns(
     head_idx=0,
     title="Attention Pattern"
 )
+
+# Create comprehensive warmup phase dashboard
+warmup_dashboard = visualize_warmup_dashboard(
+    warmup_results=experiment.warmup_results,
+    title="Neural Plasticity Warmup Dashboard",
+    figsize=(12, 10),
+    save_path="warmup_dashboard.png"
+)
+
+# Visualize the complete neural plasticity process
+complete_process_fig = visualize_complete_training_process(
+    experiment=experiment,
+    title="Complete Neural Plasticity Training Process",
+    show_plot=True,
+    show_quote=True
+)
+
+# Using the VisualizationReporter for comprehensive reporting
+reporter = VisualizationReporter(
+    model=model,
+    tokenizer=tokenizer,
+    output_dir="visualizations",
+    save_visualizations=True
+)
+
+# Display warmup results with enhanced visualization
+reporter.display_warmup_results(experiment.warmup_results)
+
+# Display pruning results with visualizations
+reporter.display_pruning_results(experiment.pruning_results)
+
+# Display complete training process
+reporter.display_complete_training_process(experiment)
+```
+
+### Dashboard Generation
+
+The module includes a comprehensive dashboard generator that can create visualizations for all phases of the neural plasticity process:
+
+```python
+from scripts.neural_plasticity_dashboard import generate_dashboards
+
+# Generate all dashboards and save to output directory
+dashboards = generate_dashboards(
+    experiment=experiment,
+    output_dir="./visualizations"
+)
+
+# Access individual dashboards
+warmup_dashboard = dashboards["warmup"]
+complete_process = dashboards["complete"]
+pruning_visualizations = dashboards["pruning"]
+
+# Generate only the complete process dashboard
+from scripts.neural_plasticity_dashboard import generate_complete_process_dashboard
+
+process_fig = generate_complete_process_dashboard(
+    experiment=experiment,
+    output_dir="./visualizations/complete"
+)
+```
+
+You can also use the dashboard generator from the command line:
+
+```bash
+# Generate all dashboards from a saved experiment
+python scripts/neural_plasticity_dashboard.py --experiment_file=experiment.pkl --output_dir=./visualizations
+
+# Show dashboards without saving
+python scripts/neural_plasticity_dashboard.py --no_show --output_dir=./visualizations
+```
+
+#### Using with the VisualizationReporter
+
+The `VisualizationReporter` now includes methods for generating comprehensive dashboards:
+
+```python
+# Create a visualization reporter
+reporter = VisualizationReporter(
+    model=model,
+    tokenizer=tokenizer,
+    output_dir="visualizations",
+    save_visualizations=True
+)
+
+# Generate all dashboards for an experiment
+reporter.generate_comprehensive_dashboard(
+    experiment=experiment,
+    output_dir="dashboards"
+)
+
+# Display just the complete process visualization
+reporter.display_complete_training_process(experiment)
 ```
 
 ## Example Notebooks
 
 The repository includes several notebooks demonstrating neural plasticity:
 
-1. **NeuralPlasticityDemo.ipynb**: Full demonstration of neural plasticity
+1. **NeuralPlasticityDemo.ipynb**: Full demonstration of neural plasticity with comprehensive visualizations
 2. **neural_plasticity_minimal_test.ipynb**: Minimal test of the module functionality
 3. **neural_plasticity_runnable.ipynb**: Simplified runnable version for quick tests
+
+### Visualization Features in Notebooks
+
+The neural plasticity notebooks include comprehensive visualizations that help you understand the entire process:
+
+1. **Warmup Dashboard**: Shows loss curves, stabilization detection, and polynomial curve fitting
+2. **Complete Process Visualization**: Displays the entire neural plasticity cycle with clear phase markers
+3. **Attention Pattern Visualization**: Visualizes attention patterns of specific heads
+4. **Entropy Heatmaps**: Shows entropy values across all layers and heads
+5. **Pruning Decision Visualization**: Highlights which heads were pruned and why
+6. **Training Metrics**: Tracks loss, perplexity, and sparsity throughout training
+
+#### Using the Complete Process Dashboard in Colab
+
+To add the complete neural plasticity process visualization to any Colab notebook, copy the contents of `utils/colab/neural_plasticity_dashboard_cell.py` into a notebook cell, then use:
+
+```python
+# Create visualization for experiment results
+experiment_results = {
+    'warmup': warmup_results,
+    'pruning': pruning_results,
+    'fine_tuning': fine_tuning_results
+}
+
+# Display the comprehensive dashboard
+display_neural_plasticity_dashboard(
+    experiment=experiment_results,
+    output_dir="neural_plasticity_output"
+)
+```
+
+This will generate a multi-panel visualization showing:
+- The complete training process across all phases
+- Detailed view of each phase (warmup, pruning, fine-tuning)
+- Training metrics including perplexity and pruning statistics
+- Clear markers for stabilization points and phase transitions
+- Summary statistics for the entire process
 
 ## Creating and Running Notebooks
 

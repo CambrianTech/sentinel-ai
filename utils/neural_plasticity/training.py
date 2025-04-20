@@ -1,5 +1,5 @@
 """
-Neural Plasticity Training v0.0.64 (2025-04-20 14:45:00)
+Neural Plasticity Training v0.0.65 (2025-04-20 14:45:00)
 
 This module provides training utilities for neural plasticity experiments,
 including differential learning rates for pruned vs. unpruned heads,
@@ -9,6 +9,7 @@ Added features:
 - Sample text generation during training for better monitoring
 - Per-token perplexity calculation and display 
 - Polynomial curve fitting for improved loss stabilization detection
+- Integration with dashboard visualization
 """
 
 import torch
@@ -21,6 +22,13 @@ import gc
 
 import os
 import traceback
+
+# Try to import dashboard utilities
+try:
+    from .dashboard import DashboardReporter
+    DASHBOARD_AVAILABLE = True
+except ImportError:
+    DASHBOARD_AVAILABLE = False
 
 # Fix for scheduler import
 try:
@@ -54,6 +62,8 @@ from .core import (
 def create_warmup_visualization(
     warmup_losses: List[float],
     smoothed_losses: List[float],
+    stabilization_point: Optional[int] = None,
+    is_stable: bool = False,
     figsize: Tuple[int, int] = (12, 8)
 ) -> plt.Figure:
     """
@@ -62,6 +72,8 @@ def create_warmup_visualization(
     Args:
         warmup_losses: List of raw loss values
         smoothed_losses: List of smoothed (rolling average) loss values
+        stabilization_point: Step at which stability was detected (if any)
+        is_stable: Whether stabilization was detected
         figsize: Figure size as (width, height) in inches
         
     Returns:
@@ -76,6 +88,24 @@ def create_warmup_visualization(
     axs[0].set_xlabel("Step")
     axs[0].set_ylabel("Loss")
     axs[0].grid(True)
+    
+    # Mark stabilization point on raw loss curve if provided
+    if stabilization_point is not None and stabilization_point < len(warmup_losses):
+        # Add vertical line at stabilization point
+        axs[0].axvline(x=stabilization_point, color='green', linestyle='--', alpha=0.7, 
+                     label=f'Stabilization detected')
+        
+        # Mark the point
+        axs[0].plot(stabilization_point, warmup_losses[stabilization_point], 
+                  'go', markersize=8, label=f'Loss: {warmup_losses[stabilization_point]:.4f}')
+        
+        # Add note about stabilization
+        stabilization_text = f"Stabilization at step {stabilization_point}"
+        axs[0].text(stabilization_point + len(warmup_losses)*0.01, 
+                  warmup_losses[stabilization_point]*0.95, 
+                  stabilization_text, fontsize=9, color='green')
+        
+        axs[0].legend()
     
     # Smoothed loss if we have enough data
     if len(smoothed_losses) > 1:
@@ -92,10 +122,58 @@ def create_warmup_visualization(
             slope, intercept, r_value, p_value, std_err = linregress(x, smoothed_losses)
             axs[1].plot(x, [slope*xi + intercept for xi in x], 'r--', 
                      label=f'Trend: slope={slope:.6f}, R²={r_value**2:.2f}')
+            
+            # Add polynomial fit to smoothed plot for stabilization detection
+            try:
+                from scipy.optimize import curve_fit
+                
+                # Define polynomial function (degree 2 = quadratic)
+                def poly_func(x, a, b, c):
+                    return a * x**2 + b * x + c
+                
+                # Fit polynomial to the recent loss values
+                params, _ = curve_fit(poly_func, x, smoothed_losses)
+                a, b, c = params
+                
+                # Plot polynomial fit
+                x_dense = np.linspace(min(x), max(x), 100)
+                y_fit = poly_func(x_dense, a, b, c)
+                axs[1].plot(x_dense, y_fit, 'g-', 
+                          label=f'Poly fit: {a:.5f}x² + {b:.5f}x + {c:.5f}')
+                
+                # Calculate derivatives at the end point
+                x_end = max(x)
+                deriv_1 = 2 * a * x_end + b  # First derivative
+                deriv_2 = 2 * a              # Second derivative
+                
+                # Show stabilization info in title
+                if is_stable:
+                    status = "Loss stabilized"
+                else:
+                    if a > 0:
+                        status = "Upward curve"
+                    elif abs(deriv_1) < 0.01:
+                        status = "Flat curve"
+                    else:
+                        status = "Still decreasing"
+                
+                axs[1].set_title(f"Warm-up Loss (5-step Rolling Average) - {status}")
+            except Exception as e:
+                print(f"Could not add polynomial fit: {e}")
+                
             axs[1].legend()
         except (ImportError, ValueError) as e:
             # Skip the trend line if an error occurs
             print(f"Could not add trend line: {e}")
+            
+        # Mark stabilization point on smoothed curve if it falls within the data
+        if stabilization_point is not None:
+            # Calculate which index in smoothed_losses corresponds to stabilization_point
+            smooth_idx = stabilization_point // 5
+            if smooth_idx < len(smoothed_losses):
+                smooth_x = smooth_idx * 5  # Convert back to original x scale
+                axs[1].axvline(x=smooth_x, color='green', linestyle='--', alpha=0.7)
+                axs[1].plot(smooth_x, smoothed_losses[smooth_idx], 'go', markersize=8)
     
     plt.tight_layout()
     return fig
@@ -728,7 +806,10 @@ def run_plasticity_loop(
     callback: Optional[Callable[[str, int, Dict[str, Any]], None]] = None,
     show_samples: bool = False,
     tokenizer=None,
-    sample_interval: int = 20
+    sample_interval: int = 20,
+    use_dashboard: bool = False,
+    dashboard_dir: str = "dashboard",
+    dashboard_name: str = "neural_plasticity_dashboard.html"
 ) -> Dict[str, Any]:
     """
     Run complete neural plasticity loop: Prune → Train → Evaluate.
@@ -746,6 +827,9 @@ def run_plasticity_loop(
         show_samples: Whether to display sample predictions during training
         tokenizer: Tokenizer for decoding tokens (required if show_samples=True)
         sample_interval: Interval for showing sample predictions
+        use_dashboard: Whether to generate an interactive HTML dashboard
+        dashboard_dir: Directory to save dashboard files
+        dashboard_name: Name of the main dashboard HTML file
         
     Returns:
         Dictionary with experiment results
@@ -757,10 +841,28 @@ def run_plasticity_loop(
         print("Warning: show_samples=True but no tokenizer provided. Samples will not be shown.")
         show_samples = False
     
+    # Set up dashboard reporter if requested
+    dashboard_reporter = None
+    if use_dashboard and DASHBOARD_AVAILABLE:
+        dashboard_reporter = DashboardReporter(
+            output_dir=dashboard_dir,
+            dashboard_name=dashboard_name,
+            auto_update=True,
+            update_interval=min(training_steps // 10, 10)  # Update every ~10% of training or 10 steps, whichever is smaller
+        )
+        print(f"🔍 Interactive dashboard will be available at: {os.path.join(dashboard_dir, dashboard_name)}")
+    elif use_dashboard and not DASHBOARD_AVAILABLE:
+        print("⚠️ Dashboard visualization requested but not available. Make sure dashboard.py is accessible.")
+    
     # 1. Initial evaluation
     print("Evaluating baseline model...")
     baseline_metrics = evaluate_model(model, eval_dataloader)
     print(f"Baseline evaluation: Loss = {baseline_metrics['loss']:.4f}, Perplexity = {baseline_metrics['perplexity']:.2f}")
+    
+    # Update dashboard with baseline metrics
+    if dashboard_reporter:
+        dashboard_reporter.add_metrics({"eval_loss": baseline_metrics['loss'], 
+                                       "perplexity": baseline_metrics['perplexity']}, 0)
     
     if callback:
         callback("baseline", 0, baseline_metrics)
@@ -811,6 +913,35 @@ def run_plasticity_loop(
     pruned_heads = apply_pruning_mask(model, pruning_mask)
     print(f"Pruned {len(pruned_heads)} heads")
     
+    # Update dashboard with pruning information
+    if dashboard_reporter:
+        dashboard_reporter.update_pruning_info(
+            entropy_values=entropy_values,
+            grad_norm_values=grad_norm_values,
+            pruning_mask=pruning_mask,
+            pruned_heads=pruned_heads
+        )
+        
+        # Add model information
+        model_info = {}
+        param_size = 0
+        for param in model.parameters():
+            param_size += param.nelement() * param.element_size()
+        buffer_size = 0
+        for buffer in model.buffers():
+            buffer_size += buffer.nelement() * buffer.element_size()
+            
+        model_size_mb = (param_size + buffer_size) / 1024**2
+        total_params = sum(p.numel() for p in model.parameters())
+        
+        model_info = {
+            "model_size_mb": model_size_mb,
+            "total_params": total_params,
+            "sparsity": len(pruned_heads) / (grad_norm_values.numel()) if grad_norm_values is not None else 0.0,
+            "pruned_heads_count": len(pruned_heads)
+        }
+        dashboard_reporter.set_model_info(model_info)
+        
     if callback:
         callback("pruning", 0, {
             "grad_norm_values": grad_norm_values,
@@ -823,6 +954,14 @@ def run_plasticity_loop(
     print("Evaluating pruned model...")
     pruned_metrics = evaluate_model(model, eval_dataloader)
     print(f"Pruned model evaluation: Loss = {pruned_metrics['loss']:.4f}, Perplexity = {pruned_metrics['perplexity']:.2f}")
+    
+    # Update dashboard with post-pruning metrics
+    if dashboard_reporter:
+        dashboard_reporter.add_metrics({
+            "eval_loss": pruned_metrics['loss'], 
+            "perplexity": pruned_metrics['perplexity'],
+            "sparsity": len(pruned_heads) / (grad_norm_values.numel()) if grad_norm_values is not None else 0.0
+        }, 0)
     
     if callback:
         callback("post_pruning", 0, pruned_metrics)
@@ -842,13 +981,50 @@ def run_plasticity_loop(
     )
     
     # Define callbacks that forward to the main callback
+    # Define callbacks
     def train_callback(step, metrics):
         if callback:
             callback("training", step, metrics)
+        
+        # Update dashboard with training metrics
+        if dashboard_reporter:
+            dashboard_reporter.add_metrics(metrics, step)
     
     def sample_callback(step, sample_data):
         if callback:
             callback("sample", step, sample_data)
+        
+        # Update dashboard with sample predictions
+        if dashboard_reporter and sample_data:
+            # Process sample data for dashboard
+            try:
+                # Transform prediction format for dashboard
+                input_text = sample_data.get("input_text", "")
+                predictions = sample_data.get("predictions", [])
+                
+                if predictions:
+                    predicted_tokens = [p["predicted_token"] for p in predictions]
+                    predicted_probs = [p["predicted_prob"] for p in predictions]
+                    actual_tokens = [p["actual_token"] for p in predictions]
+                    actual_probs = [p["actual_prob"] for p in predictions]
+                    perplexities = [p["perplexity"] for p in predictions]
+                    
+                    dashboard_reporter.add_sample(
+                        step=step,
+                        input_text=input_text,
+                        predicted_tokens=predicted_tokens,
+                        predicted_probs=predicted_probs,
+                        actual_tokens=actual_tokens,
+                        actual_probs=actual_probs,
+                        perplexities=perplexities
+                    )
+            except Exception as e:
+                print(f"⚠️ Error adding sample to dashboard: {e}")
+    
+    # Set up dashboard sample callback
+    dashboard_sample_callback = None
+    if dashboard_reporter and show_samples:
+        dashboard_sample_callback = dashboard_reporter.get_sample_callback()
     
     # Train with sample display if requested
     training_metrics = trainer.train(
@@ -860,13 +1036,51 @@ def run_plasticity_loop(
         show_samples=show_samples,
         tokenizer=tokenizer,
         sample_interval=sample_interval,
-        sample_callback=sample_callback if callback else None
+        sample_callback=sample_callback if callback else dashboard_sample_callback
     )
     
     # 7. Final evaluation
     print("Performing final evaluation...")
     final_metrics = evaluate_model(model, eval_dataloader)
     print(f"Final evaluation: Loss = {final_metrics['loss']:.4f}, Perplexity = {final_metrics['perplexity']:.2f}")
+    
+    # Update dashboard with final metrics
+    if dashboard_reporter:
+        # Update metrics
+        dashboard_reporter.add_metrics({
+            "eval_loss": final_metrics['loss'],
+            "perplexity": final_metrics['perplexity'],
+            "sparsity": len(pruned_heads) / (grad_norm_values.numel()) if grad_norm_values is not None else 0.0,
+            "train_loss": training_metrics.get("train_loss", [-1])[-1] if "train_loss" in training_metrics else -1
+        }, training_steps)
+        
+        # Add attention visualization if possible
+        try:
+            # Get attention maps for visualization
+            with torch.no_grad():
+                batch = next(iter(eval_dataloader))
+                
+                # Move batch to device
+                if isinstance(batch, dict):
+                    inputs = {k: v.to(device) for k, v in batch.items() if isinstance(v, torch.Tensor)}
+                else:
+                    inputs = {"input_ids": batch[0].to(device)}
+                    if len(batch) > 1:
+                        inputs["attention_mask"] = batch[1].to(device)
+                
+                # Forward pass with attention outputs
+                outputs = model(**inputs, output_attentions=True)
+                
+                # Add attention maps to dashboard
+                if hasattr(outputs, 'attentions') and outputs.attentions:
+                    for layer_idx, layer_attn in enumerate(outputs.attentions):
+                        dashboard_reporter.add_attention_map(layer_attn, layer_idx)
+        except Exception as e:
+            print(f"⚠️ Error adding attention visualization to dashboard: {e}")
+        
+        # Generate final dashboard
+        dashboard_path = dashboard_reporter.update_dashboard()
+        print(f"🔍 Final dashboard generated at: {dashboard_path}")
     
     if callback:
         callback("final", training_steps, final_metrics)
@@ -902,6 +1116,10 @@ def run_plasticity_loop(
     # Store samples if available
     if show_samples and "samples" in training_metrics:
         results["samples"] = training_metrics["samples"]
+    
+    # Add dashboard path to results if available
+    if dashboard_reporter:
+        results["dashboard_path"] = dashboard_reporter.update_dashboard()
     
     return results
 
@@ -1046,7 +1264,7 @@ def run_warmup_phase(
     # Helper function to determine if loss has stabilized
     def is_loss_stabilized(losses, min_steps, patience_steps, window_size=5):
         """
-        Determine if the loss has stabilized using polynomial fitting.
+        Determine if the loss has stabilized using polynomial fitting and multiple indicators.
         
         Args:
             losses: List of loss values
@@ -1063,17 +1281,19 @@ def run_warmup_phase(
 
         # Track steps since last decrease for traditional methods
         steps_since_decrease = len(losses) - last_loss_decrease
+        
+        # Early return if we haven't reached patience threshold
         if steps_since_decrease < patience_steps:
             return False, steps_since_decrease
         
-        # Use polynomial fitting for more robust trend detection
+        # Get more robust indicators by analyzing in multiple ways
         try:
             import numpy as np
             from scipy.optimize import curve_fit
             
-            # Only analyze the most recent portion to detect current trend
-            # Use last 20 steps or all available steps if fewer
-            analysis_window = min(20, len(losses))
+            # 1. POLYNOMIAL FITTING - Analyze recent trend with curve fitting
+            # Use last 30 steps or all available steps if fewer for better curve fitting
+            analysis_window = min(30, len(losses))
             recent_losses = losses[-analysis_window:]
             x_data = np.array(range(len(recent_losses)))
             y_data = np.array(recent_losses)
@@ -1086,33 +1306,90 @@ def run_warmup_phase(
             params, _ = curve_fit(poly_func, x_data, y_data)
             a, b, c = params
             
-            # Analyze curve shape: 
-            # - a > 0: upward curve (loss increasing) = stabilized
-            # - a ≈ 0 and b ≈ 0: flat curve = stabilized
-            # - a < 0 and small magnitude: still decreasing but flattening = not stabilized
-            
             # Calculate derivatives at the end point (most recent)
             x_end = analysis_window - 1
             deriv_1 = 2 * a * x_end + b  # First derivative
             deriv_2 = 2 * a              # Second derivative (constant for quadratic)
             
-            # Stabilized if:
-            # 1. Curve is upward (a > 0)
-            # 2. OR curve is flat (both derivatives near zero)
-            # 3. OR first derivative is positive (increasing loss)
-            if verbose and len(losses) % 5 == 0:  # Print diagnostics periodically
-                print(f"  Polynomial fit: y = {a:.6f}x² + {b:.6f}x + {c:.6f}")
-                print(f"  First derivative at end: {deriv_1:.6f}, Second derivative: {deriv_2:.6f}")
+            # 2. WINDOW COMPARISON - Compare sequence of adjacent windows
+            # Use 5 sequential windows of size window_size to analyze trend
+            if len(losses) >= window_size * 5:
+                window_avgs = []
+                for i in range(5):
+                    start_idx = len(losses) - (5-i) * window_size
+                    end_idx = start_idx + window_size
+                    window_avgs.append(sum(losses[start_idx:end_idx]) / window_size)
                 
-            # We've stabilized if:
-            is_stable = (
-                (a > 0.001) or                  # Upward curve
-                (abs(deriv_1) < 0.05 and abs(deriv_2) < 0.01) or  # Flat curve
-                (deriv_1 > 0.05)                # Increasing slope
+                # Calculate window-to-window improvements
+                window_improvements = [
+                    (window_avgs[i] - window_avgs[i+1]) / window_avgs[i] 
+                    for i in range(4)
+                ]
+                
+                # Calculate rate of diminishing returns
+                diminishing_returns = [
+                    window_improvements[i] - window_improvements[i+1]
+                    for i in range(3)
+                ]
+                
+                # Recent windows show stabilization if improvements are diminishing
+                windows_stabilized = (
+                    all(imp >= 0 for imp in diminishing_returns) and  # Consistently diminishing
+                    window_improvements[-1] < 0.01  # Last improvement is very small
+                )
+            else:
+                windows_stabilized = False
+                
+            # 3. RELATIVE IMPROVEMENT - Analyze total improvement so far vs. recent improvement
+            if len(losses) >= min_steps * 2:
+                # Compare first vs current loss
+                total_improvement = (losses[0] - losses[-1]) / losses[0]
+                
+                # Compare halfway point vs current
+                midpoint = len(losses) // 2
+                recent_improvement = (losses[midpoint] - losses[-1]) / losses[midpoint]
+                
+                # Stable if recent improvement is much smaller than total improvement
+                # (indicates most gains happened earlier)
+                relative_improvement_stable = (
+                    total_improvement > 0.05 and  # Had meaningful improvement overall
+                    recent_improvement < total_improvement * 0.2  # Recent improvement is small fraction of total
+                )
+            else:
+                relative_improvement_stable = False
+            
+            # Print diagnostics
+            if verbose and len(losses) % 5 == 0:
+                print(f"  Polynomial fit: y = {a:.6f}x² + {b:.6f}x + {c:.6f}")
+                print(f"  First derivative: {deriv_1:.6f}, Second derivative: {deriv_2:.6f}")
+                if 'windows_stabilized' in locals():
+                    print(f"  Window analysis: {'Stable' if windows_stabilized else 'Not stable'}")
+                if 'relative_improvement_stable' in locals():
+                    print(f"  Improvement analysis: {'Stable' if relative_improvement_stable else 'Not stable'}")
+                
+            # Combine all indicators:
+            poly_stable = (
+                (a > 0.0005) or                  # Upward curve
+                (abs(deriv_1) < 0.01 and abs(deriv_2) < 0.005) or  # Flat curve
+                (deriv_1 > 0.01)                 # Increasing slope
             )
             
-            if is_stable:
-                return True, steps_since_decrease
+            # Multiple indicators suggest stability
+            is_stable = (
+                (poly_stable and windows_stabilized) or  # Both main indicators agree
+                (poly_stable and relative_improvement_stable) or  # Polynomial and improvement indicators agree
+                (windows_stabilized and relative_improvement_stable) or  # Window and improvement indicators agree
+                (steps_since_decrease > patience_steps * 2)  # Been a long time with no improvement
+            )
+            
+            if is_stable and verbose:
+                print(f"💡 Loss has stabilized based on multiple indicators")
+                print(f"  - Polynomial analysis: {'Stable' if poly_stable else 'Not stable'}")
+                print(f"  - Window analysis: {'Stable' if 'windows_stabilized' in locals() and windows_stabilized else 'Not stable/Not enough data'}")
+                print(f"  - Improvement analysis: {'Stable' if 'relative_improvement_stable' in locals() and relative_improvement_stable else 'Not stable/Not enough data'}")
+                print(f"  - Steps since decrease: {steps_since_decrease} (threshold: {patience_steps})")
+                
+            return is_stable, steps_since_decrease
                 
         except (ImportError, ValueError, RuntimeError) as e:
             # Fallback to traditional method if curve fitting fails
@@ -1223,9 +1500,17 @@ def run_warmup_phase(
         # Create visualization if requested
         fig = None
         if visualize and len(warmup_losses) > 5:
+            # Determine stabilization point (if it occurred)
+            stabilization_point = None
+            if 'is_stable' in locals() and is_stable:
+                # Stabilization occurred at the step when we decided to stop
+                stabilization_point = len(warmup_losses) - 1
+            
             fig = create_warmup_visualization(
                 warmup_losses=warmup_losses,
-                smoothed_losses=warmup_step_losses
+                smoothed_losses=warmup_step_losses,
+                stabilization_point=stabilization_point,
+                is_stable=is_stable if 'is_stable' in locals() else False
             )
         
         # Perform segment analysis

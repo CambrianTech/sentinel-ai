@@ -1,5 +1,5 @@
 """
-Neural Plasticity Utilities (v0.0.61 2025-04-20)
+Neural Plasticity Utilities (v0.0.65 2025-04-20)
 
 This module provides a comprehensive modular implementation of neural plasticity
 for transformer models, enabling dynamic pruning and regrowth of attention heads.
@@ -11,6 +11,7 @@ Key features:
 - Improved entropy calculation with detailed diagnostics
 - Apple Silicon compatibility with safe tensor operations
 - Visualization tools for attention patterns and pruning decisions
+- Comprehensive dashboards for the entire neural plasticity process
 - Training loops with differential learning rates
 - Complete experiment runners for end-to-end testing
 
@@ -18,7 +19,7 @@ These utilities enable transformer models to become more efficient through
 adaptively modifying their structure during training.
 """
 
-__version__ = "0.0.62"
+__version__ = "0.0.65"
 __date__ = "2025-04-20"
 
 # Import environment detection and core tensor operations
@@ -50,8 +51,21 @@ from .visualization import (
     visualize_pruning_decisions,
     visualize_training_metrics,
     visualize_attention_patterns,
+    visualize_warmup_dashboard,
     VisualizationReporter
 )
+
+# Try importing the complete training process visualization
+try:
+    from utils.colab.visualizations import (
+        visualize_complete_training_process,
+        extract_complete_training_data,
+        PersistentDisplay,
+        TrainingMonitor
+    )
+except ImportError:
+    # Provide fallback or pass silently for environments without Colab utilities
+    pass
 
 # Import training utilities
 from .training import (
@@ -682,3 +696,79 @@ class NeuralPlasticity:
             batch_size=batch_size,
             learning_rate=learning_rate
         )
+    
+    @staticmethod
+    def visualize_complete_process(experiment, output_dir=None, show_plot=True):
+        """
+        Generate a comprehensive visualization of the complete neural plasticity
+        process, showing all phases: warmup, stabilization, pruning, and fine-tuning.
+        
+        Args:
+            experiment: Neural plasticity experiment object or results dictionary
+            output_dir: Directory to save the visualization (created if doesn't exist)
+            show_plot: Whether to display the plot
+            
+        Returns:
+            Matplotlib figure object with the visualization
+        """
+        try:
+            from utils.colab.visualizations import visualize_complete_training_process
+            
+            # Generate the visualization
+            fig = visualize_complete_training_process(
+                experiment=experiment,
+                output_dir=output_dir,
+                title="Complete Neural Plasticity Training Process",
+                show_plot=False,  # Don't auto-show, we'll handle display
+                show_quote=True
+            )
+            
+            # Handle display in appropriate environment
+            if show_plot:
+                try:
+                    # Check if we're in a notebook
+                    from IPython import get_ipython
+                    if get_ipython() is not None:
+                        # In a notebook, display the figure properly
+                        from IPython.display import display
+                        display(fig)
+                    else:
+                        # In a regular Python script, just reference the figure
+                        import matplotlib.pyplot as plt
+                        plt.figure(fig.number)
+                except (ImportError, AttributeError):
+                    # Not in a notebook, no auto-display needed
+                    pass
+            
+            return fig
+            
+        except ImportError:
+            print("Could not import visualization module. Make sure utils.colab.visualizations is available.")
+            return None
+    
+    @staticmethod
+    def generate_dashboards(experiment, output_dir=None):
+        """
+        Generate all available dashboards for a neural plasticity experiment.
+        
+        Args:
+            experiment: Neural plasticity experiment object or results dict
+            output_dir: Directory to save dashboards (created if doesn't exist)
+            
+        Returns:
+            Dictionary with generated dashboard figures
+        """
+        try:
+            from scripts.neural_plasticity_dashboard import generate_dashboards
+            
+            # Generate all dashboards
+            dashboards = generate_dashboards(
+                experiment=experiment,
+                output_dir=output_dir
+            )
+            
+            return dashboards
+            
+        except ImportError:
+            print("Could not import dashboard generator. Make sure scripts.neural_plasticity_dashboard is available.")
+            return {}
