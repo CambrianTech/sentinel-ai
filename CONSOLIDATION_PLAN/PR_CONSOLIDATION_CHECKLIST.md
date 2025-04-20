@@ -115,10 +115,51 @@ This file tracks our consolidation plan for the neural plasticity feature PR. Th
 2. ✅ Update documentation to reflect the new organization
 3. ✅ Add proper tests for the neural plasticity module
 4. ✅ Complete a quick test to verify functionality
-5. Run a full test with real data (pending)
+5. [ ] Run a full test with real data
+6. [ ] Improve unit test coverage for modular implementation
+   - [ ] Add tests for visualization module
+   - [ ] Add tests for dashboard generation
+   - [ ] Add tests for the complete experiment pipeline
+   - [ ] Add tests for Colab compatibility
+7. [ ] Ensure cross-platform compatibility
+   - [ ] Test on Apple Silicon (macOS)
+   - [ ] Test on Ubuntu GPU environment
+   - [ ] Test in Colab environment (both CPU and GPU T4)
+8. [ ] Consolidate visualization code
+   - [ ] Move all visualization code to scripts/neural_plasticity/visualization/
+   - [ ] Create a unified API for all visualization functions
+9. [ ] Consolidate notebook integration utilities
+   - [ ] Create a consistent interface between local code and notebooks
+   - [ ] Ensure notebook cells use the same core code as the module
+10. [ ] Reduce redundancy between implementations
+    - [ ] Eliminate duplication between utils/neural_plasticity/ and sentinel/plasticity/
+    - [ ] Ensure a single source of truth for core functionality
+
+## Planned Consolidations
+
+1. **Visualization Code**:
+   - Move all visualization code to `scripts/neural_plasticity/visualization/`
+   - Remove duplicate code in utils/neural_plasticity/visualization.py
+   - Create proper visualization tests
+
+2. **Notebook Integration**:
+   - Consolidate all notebook utilities to `scripts/neural_plasticity/colab/`
+   - Update notebooks to use the consolidated implementation
+   - Test notebook functionality in both CPU and GPU environments
+
+3. **Redundant Implementations**:
+   - Consolidate utils/neural_plasticity/ and sentinel/plasticity/ implementations
+   - Make sentinel/plasticity/ the primary implementation
+   - Update all references to use the consolidated code
+
+4. **Test Coverage**:
+   - Add comprehensive tests for core functionality
+   - Add tests for Colab integration
+   - Add tests for cross-platform compatibility
+   - Add tests for visualization
 
 ## Open Questions
 
-1. Should we move all visualization code to scripts/neural_plasticity/visualization/?
-2. Should we consolidate all notebook-related utilities to a single location?
-3. Are there any interdependencies we need to be careful about when removing files?
+1. Should we maintain backward compatibility with existing notebooks after consolidation?
+2. How should we handle environment-specific code (Apple Silicon, GPU, Colab)?
+3. Should we create a unified config system for all neural plasticity experiments?

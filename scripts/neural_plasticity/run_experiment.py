@@ -149,7 +149,10 @@ def create_dataloader_builder(args, tokenizer, quick_test=False):
                     
                     if text_col is None:
                         logger.warning("Could not find a text column. Creating synthetic dataset instead.")
-                        return build_dataloaders(batch_size)  # Recursive call with quick_test=True
+                        # Create synthetic datasets instead of recursive call
+                        train_dataset = create_simple_dataset(tokenizer, num_samples=50, seq_length=64)
+                        eval_dataset = create_simple_dataset(tokenizer, num_samples=10, seq_length=64)
+                        return DataLoader(train_dataset, batch_size=batch_size, shuffle=True, collate_fn=default_data_collator), DataLoader(eval_dataset, batch_size=batch_size, collate_fn=default_data_collator)
                     
                     logger.info(f"Using column '{text_col}' as text data")
                     
@@ -177,8 +180,15 @@ def create_dataloader_builder(args, tokenizer, quick_test=False):
                 validation_dataset = validation_dataset.map(tokenize_function, batched=True)
                 
                 # Remove original text columns
-                text_columns = [col for col in train_dataset.column_names 
-                               if col in ["text", text_col] or "text" in col.lower()]
+                text_columns = []
+                if "text" in train_dataset.column_names:
+                    text_columns.append("text")
+                elif 'text_col' in locals() and text_col is not None:
+                    text_columns.append(text_col)
+                else:
+                    text_columns = [col for col in train_dataset.column_names 
+                                  if "text" in col.lower()]
+                
                 if text_columns:
                     train_dataset = train_dataset.remove_columns(text_columns)
                     validation_dataset = validation_dataset.remove_columns(text_columns)
@@ -198,7 +208,9 @@ def create_dataloader_builder(args, tokenizer, quick_test=False):
             except Exception as e:
                 logger.error(f"Error loading dataset: {e}")
                 logger.info("Falling back to synthetic dataset")
-                return build_dataloaders(batch_size)  # Recursive call with quick_test=True
+                # Create synthetic datasets instead of recursive call
+                train_dataset = create_simple_dataset(tokenizer, num_samples=50, seq_length=64)
+                eval_dataset = create_simple_dataset(tokenizer, num_samples=10, seq_length=64)
         
         # Create dataloaders
         train_dataloader = DataLoader(
