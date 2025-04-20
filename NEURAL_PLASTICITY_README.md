@@ -8,9 +8,9 @@ The Neural Plasticity module provides functionality for transformer models to dy
 - Targeted head revitalization during training
 - Visualization of model brain dynamics
 
-## Recent Fixes (v0.0.56 - 2025-04-19 21:30:00)
+## Recent Fixes (v0.0.56 - 2025-04-19 22:30:00)
 
-We've implemented comprehensive fixes for BLAS/libtorch crashes on Apple Silicon (M1/M2/M3):
+We've implemented comprehensive fixes for BLAS/libtorch crashes on Apple Silicon (M1/M2/M3) and fixed a critical pruning algorithm bug:
 
 1. **Enhanced Apple Silicon Support**: Improved detection and safeguards for Apple Silicon architecture
 2. **Environment Variables**: Automatically set `OMP_NUM_THREADS=1` and other threading vars on Apple Silicon
@@ -19,6 +19,7 @@ We've implemented comprehensive fixes for BLAS/libtorch crashes on Apple Silicon
 5. **Tensor Device Control**: Forced CPU tensors for all BLAS operations on Apple Silicon
 6. **Matplotlib Backend**: Switched to 'Agg' backend on Apple Silicon for visualization stability
 7. **Gradient Handling**: Added extra `.detach()` calls to prevent autograd-related crashes
+8. **Pruning Algorithm Fix**: Added tensor shape validation and bounds checking in `generate_pruning_mask`
 
 ## Running the Notebook
 
@@ -50,17 +51,22 @@ For running in Colab, follow these steps:
 
 ## Testing Individual Components
 
-If you just want to verify that the tensor operations work correctly:
+If you just want to verify that specific components work correctly:
 
 ```bash
-# Test only the tensor handling
+# Test tensor handling (matrix operations and entropy calculation)
 python scripts/test_tensor_handling.py
+
+# Test the pruning algorithm with various tensor shapes
+python scripts/test_pruning_algorithm.py
 ```
 
-This will test:
-- Attention tensor creation
+These will test:
+- Attention tensor creation and manipulation
 - Entropy calculation
 - Visualization functionality
+- Pruning mask generation with different strategies
+- Tensor shape validation and bounds checking
 - Safe tensor display utilities
 
 ## Implementation Details

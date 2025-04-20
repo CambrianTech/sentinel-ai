@@ -6,7 +6,7 @@ This module implements the fundamental algorithms for neural plasticity, includi
 - Pruning mask generation and application
 - Model evaluation functions
 
-Version: v0.0.54 (2025-04-19 21:00:00)
+Version: v0.0.55 (2025-04-19 22:30:00)
 """
 
 import torch
@@ -342,6 +342,9 @@ def generate_pruning_mask(
         if grad_norm_values.is_cuda:
             torch.cuda.manual_seed(random_seed)
     
+    # Create pruning mask of the same shape as grad_norm_values
+    pruning_mask = torch.zeros_like(grad_norm_values, dtype=torch.bool)
+    
     # Flatten tensor for calculating percentiles
     flat_grad_norm = grad_norm_values.view(-1)
     
@@ -349,9 +352,12 @@ def generate_pruning_mask(
     total_heads = grad_norm_values.numel()
     target_prune_count = int(total_heads * prune_percent)
     
+    # Safety check: limit target_prune_count to available heads
+    target_prune_count = min(target_prune_count, total_heads)
+    
     if target_prune_count == 0:
         # Nothing to prune
-        return torch.zeros_like(grad_norm_values, dtype=torch.bool)
+        return pruning_mask
     
     # Generate mask based on strategy
     if strategy == "gradient":
@@ -362,8 +368,26 @@ def generate_pruning_mask(
         if entropy_values is None:
             raise ValueError("Entropy values required for entropy-based pruning")
         
-        # Flatten entropy values
+        # Flatten entropy values, ensuring they have the same shape
+        if entropy_values.shape != grad_norm_values.shape:
+            raise ValueError(f"Entropy values shape {entropy_values.shape} doesn't match gradient values shape {grad_norm_values.shape}")
+            
         flat_entropy = entropy_values.view(-1)
+        
+        # Safety check: Ensure the flattened dimension matches the expected size
+        if flat_entropy.numel() != total_heads:
+            # Handle mismatch by reshaping or padding
+            if flat_entropy.numel() > total_heads:
+                # Truncate if too large
+                flat_entropy = flat_entropy[:total_heads]
+            else:
+                # Pad with average value if too small
+                padded = torch.full((total_heads,), flat_entropy.mean(), 
+                                   device=flat_entropy.device, dtype=flat_entropy.dtype)
+                padded[:flat_entropy.numel()] = flat_entropy
+                flat_entropy = padded
+                
+            print(f"⚠️ Warning: Entropy values shape mismatch. Expected {total_heads}, got {entropy_values.numel()}. Adjusting tensor.")
         
         # Prune heads with HIGHEST entropy (most unfocused)
         _, indices = torch.topk(flat_entropy, k=target_prune_count, largest=True)
@@ -376,11 +400,31 @@ def generate_pruning_mask(
         if entropy_values is None:
             raise ValueError("Entropy values required for combined pruning")
         
+        # Ensure entropy values have the same shape
+        if entropy_values.shape != grad_norm_values.shape:
+            raise ValueError(f"Entropy values shape {entropy_values.shape} doesn't match gradient values shape {grad_norm_values.shape}")
+            
+        flat_entropy = entropy_values.view(-1)
+        
+        # Safety check: Ensure the flattened dimension matches
+        if flat_entropy.numel() != total_heads:
+            # Handle mismatch by reshaping or padding
+            if flat_entropy.numel() > total_heads:
+                # Truncate if too large
+                flat_entropy = flat_entropy[:total_heads]
+            else:
+                # Pad with average value if too small
+                padded = torch.full((total_heads,), flat_entropy.mean(), 
+                                   device=flat_entropy.device, dtype=flat_entropy.dtype)
+                padded[:flat_entropy.numel()] = flat_entropy
+                flat_entropy = padded
+                
+            print(f"⚠️ Warning: Entropy values shape mismatch. Expected {total_heads}, got {entropy_values.numel()}. Adjusting tensor.")
+        
         # Normalize gradient norms (higher is better)
         norm_grad = 1.0 - (flat_grad_norm - flat_grad_norm.min()) / (flat_grad_norm.max() - flat_grad_norm.min() + 1e-8)
         
         # Normalize entropy (higher is worse)
-        flat_entropy = entropy_values.view(-1)
         norm_entropy = (flat_entropy - flat_entropy.min()) / (flat_entropy.max() - flat_entropy.min() + 1e-8)
         
         # Combine metrics (higher score = more likely to prune)
@@ -392,9 +436,15 @@ def generate_pruning_mask(
     else:
         raise ValueError(f"Unknown pruning strategy: {strategy}")
     
+    # Safety check to ensure indices are within bounds
+    valid_indices = indices[indices < total_heads]
+    if len(valid_indices) < len(indices):
+        print(f"⚠️ Warning: Some pruning indices were out of bounds. Found {len(indices)} indices, but only {len(valid_indices)} are valid.")
+    
     # Create pruning mask where True = head should be pruned
-    pruning_mask = torch.zeros_like(grad_norm_values, dtype=torch.bool)
-    pruning_mask.view(-1)[indices] = True
+    # Use valid indices only to avoid out of bounds error
+    flat_mask = pruning_mask.view(-1)
+    flat_mask[valid_indices] = True
     
     return pruning_mask
 
