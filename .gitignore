@@ -36,12 +36,16 @@ datasets/**/cache/
 
 # Neural plasticity experiment results
 plasticity_experiments/
+experiment_results/
+neural_plasticity_output/
+plasticity_experiment/
 neural_plasticity_test/
 legacy_datasets/
 experiments/
 dynamic_plasticity_experiment/
 neural_plasticity_report/
 neural_plasticity_results.html
+neural_plasticity_experiment.log
 dashboard/
 *_demo_output.txt
 *.bak
@@ -95,6 +99,8 @@ message.txt
 docs/MANIFESTO.md
 MANIFESTO.md
 PR_DRAFT.md
+PURGE_LIST.txt
+CLAUDE_NOTES.md
 /test_*.py 
 /load_*.py
 
