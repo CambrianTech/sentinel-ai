@@ -14,15 +14,42 @@ import numpy as np
 import matplotlib.pyplot as plt
 from typing import Dict, List, Tuple, Optional, Union, Callable, Any
 from datetime import datetime
+import importlib.util
 
 from transformers import (
     AutoModelForCausalLM,
     AutoTokenizer,
-    default_data_collator,
-    get_linear_schedule_with_warmup
+    default_data_collator
 )
+
+# Fix for scheduler import
+try:
+    from transformers import get_linear_schedule_with_warmup
+except ImportError:
+    # Provide a simple implementation if transformers version is missing it
+    def get_linear_schedule_with_warmup(optimizer, num_warmup_steps, num_training_steps, last_epoch=-1):
+        """
+        Create a schedule with a learning rate that decreases linearly from the initial lr.
+        This is a simple fallback implementation for when transformers is not available.
+        """
+        def lr_lambda(current_step: int):
+            if current_step < num_warmup_steps:
+                return float(current_step) / float(max(1, num_warmup_steps))
+            return max(
+                0.0, float(num_training_steps - current_step) / float(max(1, num_training_steps - num_warmup_steps))
+            )
+            
+        return torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda, last_epoch)
 from torch.utils.data import DataLoader
-from datasets import load_dataset
+
+# Safely import datasets
+try:
+    from datasets import load_dataset
+except ImportError:
+    print("Warning: datasets package not available. Limited functionality.")
+    # Provide a dummy function for testing
+    def load_dataset(*args, **kwargs):
+        raise ImportError("datasets package is required for loading datasets")
 
 from .core import (
     calculate_head_entropy,

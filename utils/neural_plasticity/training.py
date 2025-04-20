@@ -16,6 +16,26 @@ import gc
 
 import os
 import traceback
+
+# Fix for scheduler import
+try:
+    from transformers import get_linear_schedule_with_warmup
+except ImportError:
+    # Provide a simple implementation if transformers version is missing it
+    def get_linear_schedule_with_warmup(optimizer, num_warmup_steps, num_training_steps, last_epoch=-1):
+        """
+        Create a schedule with a learning rate that decreases linearly from the initial lr.
+        This is a simple fallback implementation for when transformers is not available.
+        """
+        def lr_lambda(current_step: int):
+            if current_step < num_warmup_steps:
+                return float(current_step) / float(max(1, num_warmup_steps))
+            return max(
+                0.0, float(num_training_steps - current_step) / float(max(1, num_training_steps - num_warmup_steps))
+            )
+            
+        return torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda, last_epoch)
+
 from .core import (
     calculate_head_entropy,
     calculate_head_gradients,
@@ -796,7 +816,7 @@ def run_warmup_phase(
     # Initialize optimizer and scheduler
     optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
     total_steps = len(train_dataloader) * max_epochs
-    scheduler = torch.optim.lr_scheduler.get_linear_schedule_with_warmup(
+    scheduler = get_linear_schedule_with_warmup(
         optimizer, 
         num_warmup_steps=warmup_steps, 
         num_training_steps=total_steps
