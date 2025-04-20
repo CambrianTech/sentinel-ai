@@ -62,9 +62,10 @@ if __name__ == "__main__":
         # Create experiment with explicit output directory
         experiment = NeuralPlasticityExperiment(
             output_dir=output_dir,
-            model_name="distilgpt2",
-            quick_test=True
+            model_name="distilgpt2"
         )
+        # Set quick_test attribute directly
+        experiment.quick_test = True
         
         # Create an experiment run
         experiment_id = experiment.create_experiment_run("entropy_0.2")

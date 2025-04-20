@@ -154,6 +154,11 @@ class AdaptiveFinetuner:
             outputs = self.model(**batch)
             loss = outputs.loss
             
+            # Skip batches with None loss
+            if loss is None:
+                logger.warning("Skipping batch with None loss during fine-tuning")
+                continue
+                
             # Backward pass and optimization
             optimizer.zero_grad()
             loss.backward()
