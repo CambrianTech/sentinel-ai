@@ -1,0 +1,16 @@
+{
+  "model_name": "distilgpt2",
+  "pruning_ratio": 0.3,
+  "strategy": "entropy",
+  "growth_ratio": 0.1,
+  "learning_rate": 5e-5,
+  "batch_size": 4,
+  "epochs_per_cycle": 3,
+  "max_cycles": 1,
+  "gradient_accumulation": 1,
+  "dataset": "wikitext",
+  "use_differential_lr": true,
+  "device": "cuda",
+  "save_frequency": 1,
+  "eval_frequency": 1
+}

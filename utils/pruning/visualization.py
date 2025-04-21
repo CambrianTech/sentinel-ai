@@ -10,8 +10,9 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import logging
-from typing import Dict, List, Optional, Union, Any
+from typing import Dict, List, Optional, Union, Any, Tuple
 from pathlib import Path
+import torch  # Needed for tensor type checking
 
 
 def plot_experiment_summary(results_df: pd.DataFrame, figsize: tuple = (12, 10)) -> plt.Figure:
@@ -447,4 +448,138 @@ def visualize_head_importance(model_name: str,
     
     # Make sure there's enough space between subplots
     plt.subplots_adjust(hspace=0.3, wspace=0.3, top=0.9, bottom=0.05, left=0.05, right=0.95)
+    return fig
+
+
+def plot_head_gradients_with_overlays(
+    grad_norms: Union[np.ndarray, torch.Tensor],
+    pruned_heads: List[Tuple[int, int]] = None,
+    revived_heads: List[Tuple[int, int]] = None,
+    vulnerable_heads: List[Tuple[int, int]] = None,
+    vulnerable_threshold: float = 0.01,
+    figsize: tuple = (12, 6),
+    title: str = "Attention Head Gradient Norms with Plasticity Status"
+) -> plt.Figure:
+    """Generate a visualization of head gradient norms with pruning/revival markers.
+    
+    This unified visualization makes it easy to see which heads have been pruned or revived
+    in the context of their gradient importance.
+    
+    Args:
+        grad_norms: Gradient norms for all attention heads, shape [layers, heads] or flattened
+        pruned_heads: List of (layer_idx, head_idx) tuples for pruned heads
+        revived_heads: List of (layer_idx, head_idx) tuples for revived heads
+        vulnerable_heads: List of (layer_idx, head_idx) tuples for vulnerable heads, or None to auto-detect
+        vulnerable_threshold: Threshold below which unpruned heads are considered vulnerable
+        figsize: Figure size (width, height) in inches
+        title: Title for the plot
+        
+    Returns:
+        Matplotlib figure object
+    """
+    import torch
+    import matplotlib.pyplot as plt
+    from matplotlib.patches import Patch
+    
+    # Convert tensor to numpy if needed
+    if isinstance(grad_norms, torch.Tensor):
+        grad_norms = grad_norms.detach().cpu().numpy()
+    
+    # Get dimensions
+    if len(grad_norms.shape) == 2:
+        num_layers, heads_per_layer = grad_norms.shape
+        grad_norms_flat = grad_norms.flatten()
+    else:
+        # Handle flat input - need to know num_layers and heads_per_layer
+        grad_norms_flat = grad_norms
+        if pruned_heads:
+            # Infer dimensions from pruned_heads
+            max_layer = max(layer for layer, _ in pruned_heads) if pruned_heads else 0
+            max_head = max(head for _, head in pruned_heads) if pruned_heads else 0
+            num_layers = max_layer + 1
+            heads_per_layer = max_head + 1
+        else:
+            # Assume square-ish layout
+            total_heads = len(grad_norms_flat)
+            num_layers = int(np.sqrt(total_heads))
+            heads_per_layer = total_heads // num_layers
+    
+    # Initialize lists if not provided
+    pruned_heads = pruned_heads or []
+    revived_heads = revived_heads or []
+    
+    # Prepare data
+    total_heads = num_layers * heads_per_layer
+    x = np.arange(total_heads)
+    
+    # Convert (layer, head) to flat indices
+    pruned_indices = [layer * heads_per_layer + head for layer, head in pruned_heads]
+    revived_indices = [layer * heads_per_layer + head for layer, head in revived_heads]
+    
+    # Auto-detect vulnerable heads if not provided
+    if vulnerable_heads is None:
+        vulnerable_indices = []
+        for i, norm in enumerate(grad_norms_flat):
+            if (
+                i not in pruned_indices and
+                i not in revived_indices and
+                norm < vulnerable_threshold
+            ):
+                vulnerable_indices.append(i)
+    else:
+        vulnerable_indices = [layer * heads_per_layer + head for layer, head in vulnerable_heads]
+    
+    # Create figure
+    fig, ax = plt.subplots(figsize=figsize)
+    
+    # Plot gradient norms
+    bars = plt.bar(x, grad_norms_flat, color='skyblue', alpha=0.7)
+    
+    # Mark pruned heads with red X
+    for idx in pruned_indices:
+        plt.text(idx, grad_norms_flat[idx] + grad_norms_flat.max() * 0.03, '❌', 
+                 ha='center', va='bottom', color='red', fontsize=12)
+    
+    # Mark revived heads with green +
+    for idx in revived_indices:
+        plt.text(idx, grad_norms_flat[idx] + grad_norms_flat.max() * 0.03, '➕', 
+                 ha='center', va='bottom', color='green', fontsize=12)
+    
+    # Mark vulnerable heads with yellow warning
+    for idx in vulnerable_indices:
+        plt.text(idx, grad_norms_flat[idx] + grad_norms_flat.max() * 0.03, '⚠️', 
+                 ha='center', va='bottom', color='orange', fontsize=10)
+    
+    # Add layer separators
+    for layer in range(1, num_layers):
+        plt.axvline(x=layer * heads_per_layer - 0.5, color='gray', linestyle='--', alpha=0.3)
+    
+    # Add titles and labels
+    plt.title(title)
+    plt.xlabel('Attention Head (Layer × Head Index)')
+    plt.ylabel('Gradient Norm')
+    
+    # Add custom legend
+    legend_elements = [
+        Patch(facecolor='skyblue', alpha=0.7, label='Gradient Norm'),
+        Patch(facecolor='white', edgecolor='white', label='❌ Pruned'),
+        Patch(facecolor='white', edgecolor='white', label='➕ Revived'),
+        Patch(facecolor='white', edgecolor='white', label='⚠️ Vulnerable')
+    ]
+    plt.legend(handles=legend_elements)
+    
+    # Customize x-ticks to show layer boundaries
+    major_ticks = np.arange(0, total_heads, heads_per_layer)
+    plt.xticks(major_ticks, [f'L{i}' for i in range(num_layers)])
+    
+    # Add minor ticks for every head
+    minor_ticks = np.arange(0, total_heads)
+    ax.set_xticks(minor_ticks, minor=True)
+    ax.tick_params(axis='x', which='minor', size=0)  # Hide minor tick marks
+    
+    # Add grid for easier reading
+    ax.grid(True, axis='y', alpha=0.3)
+    ax.grid(True, axis='x', which='major', alpha=0.3)
+    
+    plt.tight_layout()
     return fig

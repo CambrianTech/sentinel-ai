@@ -367,6 +367,8 @@ Examples:
                         help="Show detailed loading and gate activity output (disables --quiet)")
     parser.add_argument("--optimization_level", type=int, default=None, choices=[0, 1, 2, 3],
                         help="Optimization level (0-3), where 3 is fully optimized")
+    parser.add_argument("--from_tf", action="store_true",
+                        help="Load model from TensorFlow checkpoint")
 
     return parser.parse_args()
 
@@ -394,7 +396,7 @@ def main():
     tokenizer.pad_token = tokenizer.eos_token
 
     # Load the baseline model
-    baseline_model = load_baseline_model(args.model_name, device)
+    baseline_model = load_baseline_model(args.model_name, device, from_tf=args.from_tf)
 
     if args.baseline:
         print("⚙️  Running with baseline HuggingFace model only")

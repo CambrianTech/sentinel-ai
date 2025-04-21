@@ -43,6 +43,8 @@ def collect_attention_distributions(model, dataloader, num_batches=10, device="c
                 # Handle different batch formats
                 if isinstance(batch, tuple) and len(batch) >= 2:
                     input_ids, attention_mask = batch[0], batch[1]
+                elif isinstance(batch, list) and len(batch) >= 2:
+                    input_ids, attention_mask = batch[0], batch[1]
                 elif isinstance(batch, dict):
                     input_ids = batch["input_ids"]
                     attention_mask = batch.get("attention_mask", None)
@@ -208,6 +210,8 @@ def _collect_attention_fallback(model, dataloader, num_batches=10, device="cuda"
                 
                 # Handle different batch formats
                 if isinstance(batch, tuple) and len(batch) >= 2:
+                    input_ids, attention_mask = batch[0], batch[1]
+                elif isinstance(batch, list) and len(batch) >= 2:
                     input_ids, attention_mask = batch[0], batch[1]
                 elif isinstance(batch, dict):
                     input_ids = batch["input_ids"]
@@ -509,13 +513,14 @@ def magnitude_based_pruning(model, prune_ratio=0.1, safe_update_tensor_fn=None):
 
 def prune_head_in_model(model, layer_idx, head_idx, safe_update_tensor_fn=None):
     """
-    Prune a specific head in the model.
+    Prune a specific head in the model by setting its key, query, and value weights to zero.
+    This implementation works for standard transformer models like GPT-2.
     
     Args:
         model: The model
         layer_idx: Layer index
         head_idx: Head index
-        safe_update_tensor_fn: Function to safely update tensor values
+        safe_update_tensor_fn: Function to safely update tensor values (ignored)
         
     Returns:
         True if the head was pruned, False otherwise
@@ -536,6 +541,7 @@ def prune_head_in_model(model, layer_idx, head_idx, safe_update_tensor_fn=None):
         blocks = model.model.layers
     
     if blocks is None or layer_idx >= len(blocks):
+        print(f"Could not find transformer block for layer {layer_idx}")
         return False
     
     # Get the block
@@ -553,40 +559,69 @@ def prune_head_in_model(model, layer_idx, head_idx, safe_update_tensor_fn=None):
         attn_module = block.self_attn
     
     if attn_module is None:
+        print(f"Could not find attention module in block {layer_idx}")
         return False
     
-    # Check for gate parameter
-    if hasattr(attn_module, 'gate'):
-        gate = attn_module.gate
-        # Use safe update function if provided
-        if safe_update_tensor_fn is not None:
-            safe_update_tensor_fn(gate, 0.0, index=head_idx)
-        else:
-            with torch.no_grad():
-                gate[head_idx] = 0.0
-        return True
+    # For GPT-2 style models with a combined QKV matrix
+    if hasattr(attn_module, 'c_attn'):
+        # Get dimensions
+        with torch.no_grad():
+            # Get number of heads
+            n_heads = getattr(attn_module, 'n_head', None)
+            if n_heads is None:
+                n_heads = getattr(attn_module, 'num_heads', getattr(attn_module, 'num_attention_heads', 12))
+            
+            # Get head size
+            hidden_size = attn_module.c_attn.weight.size(0)
+            head_size = hidden_size // n_heads
+            
+            # Get the starting indices for the head
+            q_idx = head_idx * head_size
+            k_idx = hidden_size + head_idx * head_size
+            v_idx = 2 * hidden_size + head_idx * head_size
+            
+            # Zero out the weights for this head's query, key, value
+            attn_module.c_attn.weight[q_idx:q_idx+head_size, :] = 0.0
+            attn_module.c_attn.weight[k_idx:k_idx+head_size, :] = 0.0
+            attn_module.c_attn.weight[v_idx:v_idx+head_size, :] = 0.0
+            
+            # Zero out bias if present
+            if hasattr(attn_module.c_attn, 'bias') and attn_module.c_attn.bias is not None:
+                attn_module.c_attn.bias[q_idx:q_idx+head_size] = 0.0
+                attn_module.c_attn.bias[k_idx:k_idx+head_size] = 0.0
+                attn_module.c_attn.bias[v_idx:v_idx+head_size] = 0.0
+                
+            print(f"Pruned head {head_idx} in layer {layer_idx} (GPT-2 style)")
+            return True
     
-    # Check for head_gates parameter
-    if hasattr(attn_module, 'head_gates'):
-        head_gates = attn_module.head_gates
-        # Use safe update function if provided
-        if safe_update_tensor_fn is not None:
-            safe_update_tensor_fn(head_gates, 0.0, index=head_idx)
-        else:
-            with torch.no_grad():
-                head_gates[head_idx] = 0.0
-        return True
+    # For models with separate QKV matrices
+    if hasattr(attn_module, 'q_proj') and hasattr(attn_module, 'k_proj') and hasattr(attn_module, 'v_proj'):
+        with torch.no_grad():
+            # Get number of heads
+            num_heads = getattr(attn_module, 'num_heads', 
+                               getattr(attn_module, 'num_attention_heads',
+                                      getattr(attn_module, 'n_head', 12)))
+            
+            # Get head size
+            head_size = attn_module.q_proj.weight.size(0) // num_heads
+            
+            # Zero out the weights for this head
+            start_idx = head_idx * head_size
+            end_idx = start_idx + head_size
+            
+            attn_module.q_proj.weight[start_idx:end_idx, :] = 0.0
+            attn_module.k_proj.weight[start_idx:end_idx, :] = 0.0
+            attn_module.v_proj.weight[start_idx:end_idx, :] = 0.0
+            
+            # Zero out bias if present
+            if hasattr(attn_module.q_proj, 'bias') and attn_module.q_proj.bias is not None:
+                attn_module.q_proj.bias[start_idx:end_idx] = 0.0
+                attn_module.k_proj.bias[start_idx:end_idx] = 0.0
+                attn_module.v_proj.bias[start_idx:end_idx] = 0.0
+                
+            print(f"Pruned head {head_idx} in layer {layer_idx} (separate QKV)")
+            return True
     
-    # Check for gating_weights parameter
-    if hasattr(attn_module, 'gating_weights'):
-        gating_weights = attn_module.gating_weights
-        # Use safe update function if provided
-        if safe_update_tensor_fn is not None:
-            safe_update_tensor_fn(gating_weights, 0.0, index=head_idx)
-        else:
-            with torch.no_grad():
-                gating_weights[head_idx] = 0.0
-        return True
-    
-    # No gate parameter found
+    # If we got here, we couldn't handle this model architecture
+    print(f"Could not prune head {head_idx} in layer {layer_idx} - unsupported architecture")
     return False

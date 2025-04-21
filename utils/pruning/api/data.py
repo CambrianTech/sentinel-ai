@@ -22,21 +22,28 @@ def load_wikitext():
     
     return train_data, val_data
 
-def prepare_data(tokenizer, text_data, max_length=512, batch_size=4):
+def prepare_data(tokenizer, split="train", batch_size=4, max_length=512):
     """
     Prepare dataset for training/evaluation.
     
     Args:
         tokenizer: Tokenizer for the model
-        text_data: Dataset containing text
-        max_length: Maximum sequence length
+        split: Dataset split to use ('train' or 'validation')
         batch_size: Batch size for dataloader
+        max_length: Maximum sequence length
         
     Returns:
         DataLoader for the processed dataset
     """
-    # Get text from dataset
-    texts = text_data["text"]
+    # Load dataset
+    try:
+        dataset = load_dataset("wikitext", "wikitext-2-raw-v1", split=split)
+        texts = dataset["text"]
+    except Exception as e:
+        print(f"Error loading Wikitext dataset: {e}")
+        print("Falling back to test data...")
+        train_dataloader, val_dataloader = prepare_test_data(tokenizer, max_length, batch_size)
+        return train_dataloader if split == "train" else val_dataloader
     
     # Remove empty strings
     texts = [t for t in texts if t.strip()]
@@ -68,7 +75,7 @@ def prepare_data(tokenizer, text_data, max_length=512, batch_size=4):
     
     return dataloader
 
-def prepare_test_data(tokenizer, max_length=512, batch_size=4, num_samples=10):
+def prepare_test_data(tokenizer, max_length=512, batch_size=4, num_samples=10, is_train=None):
     """
     Create a tiny test dataset for quick testing.
     
@@ -77,6 +84,7 @@ def prepare_test_data(tokenizer, max_length=512, batch_size=4, num_samples=10):
         max_length: Maximum sequence length
         batch_size: Batch size for dataloader
         num_samples: Number of samples in the test dataset
+        is_train: Legacy parameter, ignored (kept for compatibility)
         
     Returns:
         Tuple of (train_dataloader, val_dataloader) for testing

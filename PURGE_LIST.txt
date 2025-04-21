@@ -1,0 +1,10 @@
+# Files to remove (outdated/duplicate versions)
+
+- dashboard_demo.py - Already committed properly as utils/neural_plasticity/dashboard/dashboard_demo.py
+- run_demo_experiment.py - Earlier test version
+- run_simple_experiment.py - Earlier test version
+
+These files were created during development but have been superseded by the properly organized versions in the utils/neural_plasticity/dashboard/ directory.
+
+Note: This file is itself temporary and can be deleted after cleanup.
+EOF < /dev/null
