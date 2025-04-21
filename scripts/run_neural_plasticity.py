@@ -344,14 +344,20 @@ if __name__ == "__main__":
                 if wandb_dashboard:
                     wandb_dashboard.log_pruning_decision(pruning_info, step)
             
-            # Add these callbacks to the experiment options
+            # Add these callbacks to the experiment options - check for method signature support
+            import inspect
             experiment_opts = {
                 "warmup_epochs": warmup_epochs,
                 "pruning_cycles": args.cycles,
                 "training_steps": training_steps,
-                "progress_callback": experiment_progress_callback,
-                "pruning_callback": pruning_event_callback,
             }
+            
+            # Check if the run_full_experiment method accepts our callback parameters
+            run_experiment_params = inspect.signature(experiment.run_full_experiment).parameters
+            if 'progress_callback' in run_experiment_params:
+                experiment_opts["progress_callback"] = experiment_progress_callback
+            if 'pruning_callback' in run_experiment_params:
+                experiment_opts["pruning_callback"] = pruning_event_callback
             
             # Run the complete experiment pipeline
             results = experiment.run_full_experiment(**experiment_opts)

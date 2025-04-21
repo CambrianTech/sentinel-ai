@@ -93,7 +93,18 @@ class MultiPhaseDashboard:
     
     def get_metrics_callback(self):
         """Return a metrics callback function (compatibility method)."""
-        def metrics_callback(metrics, step=None):
+        def metrics_callback(step=None, metrics=None):
+            # Handle parameter order variations
+            if isinstance(step, dict) and metrics is None:
+                # Called as metrics_callback(metrics_dict)
+                metrics = step
+                step = None
+            elif isinstance(metrics, int) and isinstance(step, dict):
+                # Called as metrics_callback(metrics_dict, step)
+                temp = step
+                step = metrics
+                metrics = temp
+                
             self.record_step(metrics, step)
         return metrics_callback
     
@@ -1025,24 +1036,7 @@ class MultiPhaseDashboard:
                             <div class="dashboard-section">
                                 <h3>Model Output Comparison</h3>
                                 
-                                {''.join([f"""
-                                <div class="sample-container" style="margin: 20px 0; padding: 15px; border: 1px solid #ddd; border-radius: 5px;">
-                                    <h4>Sample {i+1}</h4>
-                                    <div style="margin-bottom: 10px;">
-                                        <strong>Prompt:</strong> <span style="font-style: italic;">{sample['prompt']}</span>
-                                    </div>
-                                    <div style="display: flex; flex-wrap: wrap; gap: 20px;">
-                                        <div style="flex: 1; min-width: 300px; padding: 10px; background-color: #f8f9fa; border-radius: 5px;">
-                                            <h5 style="margin-top: 0; color: #3f51b5;">Baseline Model</h5>
-                                            <p style="white-space: pre-wrap; font-family: monospace;">{sample['baseline_text']}</p>
-                                        </div>
-                                        <div style="flex: 1; min-width: 300px; padding: 10px; background-color: #f0f4ff; border-radius: 5px;">
-                                            <h5 style="margin-top: 0; color: #4caf50;">Pruned Model</h5>
-                                            <p style="white-space: pre-wrap; font-family: monospace;">{sample['pruned_text']}</p>
-                                        </div>
-                                    </div>
-                                </div>
-                                """ for i, sample in enumerate(self.comparisons) if hasattr(self, 'comparisons') else [])}
+                                {self._generate_sample_html() if hasattr(self, 'comparisons') and self.comparisons else ''}
                             </div>
                             
                             <div class="summary-box">
@@ -1709,6 +1703,35 @@ class MultiPhaseDashboard:
         # Add colorbar
         plt.colorbar(im, ax=ax, label="Importance Score")
     
+    def _generate_sample_html(self) -> str:
+        """Generate HTML for text samples."""
+        if not hasattr(self, 'comparisons') or not self.comparisons:
+            return ''
+            
+        html_parts = []
+        for i, sample in enumerate(self.comparisons):
+            html = f"""
+            <div class="sample-container" style="margin: 20px 0; padding: 15px; border: 1px solid #ddd; border-radius: 5px;">
+                <h4>Sample {i+1}</h4>
+                <div style="margin-bottom: 10px;">
+                    <strong>Prompt:</strong> <span style="font-style: italic;">{sample['prompt']}</span>
+                </div>
+                <div style="display: flex; flex-wrap: wrap; gap: 20px;">
+                    <div style="flex: 1; min-width: 300px; padding: 10px; background-color: #f8f9fa; border-radius: 5px;">
+                        <h5 style="margin-top: 0; color: #3f51b5;">Baseline Model</h5>
+                        <p style="white-space: pre-wrap; font-family: monospace;">{sample['baseline_text']}</p>
+                    </div>
+                    <div style="flex: 1; min-width: 300px; padding: 10px; background-color: #f0f4ff; border-radius: 5px;">
+                        <h5 style="margin-top: 0; color: #4caf50;">Pruned Model</h5>
+                        <p style="white-space: pre-wrap; font-family: monospace;">{sample['pruned_text']}</p>
+                    </div>
+                </div>
+            </div>
+            """
+            html_parts.append(html)
+        
+        return ''.join(html_parts)
+        
     def _plot_layer_metrics(self, ax):
         """Plot layer-wise metrics if available."""
         if not self.layer_metrics:
