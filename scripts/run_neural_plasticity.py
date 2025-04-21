@@ -161,23 +161,10 @@ if __name__ == "__main__":
         try:
             logger.info("Initializing dashboard...")
             
-            # Choose between regular and multi-phase dashboard
-            if args.cycles > 1 or not args.quick_test:
-                # Use multi-phase dashboard for complex experiments
-                try:
-                    # First, try to use the Sentinel framework implementation
-                    from sentinel.plasticity.visualization.multi_phase.dashboard import MultiPhaseDashboard
-                    logger.info("Using sentinel.plasticity multi-phase dashboard for comprehensive tracking")
-                except ImportError:
-                    # Fall back to utils implementation if not available
-                    from utils.neural_plasticity.dashboard.multi_phase_dashboard import MultiPhaseDashboard
-                    logger.info("Using utils.neural_plasticity multi-phase dashboard for comprehensive tracking")
-                
-                dashboard_class = MultiPhaseDashboard
-            else:
-                # Use basic dashboard for quick tests
-                from utils.neural_plasticity.dashboard.wandb_integration import WandbDashboard
-                dashboard_class = WandbDashboard
+            # Always use our Sentinel dashboard implementation for the controller integration
+            from sentinel.plasticity.visualization.multi_phase.dashboard import MultiPhaseDashboard
+            logger.info("Using sentinel.plasticity multi-phase dashboard for comprehensive tracking")
+            dashboard_class = MultiPhaseDashboard
             
             # Create a timestamp-based experiment name
             experiment_name = f"np-{args.model_name.split('/')[-1]}-{args.pruning_strategy}-{timestamp}"
