@@ -164,9 +164,16 @@ if __name__ == "__main__":
             # Choose between regular and multi-phase dashboard
             if args.cycles > 1 or not args.quick_test:
                 # Use multi-phase dashboard for complex experiments
-                from utils.neural_plasticity.dashboard.multi_phase_dashboard import MultiPhaseDashboard
+                try:
+                    # First, try to use the Sentinel framework implementation
+                    from sentinel.plasticity.visualization.multi_phase.dashboard import MultiPhaseDashboard
+                    logger.info("Using sentinel.plasticity multi-phase dashboard for comprehensive tracking")
+                except ImportError:
+                    # Fall back to utils implementation if not available
+                    from utils.neural_plasticity.dashboard.multi_phase_dashboard import MultiPhaseDashboard
+                    logger.info("Using utils.neural_plasticity multi-phase dashboard for comprehensive tracking")
+                
                 dashboard_class = MultiPhaseDashboard
-                logger.info("Using multi-phase dashboard for comprehensive tracking")
             else:
                 # Use basic dashboard for quick tests
                 from utils.neural_plasticity.dashboard.wandb_integration import WandbDashboard
@@ -175,25 +182,38 @@ if __name__ == "__main__":
             # Create a timestamp-based experiment name
             experiment_name = f"np-{args.model_name.split('/')[-1]}-{args.pruning_strategy}-{timestamp}"
             
-            # Initialize the dashboard
-            wandb_dashboard = dashboard_class(
-                project_name="neural-plasticity",
-                experiment_name=experiment_name,
-                output_dir=os.path.join(OUTPUT_DIR, "wandb"),
-                config={
-                    "model_name": args.model_name,
-                    "dataset": f"{args.dataset}/{args.dataset_config}",
-                    "pruning_strategy": args.pruning_strategy,
-                    "pruning_level": args.pruning_level,
-                    "learning_rate": args.learning_rate,
-                    "batch_size": args.batch_size,
-                    "cycles": args.cycles,
-                    "quick_test": args.quick_test,
-                    "training_steps": args.training_steps
-                },
-                mode="online" if not args.quick_test else "offline",  # Use offline mode for quick tests
-                tags=["sentinel-ai", "multi-phase" if args.cycles > 1 else "single-cycle"]
-            )
+            # Prepare config dictionary for dashboard
+            config_dict = {
+                "model_name": args.model_name,
+                "dataset": f"{args.dataset}/{args.dataset_config}",
+                "pruning_strategy": args.pruning_strategy,
+                "pruning_level": args.pruning_level,
+                "learning_rate": args.learning_rate,
+                "batch_size": args.batch_size,
+                "cycles": args.cycles,
+                "quick_test": args.quick_test,
+                "training_steps": args.training_steps
+            }
+            
+            # Initialize the dashboard based on its class
+            if dashboard_class.__module__.startswith('sentinel.plasticity'):
+                # Initialize the sentinel implementation
+                wandb_dashboard = dashboard_class(
+                    output_dir=dashboard_dir,
+                    experiment_name=experiment_name,
+                    config=config_dict
+                )
+                logger.info(f"Initialized Sentinel MultiPhaseDashboard at {dashboard_dir}")
+            else:
+                # Initialize the wandb dashboard implementation
+                wandb_dashboard = dashboard_class(
+                    project_name="neural-plasticity",
+                    experiment_name=experiment_name,
+                    output_dir=os.path.join(OUTPUT_DIR, "wandb"),
+                    config=config_dict,
+                    mode="online" if not args.quick_test else "offline",  # Use offline mode for quick tests
+                    tags=["sentinel-ai", "multi-phase" if args.cycles > 1 else "single-cycle"]
+                )
             
             # Set initial phase
             wandb_dashboard.set_phase("setup")
@@ -209,12 +229,22 @@ if __name__ == "__main__":
         logger.info("Creating experiment instance...")
         
         # Create metrics callback if wandb dashboard is enabled
-        metrics_callback = wandb_dashboard.get_metrics_callback() if wandb_dashboard else None
-        sample_callback = wandb_dashboard.get_sample_callback() if wandb_dashboard else None
+        metrics_callback = None
+        sample_callback = None
         
+        # Check if dashboard supports these methods
         if wandb_dashboard:
+            if hasattr(wandb_dashboard, 'get_metrics_callback'):
+                metrics_callback = wandb_dashboard.get_metrics_callback()
+            
+            if hasattr(wandb_dashboard, 'get_sample_callback'):
+                sample_callback = wandb_dashboard.get_sample_callback()
+            
             # Log that we're starting experiment creation
-            wandb_dashboard.log_metrics({"status": "running", "message": "Creating experiment instance"})
+            if hasattr(wandb_dashboard, 'log_metrics'):
+                wandb_dashboard.log_metrics({"status": "running", "message": "Creating experiment instance"})
+            elif hasattr(wandb_dashboard, 'record_step'):
+                wandb_dashboard.record_step({"status": "running", "message": "Creating experiment instance"}, 0)
         
         # Create experiment with comprehensive configuration
         experiment = NeuralPlasticityExperiment(
@@ -333,11 +363,18 @@ if __name__ == "__main__":
             
             # Update dashboard with final metrics
             if wandb_dashboard:
-                wandb_dashboard.log_metrics({
+                final_metrics = {
                     "baseline_perplexity": baseline_perplexity,
                     "final_perplexity": final_perplexity,
                     "improvement_percent": improvement_percent
-                })
+                }
+                
+                # Use the appropriate method based on dashboard implementation
+                if hasattr(wandb_dashboard, 'log_metrics'):
+                    wandb_dashboard.log_metrics(final_metrics)
+                elif hasattr(wandb_dashboard, 'record_step'):
+                    current_step = getattr(wandb_dashboard, 'current_step', 0)
+                    wandb_dashboard.record_step(final_metrics, current_step)
                 
                 # Update pruning information if available
                 if "pruned_heads" in results:
@@ -347,7 +384,13 @@ if __name__ == "__main__":
                         "pruned_heads": results["pruned_heads"],
                         "cycle": args.cycles
                     }
-                    wandb_dashboard.log_pruning_decision(pruning_decision)
+                    
+                    # Use appropriate method for the dashboard implementation
+                    if hasattr(wandb_dashboard, 'log_pruning_decision'):
+                        wandb_dashboard.log_pruning_decision(pruning_decision)
+                    elif hasattr(wandb_dashboard, 'record_pruning_event'):
+                        current_step = getattr(wandb_dashboard, 'current_step', 0)
+                        wandb_dashboard.record_pruning_event(pruning_decision, current_step)
                 
                 # Add the inference phase to show model evaluation
                 if not args.quick_test:
@@ -381,18 +424,31 @@ if __name__ == "__main__":
                         }
                         
                         # Log individual samples for different visualizations
-                        wandb_dashboard.log_text_sample(prompt, baseline_text, model_type="baseline")
-                        wandb_dashboard.log_text_sample(prompt, pruned_text, model_type="pruned")
-                        
-                        # Create comparison visualization
-                        wandb_dashboard.log_inference_comparison(
-                            prompt, baseline_text, pruned_text,
-                            metrics={
+                        # Handle different dashboard implementations
+                        if hasattr(wandb_dashboard, 'log_text_sample'):
+                            wandb_dashboard.log_text_sample(prompt, baseline_text, model_type="baseline")
+                            wandb_dashboard.log_text_sample(prompt, pruned_text, model_type="pruned")
+                            
+                            # Create comparison visualization for Wandb dashboard
+                            wandb_dashboard.log_inference_comparison(
+                                prompt, baseline_text, pruned_text,
+                                metrics={
+                                    "baseline_perplexity": baseline_perplexity,
+                                    "pruned_perplexity": final_perplexity,
+                                    "improvement_percent": improvement_percent
+                                }
+                            )
+                        elif hasattr(wandb_dashboard, 'record_step'):
+                            # For Sentinel implementation, add samples to metrics
+                            sample_metrics = {
+                                "baseline_text": baseline_text,
+                                "pruned_text": pruned_text,
+                                "prompt": prompt,
                                 "baseline_perplexity": baseline_perplexity,
                                 "pruned_perplexity": final_perplexity,
                                 "improvement_percent": improvement_percent
                             }
-                        )
+                            wandb_dashboard.record_step(sample_metrics, getattr(wandb_dashboard, 'current_step', 0))
                         
                         # Only need one detailed comparison for the dashboard
                         if i == 0:
@@ -410,15 +466,31 @@ if __name__ == "__main__":
                     }
                     
                     # Log comprehensive inference dashboard
-                    wandb_dashboard.log_inference_dashboard(
-                        perplexity_data=perplexity_data,
-                        generation_samples=generation_samples,
-                        attention_data=attention_data
-                    )
+                    if hasattr(wandb_dashboard, 'log_inference_dashboard'):
+                        wandb_dashboard.log_inference_dashboard(
+                            perplexity_data=perplexity_data,
+                            generation_samples=generation_samples,
+                            attention_data=attention_data
+                        )
+                    elif hasattr(wandb_dashboard, 'record_step'):
+                        # For Sentinel implementation, add comprehensive data to metrics
+                        dashboard_metrics = {
+                            "phase": "evaluation",
+                            "perplexity_data": perplexity_data,
+                            "attention_available": attention_data is not None
+                        }
+                        wandb_dashboard.record_step(dashboard_metrics, getattr(wandb_dashboard, 'current_step', 0))
                     
                     logger.info("Inference evaluation dashboard completed")
                 
-                wandb_dashboard.log_metrics({"status": "completed", "message": "Experiment completed successfully"})
+                # Log completion status
+                if hasattr(wandb_dashboard, 'log_metrics'):
+                    wandb_dashboard.log_metrics({"status": "completed", "message": "Experiment completed successfully"})
+                elif hasattr(wandb_dashboard, 'record_step'):
+                    wandb_dashboard.record_step({"status": "completed", "message": "Experiment completed successfully"}, 
+                                              getattr(wandb_dashboard, 'current_step', 0))
+                
+                # Set final phase
                 wandb_dashboard.set_phase("complete")
             
             # Save the model if requested
@@ -436,25 +508,47 @@ if __name__ == "__main__":
                 logger.info(f"Metrics dashboard saved to {dashboard_path}")
                 
                 # If using multi-phase dashboard, generate the comprehensive visualization
-                if wandb_dashboard and hasattr(wandb_dashboard, "visualize_complete_process"):
-                    # Path for multi-phase dashboard
-                    multi_phase_path = os.path.join(visualizations_dir, "multi_phase_dashboard.png")
-                    logger.info("Generating multi-phase dashboard visualization...")
-                    wandb_dashboard.visualize_complete_process(save_path=multi_phase_path)
+                if wandb_dashboard:
+                    dashboard_methods = dir(wandb_dashboard)
+                    
+                    # Check for visualization capabilities
+                    if "visualize_complete_process" in dashboard_methods:
+                        # Path for multi-phase dashboard
+                        multi_phase_path = os.path.join(visualizations_dir, "multi_phase_dashboard.png")
+                        logger.info("Generating multi-phase dashboard visualization...")
+                        wandb_dashboard.visualize_complete_process(save_path=multi_phase_path)
+                    
+                    # Generate controller dashboard if available (for adaptive experiments)
+                    if "generate_controller_dashboard" in dashboard_methods:
+                        controller_path = os.path.join(visualizations_dir, "controller_dashboard.png")
+                        logger.info("Generating controller metrics dashboard...")
+                        wandb_dashboard.generate_controller_dashboard(save_path=controller_path)
+                    
+                    # Generate head metrics visualization if available
+                    if "visualize_head_metrics" in dashboard_methods:
+                        heads_path = os.path.join(visualizations_dir, "head_metrics.png")
+                        logger.info("Generating head metrics visualization...")
+                        wandb_dashboard.visualize_head_metrics(save_path=heads_path)
                     
                     # Create standalone HTML dashboard with all visualizations
-                    html_path = os.path.join(dashboard_dir, "dashboard.html")
-                    logger.info("Generating standalone HTML dashboard...")
-                    html_result = wandb_dashboard.generate_standalone_dashboard(dashboard_dir)
-                    logger.info(f"Standalone dashboard saved to: {html_result}")
+                    if "generate_standalone_dashboard" in dashboard_methods:
+                        logger.info("Generating standalone HTML dashboard...")
+                        html_result = wandb_dashboard.generate_standalone_dashboard(dashboard_dir)
+                        logger.info(f"Standalone dashboard saved to: {html_result}")
+                        
+                        # Try to open the dashboard in a browser
+                        try:
+                            import webbrowser
+                            logger.info(f"Opening dashboard in browser: file://{os.path.abspath(html_result)}")
+                            webbrowser.open(f"file://{os.path.abspath(html_result)}")
+                        except Exception as e:
+                            logger.warning(f"Could not open browser: {e}")
                     
-                    # Try to open the dashboard in a browser
-                    try:
-                        import webbrowser
-                        logger.info(f"Opening dashboard in browser: file://{os.path.abspath(html_result)}")
-                        webbrowser.open(f"file://{os.path.abspath(html_result)}")
-                    except Exception as e:
-                        logger.warning(f"Could not open browser: {e}")
+                    # Save dashboard data if supported
+                    if "save_dashboard_data" in dashboard_methods:
+                        data_path = os.path.join(dashboard_dir, "data")
+                        logger.info("Saving dashboard data for future analysis...")
+                        wandb_dashboard.save_dashboard_data(data_path)
         
         # Calculate and log execution time
         execution_time = time.time() - start_time
