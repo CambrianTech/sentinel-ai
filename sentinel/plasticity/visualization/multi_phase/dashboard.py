@@ -1822,7 +1822,21 @@ class MultiPhaseDashboard:
             }
             
             for metric_name, values in metrics["metrics"].items():
-                head_metrics_serializable[head_id][metric_name] = [float(x) if hasattr(x, 'item') else float(x) for x in values]
+                head_metrics_serializable[head_id][metric_name] = []
+                for x in values:
+                    if hasattr(x, 'item'):
+                        head_metrics_serializable[head_id][metric_name].append(float(x.item()))
+                    elif isinstance(x, (int, float)):
+                        head_metrics_serializable[head_id][metric_name].append(float(x))
+                    elif isinstance(x, list):
+                        # If it's a list, calculate the mean if it contains numbers
+                        if all(isinstance(item, (int, float)) for item in x):
+                            head_metrics_serializable[head_id][metric_name].append(float(sum(x) / len(x)))
+                        else:
+                            head_metrics_serializable[head_id][metric_name].append(0.0)  # Fallback
+                    else:
+                        # Unknown type, use 0.0 as a fallback
+                        head_metrics_serializable[head_id][metric_name].append(0.0)
         
         serializable_data["head_metrics"] = head_metrics_serializable
         
@@ -1835,7 +1849,24 @@ class MultiPhaseDashboard:
         for head_id, scores in self.head_scores.items():
             head_scores_serializable[head_id] = {}
             for key, values in scores.items():
-                head_scores_serializable[head_id][key] = values if isinstance(values[0], int) else [float(x) for x in values]
+                if key == "steps" or all(isinstance(x, int) for x in values):
+                    head_scores_serializable[head_id][key] = values
+                else:
+                    head_scores_serializable[head_id][key] = []
+                    for x in values:
+                        if hasattr(x, 'item'):
+                            head_scores_serializable[head_id][key].append(float(x.item()))
+                        elif isinstance(x, (int, float)):
+                            head_scores_serializable[head_id][key].append(float(x))
+                        elif isinstance(x, list):
+                            # If it's a list, calculate the mean if it contains numbers
+                            if all(isinstance(item, (int, float)) for item in x):
+                                head_scores_serializable[head_id][key].append(float(sum(x) / len(x)))
+                            else:
+                                head_scores_serializable[head_id][key].append(0.0)  # Fallback
+                        else:
+                            # Unknown type, use 0.0 as a fallback
+                            head_scores_serializable[head_id][key].append(0.0)
         
         with open(os.path.join(output_dir, "head_scores.json"), 'w') as f:
             json.dump(head_scores_serializable, f, indent=2)
