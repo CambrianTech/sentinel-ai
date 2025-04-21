@@ -9,7 +9,7 @@ object-oriented architecture and outputs results to the /output directory.
 It leverages the comprehensive NeuralPlasticityExperiment class to provide
 a unified workflow for neural plasticity research.
 
-Version: v0.0.39 (2025-04-20 19:30:00)
+Version: v0.0.40 (2025-04-20 21:30:00)
 """
 
 import os
@@ -155,18 +155,28 @@ if __name__ == "__main__":
     import time
     start_time = time.time()
     
-    # Initialize Weights & Biases for real-time monitoring
+    # Initialize dashboard for real-time monitoring
     wandb_dashboard = None
     if args.use_dashboard:
         try:
-            logger.info("Initializing Weights & Biases dashboard...")
-            from utils.neural_plasticity.dashboard.wandb_integration import WandbDashboard
+            logger.info("Initializing dashboard...")
+            
+            # Choose between regular and multi-phase dashboard
+            if args.cycles > 1 or not args.quick_test:
+                # Use multi-phase dashboard for complex experiments
+                from utils.neural_plasticity.dashboard.multi_phase_dashboard import MultiPhaseDashboard
+                dashboard_class = MultiPhaseDashboard
+                logger.info("Using multi-phase dashboard for comprehensive tracking")
+            else:
+                # Use basic dashboard for quick tests
+                from utils.neural_plasticity.dashboard.wandb_integration import WandbDashboard
+                dashboard_class = WandbDashboard
             
             # Create a timestamp-based experiment name
             experiment_name = f"np-{args.model_name.split('/')[-1]}-{args.pruning_strategy}-{timestamp}"
             
-            # Initialize the wandb dashboard
-            wandb_dashboard = WandbDashboard(
+            # Initialize the dashboard
+            wandb_dashboard = dashboard_class(
                 project_name="neural-plasticity",
                 experiment_name=experiment_name,
                 output_dir=os.path.join(OUTPUT_DIR, "wandb"),
@@ -182,14 +192,15 @@ if __name__ == "__main__":
                     "training_steps": args.training_steps
                 },
                 mode="online" if not args.quick_test else "offline",  # Use offline mode for quick tests
-                tags=["sentinel-ai"]
+                tags=["sentinel-ai", "multi-phase" if args.cycles > 1 else "single-cycle"]
             )
             
             # Set initial phase
             wandb_dashboard.set_phase("setup")
-            logger.info(f"Weights & Biases dashboard initialized")
+            wandb_dashboard.record_phase_transition("setup", 0)
+            logger.info(f"Dashboard initialized: {dashboard_class.__name__}")
         except Exception as e:
-            logger.error(f"Failed to initialize Weights & Biases dashboard: {e}")
+            logger.error(f"Failed to initialize dashboard: {e}")
             logger.warning("Continuing without real-time dashboard")
             args.use_dashboard = False
     
@@ -274,13 +285,46 @@ if __name__ == "__main__":
             if wandb_dashboard:
                 wandb_dashboard.log_metrics({"status": "running", "message": "Starting warmup phase"})
                 wandb_dashboard.set_phase("warmup")
+                
+                # Record phase transition for multi-phase dashboard
+                if hasattr(wandb_dashboard, "record_phase_transition"):
+                    current_step = getattr(wandb_dashboard, "current_step", 0)
+                    wandb_dashboard.record_phase_transition("warmup", current_step)
+            
+            # Create a callback to track metrics and phases during execution
+            def experiment_progress_callback(phase, step, metrics):
+                """Callback to track experiment progress through phases."""
+                if wandb_dashboard and hasattr(wandb_dashboard, "record_step"):
+                    # Add phase info to metrics
+                    metrics["phase"] = phase
+                    # Record step with multi-phase dashboard
+                    wandb_dashboard.record_step(metrics, step)
+                
+                # Regular wandb logging
+                if wandb_dashboard:
+                    wandb_dashboard.log_metrics(metrics, step)
+            
+            # Create a callback for tracking pruning events
+            def pruning_event_callback(pruning_info, step):
+                """Callback to track pruning events."""
+                if wandb_dashboard and hasattr(wandb_dashboard, "record_pruning_event"):
+                    wandb_dashboard.record_pruning_event(pruning_info, step)
+                
+                # Regular wandb logging
+                if wandb_dashboard:
+                    wandb_dashboard.log_pruning_decision(pruning_info, step)
+            
+            # Add these callbacks to the experiment options
+            experiment_opts = {
+                "warmup_epochs": warmup_epochs,
+                "pruning_cycles": args.cycles,
+                "training_steps": training_steps,
+                "progress_callback": experiment_progress_callback,
+                "pruning_callback": pruning_event_callback,
+            }
             
             # Run the complete experiment pipeline
-            results = experiment.run_full_experiment(
-                warmup_epochs=warmup_epochs,
-                pruning_cycles=args.cycles,
-                training_steps=training_steps
-            )
+            results = experiment.run_full_experiment(**experiment_opts)
             
             # Extract key metrics for logging
             baseline_perplexity = results["baseline_metrics"]["perplexity"]
@@ -384,11 +428,33 @@ if __name__ == "__main__":
                 experiment.save_model(path=model_path)
                 logger.info(f"Model saved to {model_path}")
             
-            # Create metrics dashboard
+            # Create metrics dashboards
             if not args.no_visualize:
+                # Create standard metrics dashboard 
                 dashboard_path = os.path.join(visualizations_dir, "metrics_dashboard.png")
                 experiment.visualize_metrics_dashboard(save_path=dashboard_path)
                 logger.info(f"Metrics dashboard saved to {dashboard_path}")
+                
+                # If using multi-phase dashboard, generate the comprehensive visualization
+                if wandb_dashboard and hasattr(wandb_dashboard, "visualize_complete_process"):
+                    # Path for multi-phase dashboard
+                    multi_phase_path = os.path.join(visualizations_dir, "multi_phase_dashboard.png")
+                    logger.info("Generating multi-phase dashboard visualization...")
+                    wandb_dashboard.visualize_complete_process(save_path=multi_phase_path)
+                    
+                    # Create standalone HTML dashboard with all visualizations
+                    html_path = os.path.join(dashboard_dir, "dashboard.html")
+                    logger.info("Generating standalone HTML dashboard...")
+                    html_result = wandb_dashboard.generate_standalone_dashboard(dashboard_dir)
+                    logger.info(f"Standalone dashboard saved to: {html_result}")
+                    
+                    # Try to open the dashboard in a browser
+                    try:
+                        import webbrowser
+                        logger.info(f"Opening dashboard in browser: file://{os.path.abspath(html_result)}")
+                        webbrowser.open(f"file://{os.path.abspath(html_result)}")
+                    except Exception as e:
+                        logger.warning(f"Could not open browser: {e}")
         
         # Calculate and log execution time
         execution_time = time.time() - start_time
