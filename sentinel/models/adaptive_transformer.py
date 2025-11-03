@@ -167,9 +167,20 @@ class GatedMultiHeadSelfAttention(nn.Module):
         Returns:
             attention_output: Output tensor [batch_size, seq_len, embed_dim]
         """
-        # Handle both 2D and 3D input tensors
+        # Handle various input tensor shapes
+        original_shape = hidden_states.shape
+
+        # Squeeze out any extra dimensions
+        while hidden_states.dim() > 3:
+            hidden_states = hidden_states.squeeze(0)
+
+        # Add batch dimension if needed
         if hidden_states.dim() == 2:
-            hidden_states = hidden_states.unsqueeze(0)  # Add batch dimension
+            hidden_states = hidden_states.unsqueeze(0)
+
+        # Now should be [batch, seq, embed_dim]
+        if hidden_states.dim() != 3:
+            raise ValueError(f"Expected 3D hidden_states after reshaping, got shape {hidden_states.shape} (original: {original_shape})")
 
         batch_size, seq_len, _ = hidden_states.shape
 
