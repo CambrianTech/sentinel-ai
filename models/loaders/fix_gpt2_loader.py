@@ -39,7 +39,9 @@ def load_adaptive_model_gpt(model_name, baseline_model, config, device, debug=Fa
         if debug and not quiet:
             print("Warning: Could not get position embeddings from baseline model, created new ones")
     
-    model = AdaptiveCausalLmWrapper(config, token_embeddings, position_embeddings, debug=debug).to(device)
+    # Note: AdaptiveCausalLmWrapper from sentinel/ has different signature (base_model, transformer, config)
+    # But this fix_gpt2_loader.py still uses OLD API. Just remove debug param for now.
+    model = AdaptiveCausalLmWrapper(config, token_embeddings, position_embeddings).to(device)
     model.eval()
 
     baseline_state = baseline_model.state_dict()
