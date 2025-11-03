@@ -36,19 +36,35 @@ class GatedMultiHeadSelfAttention(nn.Module):
             nn.Parameter(torch.randn(embed_dim, self.head_dim) / math.sqrt(embed_dim))
             for _ in range(num_heads)
         ])
-        
+        self.b_q = nn.ParameterList([
+            nn.Parameter(torch.zeros(self.head_dim))
+            for _ in range(num_heads)
+        ])
+
         self.W_k = nn.ParameterList([
             nn.Parameter(torch.randn(embed_dim, self.head_dim) / math.sqrt(embed_dim))
             for _ in range(num_heads)
         ])
-        
+        self.b_k = nn.ParameterList([
+            nn.Parameter(torch.zeros(self.head_dim))
+            for _ in range(num_heads)
+        ])
+
         self.W_v = nn.ParameterList([
             nn.Parameter(torch.randn(embed_dim, self.head_dim) / math.sqrt(embed_dim))
             for _ in range(num_heads)
         ])
-        
+        self.b_v = nn.ParameterList([
+            nn.Parameter(torch.zeros(self.head_dim))
+            for _ in range(num_heads)
+        ])
+
         self.W_o = nn.ParameterList([
             nn.Parameter(torch.randn(self.head_dim, embed_dim) / math.sqrt(self.head_dim))
+            for _ in range(num_heads)
+        ])
+        self.b_o = nn.ParameterList([
+            nn.Parameter(torch.zeros(embed_dim))
             for _ in range(num_heads)
         ])
         
@@ -184,9 +200,9 @@ class GatedMultiHeadSelfAttention(nn.Module):
                 continue
                 
             # Compute query, key, value projections for this head
-            q = torch.matmul(hidden_states, self.W_q[h])  # [batch, seq, head_dim]
-            k = torch.matmul(hidden_states, self.W_k[h])  # [batch, seq, head_dim]
-            v = torch.matmul(hidden_states, self.W_v[h])  # [batch, seq, head_dim]
+            q = torch.matmul(hidden_states, self.W_q[h]) + self.b_q[h]  # [batch, seq, head_dim]
+            k = torch.matmul(hidden_states, self.W_k[h]) + self.b_k[h]  # [batch, seq, head_dim]
+            v = torch.matmul(hidden_states, self.W_v[h]) + self.b_v[h]  # [batch, seq, head_dim]
             
             # Compute attention scores
             attention_scores = torch.matmul(q, k.transpose(-1, -2))  # [batch, seq, seq]
@@ -214,10 +230,10 @@ class GatedMultiHeadSelfAttention(nn.Module):
             
             # Apply attention to values
             context = torch.matmul(attention_probs, v)  # [batch, seq, head_dim]
-            
+
             # Project back to embed_dim
-            head_output = torch.matmul(context, self.W_o[h])  # [batch, seq, embed_dim]
-            
+            head_output = torch.matmul(context, self.W_o[h]) + self.b_o[h]  # [batch, seq, embed_dim]
+
             # Apply gate and add to output
             attention_output = attention_output + effective_gate * head_output
             
@@ -232,14 +248,16 @@ class GatedMultiHeadSelfAttention(nn.Module):
                 new_util = alpha * prev_util + (1-alpha) * activation_level
                 self.agency_signals[h]["utilization"] = new_util
         
-        # Optional: normalize the output based on active gates
-        # This helps prevent exploding values when many heads are pruned
-        active_gates = sum(self.get_effective_gate(h) > 1e-4 for h in range(self.num_heads))
-        if active_gates > 0:
-            # Only normalize when we have active heads and significant attention values
-            if max_attention_value > 1e-4:
-                attention_output = attention_output / max(1.0, active_gates / self.num_heads)
-        
+        # NOTE: GPT-2 does NOT normalize by active gates
+        # When all gates are 1.0 (after weight transfer), this should be identical to GPT-2
+        # The normalization is only needed during pruning experiments
+        # For now, comment it out to match GPT-2 exactly:
+        #
+        # active_gates = sum(self.get_effective_gate(h) > 1e-4 for h in range(self.num_heads))
+        # if active_gates > 0:
+        #     if max_attention_value > 1e-4:
+        #         attention_output = attention_output / max(1.0, active_gates / self.num_heads)
+
         return attention_output
 
 
@@ -382,11 +400,13 @@ class AdaptiveTransformer(nn.Module):
         self.dropout_prob = getattr(config, 'hidden_dropout_prob', 0.1)
         
         # Create transformer blocks
+        # Use prenorm=True to match GPT-2's pre-norm architecture
         self.blocks = nn.ModuleList([
             AdaptiveTransformerBlock(
                 hidden_size=config.hidden_size,
                 num_heads=self.num_heads,
                 intermediate_size=self.intermediate_size,
+                prenorm=True,  # GPT-2 uses pre-norm (norm before attention/FFN)
                 dropout_prob=self.dropout_prob,
                 debug=debug
             ) for _ in range(self.num_layers)

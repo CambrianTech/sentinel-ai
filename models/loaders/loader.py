@@ -3,12 +3,17 @@ from transformers import AutoConfig, AutoModelForCausalLM
 
 # Import model loaders
 try:
-    # First try to load the fixed version for GPT-2
-    from .fix_gpt2_loader import load_adaptive_model_gpt
+    # Use the clean loader with proper weight transfer
+    from .gpt2_loader_clean import load_adaptive_model_gpt_clean as load_adaptive_model_gpt
+    print("✅ Using clean GPT-2 loader with proper weight transfer")
 except ImportError:
-    # Fallback to original loader
-    from .gpt2_loader import load_adaptive_model_gpt
-    print("⚠️ Using original GPT2 loader (consider using the fixed version)")
+    try:
+        # Fallback to original loader
+        from .gpt2_loader import load_adaptive_model_gpt
+        print("⚠️ Using original GPT2 loader (may have weight transfer issues)")
+    except ImportError as e:
+        print(f"⚠️ Could not load any GPT-2 loader: {e}")
+        load_adaptive_model_gpt = None
 
 # Import loaders for additional model types
 try:
