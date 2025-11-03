@@ -19,78 +19,53 @@ from sentinel.models.adaptive_transformer import AdaptiveTransformer, AdaptiveCa
 
 def transfer_attention_weights(baseline_layer, adaptive_layer, config):
     """
-    Transfer attention weights from fused QKV to per-head Q, K, V.
+    Transfer attention weights using HYBRID APPROACH.
 
-    GPT-2 format: c_attn.weight is [hidden_size, 3*hidden_size]
-                  Organized as [Q_all | K_all | V_all]
+    HYBRID APPROACH:
+    - Fused QKV projection: Copy directly from GPT-2 (c_attn → c_attn)
+    - Output projection: Split per-head from GPT-2 (c_proj → W_o[h], b_o[h])
 
-    Adaptive format: Per head Q, K, V projections
+    This gives us:
+    ✅ Exact GPT-2 equivalence for QKV computation
+    ✅ Per-head gating capability for pruning
+    ✅ Simpler weight transfer logic
     """
     num_heads = config.n_head
     hidden_size = config.n_embd
     head_dim = hidden_size // num_heads
 
-    # Get baseline QKV weights (might need transpose)
-    qkv_weight = baseline_layer.attn.c_attn.weight.data  # [3*hidden, hidden] or [hidden, 3*hidden]
-    qkv_bias = baseline_layer.attn.c_attn.bias.data      # [3*hidden]
+    # HYBRID STEP 1: Copy fused QKV projection directly (exact match with GPT-2)
+    qkv_weight = baseline_layer.attn.c_attn.weight.data
+    qkv_bias = baseline_layer.attn.c_attn.bias.data
 
-    # Handle transpose if needed
-    if qkv_weight.shape[0] == hidden_size:
-        # Shape is [hidden, 3*hidden] - need to transpose
-        qkv_weight = qkv_weight.t()  # Now [3*hidden, hidden]
+    # Transpose if needed to match nn.Linear format [out_features, in_features]
+    if qkv_weight.shape != adaptive_layer.attn.c_attn.weight.data.shape:
+        qkv_weight = qkv_weight.t()
 
-    # Get output projection (c_proj maps concatenated heads back to hidden)
+    adaptive_layer.attn.c_attn.weight.data.copy_(qkv_weight)
+    adaptive_layer.attn.c_attn.bias.data.copy_(qkv_bias)
+
+    # HYBRID STEP 2: Split output projection per-head
     out_weight = baseline_layer.attn.c_proj.weight.data
     out_bias = baseline_layer.attn.c_proj.bias.data
 
-    # Transpose if needed to get [hidden, hidden] = [OUT, IN] format
+    # Transpose if needed to get [hidden, hidden]
     if out_weight.shape[0] != hidden_size:
         out_weight = out_weight.t()  # Now [hidden, hidden]
 
-    # Split QKV into Q, K, V chunks (qkv_weight is [3*hidden, hidden] = [OUT, IN] after transpose)
-    # We need [IN, OUT] for matmul, so transpose each chunk
-    q_all = qkv_weight[:hidden_size, :].t()        # [hidden, hidden]
-    k_all = qkv_weight[hidden_size:2*hidden_size, :].t()
-    v_all = qkv_weight[2*hidden_size:, :].t()
-
-    q_bias_all = qkv_bias[:hidden_size]
-    k_bias_all = qkv_bias[hidden_size:2*hidden_size]
-    v_bias_all = qkv_bias[2*hidden_size:]
-
-    # Transfer per-head weights
+    # Transfer per-head output projections
     for h in range(num_heads):
         h_start = h * head_dim
         h_end = (h + 1) * head_dim
 
-        # Extract this head's weights (slice along output dimension since q_all is [IN, OUT])
-        q_h = q_all[:, h_start:h_end]  # [hidden, head_dim]
-        k_h = k_all[:, h_start:h_end]
-        v_h = v_all[:, h_start:h_end]
-
-        q_bias_h = q_bias_all[h_start:h_end]
-        k_bias_h = k_bias_all[h_start:h_end]
-        v_bias_h = v_bias_all[h_start:h_end]
-
         # Output projection per head
-        # CRITICAL: Conv1D stores weights as [IN, OUT], NOT [OUT, IN]!
-        # out_weight is [IN, OUT] = [768, 768] (no transpose happens since shape[0]=hidden_size)
-        # Concatenated heads form the input: [h0 | h1 | ... | h11]
-        # To get head i's contribution: slice input dimensions [i*64:(i+1)*64]
-        # Result: [head_dim, hidden] = [64, 768] = [IN_i, OUT]
-        # This is exactly what we need for: head_output = context @ W_o[h]
-        o_h = out_weight[h_start:h_end, :]  # [head_dim, hidden] - NO transpose!
-        o_bias_h = out_bias / num_heads  # Shared bias, divide equally
+        # Conv1D stores as [IN, OUT] = [768, 768]
+        # Concatenated heads form input: [h0 | h1 | ... | h11]
+        # Slice input dimensions to get head h's contribution
+        o_h = out_weight[h_start:h_end, :]  # [head_dim, hidden] = [64, 768]
+        o_bias_h = out_bias / num_heads  # Divide bias equally
 
-        # Copy to adaptive model (W_q, W_k, W_v, W_o are Parameters, not Linear layers)
-        adaptive_layer.attn.W_q[h].data.copy_(q_h)
-        adaptive_layer.attn.b_q[h].data.copy_(q_bias_h)
-
-        adaptive_layer.attn.W_k[h].data.copy_(k_h)
-        adaptive_layer.attn.b_k[h].data.copy_(k_bias_h)
-
-        adaptive_layer.attn.W_v[h].data.copy_(v_h)
-        adaptive_layer.attn.b_v[h].data.copy_(v_bias_h)
-
+        # Copy to adaptive model
         adaptive_layer.attn.W_o[h].data.copy_(o_h)
         adaptive_layer.attn.b_o[h].data.copy_(o_bias_h)
 

@@ -28,37 +28,14 @@ class GatedMultiHeadSelfAttention(nn.Module):
         self.embed_dim = embed_dim
         self.num_heads = num_heads
         self.head_dim = embed_dim // num_heads
-        
-        # Create separate parameter matrices for each attention head
-        # Each head has its own query, key, value, and output projections
-        # This enables more fine-grained control and potential specialization
-        self.W_q = nn.ParameterList([
-            nn.Parameter(torch.randn(embed_dim, self.head_dim) / math.sqrt(embed_dim))
-            for _ in range(num_heads)
-        ])
-        self.b_q = nn.ParameterList([
-            nn.Parameter(torch.zeros(self.head_dim))
-            for _ in range(num_heads)
-        ])
 
-        self.W_k = nn.ParameterList([
-            nn.Parameter(torch.randn(embed_dim, self.head_dim) / math.sqrt(embed_dim))
-            for _ in range(num_heads)
-        ])
-        self.b_k = nn.ParameterList([
-            nn.Parameter(torch.zeros(self.head_dim))
-            for _ in range(num_heads)
-        ])
+        # HYBRID APPROACH: Fused QKV projection (like GPT-2), per-head output projection
+        # This gives us exact GPT-2 equivalence while still enabling per-head pruning
 
-        self.W_v = nn.ParameterList([
-            nn.Parameter(torch.randn(embed_dim, self.head_dim) / math.sqrt(embed_dim))
-            for _ in range(num_heads)
-        ])
-        self.b_v = nn.ParameterList([
-            nn.Parameter(torch.zeros(self.head_dim))
-            for _ in range(num_heads)
-        ])
+        # Fused QKV projection - matches GPT-2 exactly
+        self.c_attn = nn.Linear(embed_dim, 3 * embed_dim)
 
+        # Per-head output projections - enables per-head pruning/gating
         self.W_o = nn.ParameterList([
             nn.Parameter(torch.randn(self.head_dim, embed_dim) / math.sqrt(self.head_dim))
             for _ in range(num_heads)
@@ -67,20 +44,31 @@ class GatedMultiHeadSelfAttention(nn.Module):
             nn.Parameter(torch.zeros(embed_dim))
             for _ in range(num_heads)
         ])
-        
+
+        # Causal mask for autoregressive generation (like GPT-2)
+        # Register as buffer so it moves with model to GPU/CPU
+        # We'll create a large enough mask and slice it as needed
+        max_seq_len = 1024  # GPT-2's max position
+        self.register_buffer(
+            "bias",
+            torch.tril(torch.ones((max_seq_len, max_seq_len), dtype=torch.bool)).view(
+                1, 1, max_seq_len, max_seq_len
+            ),
+        )
+
         # Sentinel gates: learnable parameters to control each head's contribution
-        # As described in the paper: "Gates are scalar values g_i ∈ (0,1) 
+        # As described in the paper: "Gates are scalar values g_i ∈ (0,1)
         # that modulate the contribution of each attention head"
         self.gate = nn.Parameter(torch.ones(num_heads))
-        
+
         # Agency tracking for each head
         self.agency_signals = {}  # Will store signals like {head_idx: {"state": state, "consent": True}}
         self.consent_violations = {}  # Track potential violations for analysis
-        
+
         # Flag to store attention weights during forward pass (for visualization)
         self.store_attention_weights = False
         self.attention_weights = {}
-        
+
         # Debug flag
         self.debug = debug
     
@@ -165,89 +153,118 @@ class GatedMultiHeadSelfAttention(nn.Module):
     
     def forward(self, hidden_states, attention_mask=None, head_mask=None):
         """
-        Forward pass with gated attention computation.
-        
+        Forward pass with gated attention computation (HYBRID APPROACH).
+
+        Uses fused QKV projection (like GPT-2) for exact weight transfer,
+        then splits into per-head attention with per-head output projections
+        for pruning capability.
+
         Args:
             hidden_states: Input tensor [batch_size, seq_len, embed_dim]
             attention_mask: Attention mask [batch_size, 1, 1, seq_len]
             head_mask: Optional mask for specific heads [batch_size, num_heads, seq_len, seq_len]
-            
+
         Returns:
             attention_output: Output tensor [batch_size, seq_len, embed_dim]
         """
+        # Handle both 2D and 3D input tensors
+        if hidden_states.dim() == 2:
+            hidden_states = hidden_states.unsqueeze(0)  # Add batch dimension
+
         batch_size, seq_len, _ = hidden_states.shape
-        
+
+        # HYBRID STEP 1: Fused QKV projection (exactly like GPT-2)
+        qkv = self.c_attn(hidden_states)  # [batch, seq, 3*embed_dim]
+
+        # Split into Q, K, V
+        q_all, k_all, v_all = qkv.split(self.embed_dim, dim=-1)  # Each: [batch, seq, embed_dim]
+
+        # Reshape to separate heads: [batch, seq, num_heads, head_dim]
+        q_all = q_all.view(batch_size, seq_len, self.num_heads, self.head_dim)
+        k_all = k_all.view(batch_size, seq_len, self.num_heads, self.head_dim)
+        v_all = v_all.view(batch_size, seq_len, self.num_heads, self.head_dim)
+
+        # Transpose to [batch, num_heads, seq, head_dim] for attention computation
+        q_all = q_all.transpose(1, 2)
+        k_all = k_all.transpose(1, 2)
+        v_all = v_all.transpose(1, 2)
+
         # Initialize output
         attention_output = torch.zeros(
             (batch_size, seq_len, self.embed_dim),
             device=hidden_states.device
         )
-        
+
         # Clear attention weights if we're storing them
         if self.store_attention_weights:
             self.attention_weights = {}
-        
+
         # Track maximum attention value for normalization
         max_attention_value = 0.0
-        
-        # Process each attention head
+
+        # HYBRID STEP 2: Per-head attention computation with gating
         for h in range(self.num_heads):
             # Get effective gate value accounting for agency state
             effective_gate = self.get_effective_gate(h)
-            
+
             # Skip computation for effectively pruned heads (gate ≈ 0)
             if effective_gate < 1e-4:
                 continue
-                
-            # Compute query, key, value projections for this head
-            q = torch.matmul(hidden_states, self.W_q[h]) + self.b_q[h]  # [batch, seq, head_dim]
-            k = torch.matmul(hidden_states, self.W_k[h]) + self.b_k[h]  # [batch, seq, head_dim]
-            v = torch.matmul(hidden_states, self.W_v[h]) + self.b_v[h]  # [batch, seq, head_dim]
-            
+
+            # Extract Q, K, V for this head
+            q = q_all[:, h, :, :]  # [batch, seq, head_dim]
+            k = k_all[:, h, :, :]  # [batch, seq, head_dim]
+            v = v_all[:, h, :, :]  # [batch, seq, head_dim]
+
             # Compute attention scores
             attention_scores = torch.matmul(q, k.transpose(-1, -2))  # [batch, seq, seq]
-            
+
             # Scale attention scores
             attention_scores = attention_scores / math.sqrt(self.head_dim)
-            
+
+            # Apply causal mask (like GPT-2)
+            # bias is [1, 1, max_seq, max_seq], slice to [seq_len, seq_len]
+            causal_mask = self.bias[0, 0, :seq_len, :seq_len]
+            attention_scores = torch.where(causal_mask, attention_scores, torch.tensor(float('-inf'), device=attention_scores.device))
+
             # Apply attention mask if provided
             if attention_mask is not None:
                 attention_scores = attention_scores + attention_mask
-            
+
             # Apply specific head mask if provided
             if head_mask is not None and head_mask[:, h].sum() > 0:
                 attention_scores = attention_scores + head_mask[:, h]
-            
+
             # Apply softmax to get attention probabilities
             attention_probs = torch.softmax(attention_scores, dim=-1)
-            
+
             # Store attention weights if requested
             if self.store_attention_weights:
                 self.attention_weights[h] = attention_probs.detach()
-            
+
             # Track maximum attention value (for normalization)
             max_attention_value = max(max_attention_value, attention_probs.abs().max().item())
-            
+
             # Apply attention to values
             context = torch.matmul(attention_probs, v)  # [batch, seq, head_dim]
 
-            # Project back to embed_dim
+            # HYBRID STEP 3: Per-head output projection (enables pruning)
             head_output = torch.matmul(context, self.W_o[h]) + self.b_o[h]  # [batch, seq, embed_dim]
 
             # Apply gate and add to output
             attention_output = attention_output + effective_gate * head_output
-            
+
             # Update utilization metric for this head (used by agency system)
             if h in self.agency_signals:
                 # Calculate average activation level as a proxy for utilization
                 activation_level = attention_probs.abs().mean().item()
-                
+
                 # Update exponential moving average of utilization
                 prev_util = self.agency_signals[h].get("utilization", 0.0)
                 alpha = 0.9  # Smoothing factor
                 new_util = alpha * prev_util + (1-alpha) * activation_level
                 self.agency_signals[h]["utilization"] = new_util
-        
+
         # NOTE: GPT-2 does NOT normalize by active gates
         # When all gates are 1.0 (after weight transfer), this should be identical to GPT-2
         # The normalization is only needed during pruning experiments
