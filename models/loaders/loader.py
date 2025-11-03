@@ -87,7 +87,8 @@ def load_adaptive_model(model_name, baseline_model, device, debug=False, quiet=F
     
     # Dispatch to appropriate loader based on model type
     if model_type in ["gpt2", "distilgpt2", "gpt_neo", "gptj"]:
-        return load_adaptive_model_gpt(model_name, baseline_model, config, device, debug=debug, quiet=quiet)
+        # Note: gpt2_loader expects (model_name, baseline_model, config, device, quiet, optimized)
+        return load_adaptive_model_gpt(model_name, baseline_model, config, device, quiet=quiet)
     
     elif model_type == "opt" and load_adaptive_model_opt:
         return load_adaptive_model_opt(model_name, baseline_model, config, device, debug=debug, quiet=quiet)
