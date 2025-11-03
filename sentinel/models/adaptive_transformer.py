@@ -476,10 +476,14 @@ class AdaptiveCausalLmWrapper(nn.Module, GenerationMixin):
     """
     Wrapper for the Adaptive Transformer that adds a language modeling head
     and integrates with HuggingFace's generation utilities.
-    
+
     This enables seamless use with HuggingFace's generate() method while
     providing adaptive architecture benefits.
     """
+
+    # Required by HuggingFace GenerationMixin
+    _is_stateful = False
+
     def __init__(self, base_model, transformer, config):
         super().__init__()
         
