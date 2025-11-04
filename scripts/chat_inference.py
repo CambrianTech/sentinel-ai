@@ -15,7 +15,32 @@ import sys
 import json
 import argparse
 import torch
+import warnings
 from pathlib import Path
+import os
+
+# CRITICAL: Redirect ALL stdout to stderr EXCEPT our final JSON output
+# This prevents debug messages from breaking JSON parsing in TypeScript
+_original_stdout = sys.stdout
+_original_stderr = sys.stderr
+
+class StderrRedirector:
+    """Redirects all print() calls to stderr, preserving only explicit JSON writes to stdout"""
+    def write(self, text):
+        _original_stderr.write(text)
+
+    def flush(self):
+        _original_stderr.flush()
+
+# Redirect stdout to stderr (we'll restore it only for final JSON output)
+sys.stdout = StderrRedirector()
+
+# Suppress warnings to stderr (they cause execAsync to throw)
+warnings.filterwarnings('ignore', category=DeprecationWarning)
+warnings.filterwarnings('ignore', category=FutureWarning)
+
+# Also suppress stdout at OS level for any C libraries
+devnull = os.open(os.devnull, os.O_WRONLY)
 
 # Add project root to Python path
 project_root = Path(__file__).parent.parent.absolute()
@@ -47,10 +72,25 @@ def generate_chat_response(model_name: str, prompt: str, max_tokens: int = 150, 
         tokenizer = AutoTokenizer.from_pretrained(model_name)
         tokenizer.pad_token = tokenizer.eos_token
 
+        # Load config to get context window size
+        config = AutoConfig.from_pretrained(model_name)
+        max_context = getattr(config, 'max_position_embeddings', getattr(config, 'n_positions', 1024))
+
+        # CRITICAL: Validate and truncate prompt if needed BEFORE loading model
+        prompt_tokens = tokenizer.encode(prompt, add_special_tokens=True)
+        available_for_prompt = max_context - max_tokens  # Reserve space for generation
+
+        if len(prompt_tokens) > available_for_prompt:
+            # Truncate from beginning (keep most recent context)
+            prompt_tokens = prompt_tokens[-available_for_prompt:]
+            prompt = tokenizer.decode(prompt_tokens, skip_special_tokens=True)
+            # Ensure it ends with "Assistant:" to prompt response
+            if not prompt.strip().endswith("Assistant:"):
+                prompt = prompt.rstrip() + "\n\nAssistant:"
+
         # Load baseline model first
         baseline_model = AutoModelForCausalLM.from_pretrained(model_name)
         baseline_model.eval()
-        config = AutoConfig.from_pretrained(model_name)
 
         # Wrap with adaptive wrapper (this is what training code does)
         model = load_adaptive_model_gpt_clean(model_name, baseline_model, config, device=device, quiet=True)
@@ -61,18 +101,26 @@ def generate_chat_response(model_name: str, prompt: str, max_tokens: int = 150, 
         # Set model to eval mode
         model.eval()
 
-        # Tokenize input
+        # Tokenize input (already validated above)
         input_ids = tokenizer.encode(prompt, return_tensors='pt').to(device)
 
-        # Manual generation loop with sampling (prevents repetition loops)
+        # Manual generation loop with sampling + repetition penalty
         with torch.no_grad():
-            for _ in range(max_tokens):
+            for step in range(max_tokens):
                 # Forward pass
                 outputs = model(input_ids)
                 logits = outputs.logits
 
-                # Get next token with top-k + temperature sampling
-                next_token_logits = logits[0, -1, :] / temperature
+                # Get next token logits
+                next_token_logits = logits[0, -1, :].clone()
+
+                # Apply repetition penalty to previously generated tokens
+                repetition_penalty = 1.2
+                for prev_token_id in set(input_ids[0].tolist()):
+                    next_token_logits[prev_token_id] /= repetition_penalty
+
+                # Apply temperature
+                next_token_logits = next_token_logits / temperature
 
                 # Top-k filtering (k=50)
                 top_k = 50
@@ -89,6 +137,23 @@ def generate_chat_response(model_name: str, prompt: str, max_tokens: int = 150, 
                 # Stop at EOS
                 if next_token.item() == tokenizer.eos_token_id:
                     break
+
+                # Stop if we hit repetition (detect loops early)
+                # Check for 3-gram repetition
+                if step >= 6:
+                    last_tokens = input_ids[0, -6:].tolist()
+                    if last_tokens[:3] == last_tokens[3:6]:
+                        break
+
+                # Also check for word-level repetition (more aggressive)
+                if step >= 10:
+                    # Decode last 10 tokens and check for repeated phrases
+                    recent_text = tokenizer.decode(input_ids[0, -10:], skip_special_tokens=True)
+                    words = recent_text.split()
+                    if len(words) >= 4:
+                        # Check if last 2 words repeat
+                        if words[-2:] == words[-4:-2]:
+                            break
 
         # Decode output
         generated_text = tokenizer.decode(input_ids[0], skip_special_tokens=True)
@@ -143,6 +208,7 @@ def main():
     parser.add_argument("--max-tokens", type=int, default=150, help="Maximum tokens to generate")
     parser.add_argument("--temperature", type=float, default=0.7, help="Sampling temperature (currently unused)")
     parser.add_argument("--device", type=str, default="cpu", help="Device (cpu/cuda)")
+    parser.add_argument("--prompt-format", type=str, default="base", help="Prompt format (base, chatml, llama2, alpaca)")
     parser.add_argument("--json", action="store_true", help="Output JSON only")
 
     args = parser.parse_args()
@@ -151,11 +217,31 @@ def main():
     if args.messages_file:
         with open(args.messages_file, 'r') as f:
             messages = json.load(f)
-        # Extract last message content
-        last_message = messages[-1]['content'] if messages else ""
-        prompt = last_message
+
+        # Format messages as a conversation for base models (not instruction-tuned)
+        # Base models like GPT-2 just continue text, so we format as:
+        # "System: ...\nUser: ...\nAssistant: ...\nUser: ...\nAssistant:"
+        # This way the model knows to continue as "Assistant"
+        conversation_parts = []
+        for msg in messages:
+            role = msg.get('role', 'user')
+            content = msg.get('content', '')
+
+            # Format role for readability
+            if role == 'system':
+                conversation_parts.append(f"System: {content}")
+            elif role == 'user':
+                conversation_parts.append(f"User: {content}")
+            elif role == 'assistant':
+                conversation_parts.append(f"Assistant: {content}")
+
+        # Add the final "Assistant:" prompt to signal the model should respond
+        conversation_parts.append("Assistant:")
+
+        prompt = "\n\n".join(conversation_parts)
     elif args.prompt:
-        prompt = args.prompt
+        # For direct prompts, format as simple user/assistant exchange
+        prompt = f"User: {args.prompt}\n\nAssistant:"
     else:
         print(json.dumps({"error": "Either --prompt or --messages-file must be provided"}))
         sys.exit(1)
@@ -169,6 +255,9 @@ def main():
     )
 
     # ALWAYS output JSON for Continuum compatibility
+    # Restore stdout ONLY for final JSON output
+    sys.stdout = _original_stdout
+
     if result["success"]:
         # Format for Continuum adapter
         continuum_response = {
