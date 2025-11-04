@@ -109,19 +109,21 @@ def transfer_layer_norm_weights(baseline_layer, adaptive_layer):
     adaptive_layer.norm2.bias.data.copy_(baseline_layer.ln_2.bias.data)
 
 
-def transfer_all_weights(baseline_model, adaptive_transformer, config):
+def transfer_all_weights(baseline_model, adaptive_transformer, config, quiet=False):
     """
     Transfer all weights from baseline to adaptive transformer.
 
     This is the critical function that preserves pre-trained knowledge.
     """
-    print("Transferring weights from baseline to adaptive...")
+    if not quiet:
+        print("Transferring weights from baseline to adaptive...")
 
     baseline_layers = baseline_model.transformer.h
     adaptive_layers = adaptive_transformer.blocks
 
     for i, (base_layer, adapt_layer) in enumerate(zip(baseline_layers, adaptive_layers)):
-        print(f"  Layer {i}...")
+        if not quiet:
+            print(f"  Layer {i}...")
 
         # Transfer attention weights (the complex part)
         transfer_attention_weights(base_layer, adapt_layer, config)
@@ -136,7 +138,8 @@ def transfer_all_weights(baseline_model, adaptive_transformer, config):
     adaptive_transformer.norm.weight.data.copy_(baseline_model.transformer.ln_f.weight.data)
     adaptive_transformer.norm.bias.data.copy_(baseline_model.transformer.ln_f.bias.data)
 
-    print("✅ Weight transfer complete")
+    if not quiet:
+        print("✅ Weight transfer complete")
 
 
 def load_adaptive_model_gpt_clean(model_name, baseline_model, config, device, quiet=False):
@@ -182,7 +185,7 @@ def load_adaptive_model_gpt_clean(model_name, baseline_model, config, device, qu
     if not quiet:
         print(f"\n🔄 Transferring pre-trained weights...")
 
-    transfer_all_weights(baseline_model, adaptive_transformer, config)
+    transfer_all_weights(baseline_model, adaptive_transformer, config, quiet=quiet)
 
     # Step 4: Wrap with LM head
     if not quiet:

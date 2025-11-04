@@ -5,7 +5,8 @@ from transformers import AutoConfig, AutoModelForCausalLM
 try:
     # Use the clean loader with proper weight transfer
     from .gpt2_loader_clean import load_adaptive_model_gpt_clean as load_adaptive_model_gpt
-    print("✅ Using clean GPT-2 loader with proper weight transfer")
+    import sys
+    print("✅ Using clean GPT-2 loader with proper weight transfer", file=sys.stderr)
 except ImportError:
     try:
         # Fallback to original loader

@@ -454,21 +454,23 @@ class AdaptiveTransformer(nn.Module):
         """Set the model's token embedding layer."""
         self.token_embedding = embeddings
         
-    def forward(self, input_ids, attention_mask=None, head_mask=None, 
-                position_ids=None, return_dict=True):
+    def forward(self, input_ids, attention_mask=None, head_mask=None,
+                position_ids=None, return_dict=True, **kwargs):
         """
         Forward pass for the Adaptive Transformer.
-        
+
         Args:
             input_ids: Input token ids [batch_size, seq_len]
             attention_mask: Attention mask [batch_size, seq_len]
             head_mask: Optional mask for specific heads
             position_ids: Optional position ids
             return_dict: Whether to return a dictionary with outputs
-            
+            **kwargs: Additional arguments (e.g., past_key_values) - currently ignored
+
         Returns:
             Last hidden states or dictionary of outputs
         """
+        # Note: We ignore past_key_values and other kwargs since we don't implement KV-cache yet
         device = input_ids.device
         batch_size, seq_len = input_ids.shape
         
@@ -554,7 +556,11 @@ class AdaptiveCausalLmWrapper(nn.Module, GenerationMixin):
         
         # For generation
         self.main_input_name = "input_ids"
-        
+
+        # Copy generation_config from base model (required by GenerationMixin)
+        if hasattr(base_model, 'generation_config'):
+            self.generation_config = base_model.generation_config
+
     @property
     def device(self):
         """Get the model's device."""
@@ -563,21 +569,25 @@ class AdaptiveCausalLmWrapper(nn.Module, GenerationMixin):
     def forward(self, input_ids, attention_mask=None, labels=None, **kwargs):
         """
         Forward pass for the language model.
-        
+
         Args:
             input_ids: Input token ids [batch_size, seq_len]
             attention_mask: Attention mask [batch_size, seq_len]
             labels: Optional target token ids for language modeling loss
-            
+
         Returns:
             CausalLMOutput object with logits and optional loss
         """
+        # Filter out return_dict from kwargs to avoid duplicate parameter error
+        # (GenerationMixin.generate() passes it, but we hardcode it below)
+        filtered_kwargs = {k: v for k, v in kwargs.items() if k != 'return_dict'}
+
         # Get transformer outputs
         transformer_outputs = self.transformer(
             input_ids=input_ids,
             attention_mask=attention_mask,
             return_dict=True,
-            **kwargs
+            **filtered_kwargs
         )
         
         hidden_states = transformer_outputs["last_hidden_state"]
