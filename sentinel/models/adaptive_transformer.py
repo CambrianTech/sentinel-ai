@@ -536,12 +536,11 @@ class AdaptiveCausalLmWrapper(nn.Module, GenerationMixin):
 
     def __init__(self, base_model, transformer, config):
         super().__init__()
-        
-        # Store components
-        self.base_model = base_model  # Original pretrained model
+
+        # Store adaptive transformer and config
         self.transformer = transformer  # Adaptive transformer
         self.config = config
-        
+
         # Get the language modeling head from the base model
         if hasattr(base_model, 'lm_head'):
             self.lm_head = base_model.lm_head
@@ -553,13 +552,17 @@ class AdaptiveCausalLmWrapper(nn.Module, GenerationMixin):
         else:
             # Fallback: create new language model head
             self.lm_head = nn.Linear(config.hidden_size, config.vocab_size, bias=False)
-        
+
         # For generation
         self.main_input_name = "input_ids"
 
         # Copy generation_config from base model (required by GenerationMixin)
         if hasattr(base_model, 'generation_config'):
             self.generation_config = base_model.generation_config
+
+        # MEMORY FIX: Don't store base_model - it doubles our parameter count!
+        # After extracting lm_head and generation_config, we don't need it anymore.
+        # The base_model reference would keep 124M parameters in memory unnecessarily.
 
     @property
     def device(self):
@@ -639,15 +642,20 @@ class AdaptiveCausalLmWrapper(nn.Module, GenerationMixin):
     
     def set_active_adapters(self, adapter_names):
         """
-        Set active adapters if the base model supports it.
-        
-        This is for compatibility with adapter-enabled models.
-        
+        Set active adapters if the transformer supports it.
+
+        This is for compatibility with adapter-enabled models (PEFT/LoRA).
+
         Args:
             adapter_names: List of adapter names to activate
         """
-        if hasattr(self.base_model, "set_active_adapters"):
-            self.base_model.set_active_adapters(adapter_names)
+        # After memory fix, adapters should be attached to transformer, not base_model
+        if hasattr(self.transformer, "set_active_adapters"):
+            self.transformer.set_active_adapters(adapter_names)
+        else:
+            # Fallback: log that adapter support needs to be implemented
+            import sys
+            print(f"⚠️ Adapter support not yet implemented for {type(self.transformer).__name__}", file=sys.stderr)
     
     def enable_unet_connections(self, enable=True, layer_indices=None):
         """

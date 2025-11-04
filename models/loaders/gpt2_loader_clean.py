@@ -187,6 +187,17 @@ def load_adaptive_model_gpt_clean(model_name, baseline_model, config, device, qu
 
     transfer_all_weights(baseline_model, adaptive_transformer, config, quiet=quiet)
 
+    # Step 3.5: Transfer embeddings (CRITICAL!)
+    # The embeddings were extracted but never copied - this causes garbage output
+    if not quiet:
+        print(f"\n📦 Transferring embeddings...")
+
+    adaptive_transformer.token_embedding.weight.data.copy_(token_embeddings.weight.data)
+    adaptive_transformer.position_embedding.weight.data.copy_(position_embeddings.weight.data)
+
+    if not quiet:
+        print(f"✅ Embeddings transferred successfully")
+
     # Step 4: Wrap with LM head
     if not quiet:
         print(f"\n📦 Wrapping with language model head...")
