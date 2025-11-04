@@ -64,16 +64,24 @@ def generate_chat_response(model_name: str, prompt: str, max_tokens: int = 150, 
         # Tokenize input
         input_ids = tokenizer.encode(prompt, return_tensors='pt').to(device)
 
-        # Manual generation loop (WORKING PATTERN from /tmp/train_minimal_memory.py)
+        # Manual generation loop with sampling (prevents repetition loops)
         with torch.no_grad():
             for _ in range(max_tokens):
                 # Forward pass
                 outputs = model(input_ids)
                 logits = outputs.logits
 
-                # Get next token (greedy decoding for now)
-                next_token_logits = logits[0, -1, :]
-                next_token = torch.argmax(next_token_logits, dim=-1).unsqueeze(0).unsqueeze(0)
+                # Get next token with top-k + temperature sampling
+                next_token_logits = logits[0, -1, :] / temperature
+
+                # Top-k filtering (k=50)
+                top_k = 50
+                indices_to_remove = next_token_logits < torch.topk(next_token_logits, top_k)[0][..., -1, None]
+                next_token_logits[indices_to_remove] = float('-inf')
+
+                # Sample from filtered distribution
+                probs = torch.nn.functional.softmax(next_token_logits, dim=-1)
+                next_token = torch.multinomial(probs, num_samples=1).unsqueeze(0)
 
                 # Append to sequence
                 input_ids = torch.cat([input_ids, next_token], dim=1)
