@@ -324,5 +324,39 @@ For more details and examples, refer to:
 
 ---
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
+[![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL--3.0-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
 [![Colab Notebooks](https://img.shields.io/badge/Notebook-Colab-yellow.svg)](./notebooks/)
+
+---
+
+## 📜 License
+
+**GNU Affero General Public License v3.0 (AGPL-3.0)** - see [LICENSE](LICENSE) for full text.
+
+### Why AGPL-3.0?
+
+Sentinel-AI represents novel research in neural plasticity, attention head agency, and biologically-inspired AI architectures. We chose AGPL-3.0 to ensure this work benefits everyone:
+
+**✅ What You CAN Do:**
+- Use Sentinel-AI freely for research or commercial purposes
+- Modify and extend the neural plasticity algorithms
+- Deploy pruned/grown models as network services
+- Publish papers building on this work (with citation)
+
+**🔒 What You MUST Do:**
+- Keep modifications open source under AGPL-3.0
+- Share source code if you run modified versions as a service
+- Contribute improvements back to the community
+
+**🛡️ What This Prevents:**
+- Taking our research, closing the source, and selling proprietary AI models
+- Exploitation where academic/community work enriches corporations without giving back
+- Patent trolling on techniques we invented (AGPL includes patent grant)
+
+**The Philosophy:**
+Neural plasticity, agency-based attention, and evolutionary AI architectures should be accessible to all researchers and developers. If you benefit from our innovations, keep your improvements open.
+
+**Precedent:**
+AGPL-3.0 protects serious AI/ML infrastructure: [Grafana](https://github.com/grafana/grafana), [MongoDB](https://github.com/mongodb/mongo), [Mastodon](https://github.com/mastodon/mastodon).
+
+**Questions?** See the [FSF's AGPL FAQ](https://www.gnu.org/licenses/agpl-3.0-faq.html) or open an issue.
