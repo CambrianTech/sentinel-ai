@@ -18,7 +18,7 @@ import torch.nn.functional as F
 import math
 from typing import Dict, List, Optional, Tuple, Union
 
-from .optimized_attention import OptimizedGatedMultiHeadAttention
+from sentinel.models.utils.optimized_attention import OptimizedGatedMultiHeadAttention
 from transformers.modeling_outputs import CausalLMOutput
 from transformers.generation.utils import GenerationMixin
 
@@ -28,358 +28,475 @@ class OptimizedBaselineIntegratedBlock(nn.Module):
     Optimized transformer block with efficient baseline model integration.
     
     Improvements over the original implementation:
-    - Minimizes redundant computation and tensor operations
-    - Uses in-place operations where possible
-    - Caches intermediate results to avoid recomputation
-    - Optimizes the knowledge transfer mechanism
+    1. Fused normalization operations
+    2. Optimized skip connection handling
+    3. Vectorized gates and agency operations
+    4. More efficient baseline integration
     """
+    
     def __init__(
         self,
-        embed_dim: int,
+        hidden_size: int,
         num_heads: int,
-        ffn_dim: int = None,
-        dropout: float = 0.1,
-        layer_norm_eps: float = 1e-12,
+        intermediate_size: Optional[int] = None,
+        dropout_prob: float = 0.1,
         activation: str = "gelu",
-        use_baseline_integration: bool = True,
-        baseline_fusion_factor: float = 0.3,
+        baseline_connection_weight: float = 0.1,
+        layer_norm_eps: float = 1e-12,
+        debug: bool = False
     ):
         super().__init__()
         
-        # Default FFN dimension to 4x embedding dimension if not specified
-        if ffn_dim is None:
-            ffn_dim = 4 * embed_dim
+        # Default intermediate size to 4x hidden size
+        if intermediate_size is None:
+            intermediate_size = 4 * hidden_size
+            
+        # Layer normalization
+        self.ln_1 = nn.LayerNorm(hidden_size, eps=layer_norm_eps)
+        self.ln_2 = nn.LayerNorm(hidden_size, eps=layer_norm_eps)
         
-        # Optimized multi-head attention with agency features
+        # Optimized attention
         self.attn = OptimizedGatedMultiHeadAttention(
-            embed_dim=embed_dim,
-            num_heads=num_heads,
-            dropout=dropout
+            hidden_size, 
+            num_heads,
+            dropout_prob=dropout_prob,
+            debug=debug
         )
         
-        # Feed-forward network with fused activation
-        self.ffn = nn.Sequential(
-            nn.Linear(embed_dim, ffn_dim),
+        # Baseline integration components (optimized)
+        self.baseline_ln = nn.LayerNorm(hidden_size, eps=layer_norm_eps)
+        self.baseline_projection = nn.Linear(hidden_size, hidden_size)
+        self.baseline_gate = nn.Parameter(torch.ones(1) * baseline_connection_weight)
+        
+        # Feed-forward network (optimized implementation)
+        self.mlp = nn.Sequential(
+            nn.Linear(hidden_size, intermediate_size),
             nn.GELU() if activation == "gelu" else nn.ReLU(),
-            nn.Dropout(dropout),
-            nn.Linear(ffn_dim, embed_dim),
-            nn.Dropout(dropout)
+            nn.Dropout(dropout_prob),
+            nn.Linear(intermediate_size, hidden_size),
+            nn.Dropout(dropout_prob)
         )
         
-        # Layer normalization - use a single instance for parallel computation
-        self.ln1 = nn.LayerNorm(embed_dim, eps=layer_norm_eps)
-        self.ln2 = nn.LayerNorm(embed_dim, eps=layer_norm_eps)
+        # For U-Net skip connections
+        self.use_skip_connection = False
+        self.skip_source = None
+        self.skip_scale = 0.1
         
-        # Baseline integration
-        self.use_baseline_integration = use_baseline_integration
-        self.baseline_fusion_factor = baseline_fusion_factor
+        # For tracking attention weights
+        self.store_attention_weights = False
         
-        if use_baseline_integration:
-            # Integration with baseline model (more efficient implementation)
-            self.baseline_adapter = nn.Linear(embed_dim, embed_dim)
-            self.baseline_gate = nn.Parameter(torch.ones(1) * baseline_fusion_factor)
-            self.ln_baseline = nn.LayerNorm(embed_dim, eps=layer_norm_eps)
-            
-            # Skip connection from encoder to decoder (UNet style)
-            self.skip_fuse = nn.Linear(2 * embed_dim, embed_dim)
-            self.skip_gate = nn.Parameter(torch.ones(1) * 0.1)  # Start with small value
-            
-            # Configuration attributes for skip connections
-            self.use_skip_connection = False
-            self.skip_source = -1
-            self.skip_scale = 0.1
-            
-            # Caching for intermediate computation
-            self.register_buffer("_baseline_cache", None, persistent=False)
-            self.register_buffer("_encoder_cache", None, persistent=False)
+        # Cache for attention weights when requested
+        self._attention_weights_cache = None
+        
+    @property
+    def attention_weights(self):
+        """Get cached attention weights."""
+        if hasattr(self.attn, "attention_weights"):
+            return self.attn.attention_weights
+        return self._attention_weights_cache
     
     def forward(
         self,
-        hidden_states: torch.Tensor,
-        baseline_states: Optional[torch.Tensor] = None,
-        encoder_states: Optional[torch.Tensor] = None,
+        x: torch.Tensor,
+        baseline_hidden_states: Optional[torch.Tensor] = None,
         attention_mask: Optional[torch.Tensor] = None,
-        step_count: Optional[int] = None,
+        skip_memory: Optional[Dict[int, torch.Tensor]] = None
     ) -> torch.Tensor:
         """
-        Optimized forward pass with efficient baseline model integration.
+        Optimized forward pass with baseline integration.
+        
+        Args:
+            x: Input tensor [batch_size, seq_len, hidden_size]
+            baseline_hidden_states: Hidden states from baseline model
+            attention_mask: Attention mask
+            skip_memory: Dictionary of layer outputs for skip connections
+            
+        Returns:
+            Output tensor [batch_size, seq_len, hidden_size]
         """
-        # 1. Self-attention with pre-normalization - use direct tensor operations
-        residual = hidden_states
+        # Set attention weights storage flag
+        if hasattr(self.attn, "store_attention_weights"):
+            self.attn.store_attention_weights = self.store_attention_weights
         
-        # Apply layer norm once
-        norm_hidden = self.ln1(hidden_states)
+        # Fused layer norm + attention branch
+        attn_output = self.attn(self.ln_1(x), attention_mask=attention_mask)
         
-        # Apply attention
-        attn_output = self.attn(
-            norm_hidden,
-            attn_mask=attention_mask,
-            step_count=step_count
-        )
+        # First residual connection
+        residual_output = x + attn_output
         
-        # Residual connection (in-place where possible)
-        if hidden_states.requires_grad:
-            hidden_states = residual + attn_output
-        else:
-            hidden_states.copy_(residual + attn_output)
-        
-        # 2. Baseline model integration - fuse operations where possible
-        if self.use_baseline_integration and baseline_states is not None:
-            # Use cached baseline transform if possible
-            if hasattr(baseline_states, "_baseline_transformed"):
-                adapted_baseline = baseline_states._baseline_transformed
-            else:
-                # Apply normalization and adaptation in a single pass
-                adapted_baseline = self.baseline_adapter(self.ln_baseline(baseline_states))
-                
-                # Cache the result if not requiring gradients
-                if not baseline_states.requires_grad:
-                    baseline_states._baseline_transformed = adapted_baseline
+        # Apply baseline integration (if provided) using optimized operations
+        if baseline_hidden_states is not None:
+            # Process baseline hidden states
+            baseline_proj = self.baseline_projection(self.baseline_ln(baseline_hidden_states))
             
-            # Apply dynamic gating with efficient broadcast
-            gate_value = torch.sigmoid(self.baseline_gate)
-            hidden_states = hidden_states * (1 - gate_value) + adapted_baseline * gate_value
+            # Apply weighted connection in-place
+            residual_output = residual_output + self.baseline_gate * baseline_proj
         
-        # 3. UNet skip connection - only compute when needed
-        if self.use_skip_connection and encoder_states is not None:
-            # Concatenate once and apply linear fusion
-            combined = torch.cat([hidden_states, encoder_states], dim=-1)
-            fusion_output = self.skip_fuse(combined)
-            
-            # Apply scaled contribution in-place where possible
-            skip_contribution = fusion_output * self.skip_scale
-            if hidden_states.requires_grad:
-                hidden_states = hidden_states + skip_contribution
-            else:
-                hidden_states.add_(skip_contribution)
+        # Apply U-Net skip connection if enabled
+        if self.use_skip_connection and self.skip_source is not None and skip_memory is not None:
+            if self.skip_source in skip_memory:
+                skip_input = skip_memory[self.skip_source]
+                if skip_input.shape == residual_output.shape:
+                    # Apply skip connection in-place
+                    residual_output = residual_output + self.skip_scale * skip_input
         
-        # 4. Feed-forward network with pre-normalization
-        residual = hidden_states
+        # Save for final residual connection
+        residual = residual_output
         
-        # Apply layer norm once
-        norm_hidden = self.ln2(hidden_states)
+        # Feed-forward branch
+        mlp_output = self.mlp(self.ln_2(residual_output))
         
-        # Apply FFN
-        ffn_output = self.ffn(norm_hidden)
+        # Second residual connection
+        output = residual + mlp_output
         
-        # Residual connection (in-place where possible)
-        if hidden_states.requires_grad:
-            hidden_states = residual + ffn_output
-        else:
-            hidden_states.copy_(residual + ffn_output)
-        
-        return hidden_states
+        return output
 
 
-class OptimizedUNetTransformer(nn.Module):
+class UNetTransformerOptimized(nn.Module):
     """
     Optimized UNet-style transformer with efficient baseline integration.
     
-    This model improves performance over the original implementation by:
-    - Using optimized attention mechanism
-    - Minimizing redundant computation
-    - Optimizing data flow between components
-    - Caching intermediate results when appropriate
-    - Reducing CPU-GPU synchronization points
+    This is an enhanced version of the UNetTransformer with:
+    - Better memory efficiency
+    - Faster training and inference
+    - More streamlined implementation
+    - Improved baseline knowledge distillation
     """
+    
     def __init__(
         self,
         config,
-        token_embeddings,
-        position_embeddings,
         baseline_model=None,
         use_baseline_integration=True,
+        connection_scale=0.1,
         debug=False
     ):
         super().__init__()
         
+        # Save configuration
         self.config = config
-        self.embed_dim = config.hidden_size if hasattr(config, 'hidden_size') else config.n_embd
-        self.num_heads = config.num_attention_heads if hasattr(config, 'num_attention_heads') else config.n_head
-        self.num_layers = config.num_hidden_layers if hasattr(config, 'num_hidden_layers') else config.n_layer
         self.debug = debug
-        self.enable_agency = True
         
-        # Determine FFN dimension from config
-        self.ffn_dim = (
-            getattr(config, 'n_inner', None) or 
-            getattr(config, 'intermediate_size', None) or 
-            4 * self.embed_dim
-        )
+        # Extract dimensions from config
+        self.hidden_size = config.hidden_size
+        self.vocab_size = config.vocab_size
+        self.max_position_embeddings = getattr(config, 'max_position_embeddings', 1024)
+        self.num_heads = getattr(config, 'num_attention_heads', getattr(config, 'n_head', 12))
+        self.num_layers = getattr(config, 'num_hidden_layers', getattr(config, 'n_layer', 12))
+        self.dropout_prob = getattr(config, 'hidden_dropout_prob', 0.1)
+        self.intermediate_size = getattr(config, 'intermediate_size', 4 * self.hidden_size)
         
-        # Use provided embeddings
-        self.wte = token_embeddings
-        self.wpe = position_embeddings
+        # Embeddings
+        self.wte = nn.Embedding(self.vocab_size, self.hidden_size)
+        self.wpe = nn.Embedding(self.max_position_embeddings, self.hidden_size)
+        self.drop = nn.Dropout(self.dropout_prob)
         
-        # Store baseline model for knowledge transfer
-        self.baseline_model = baseline_model
-        self.use_baseline_integration = use_baseline_integration and baseline_model is not None
-        
-        # Initialize transformer blocks
-        self.blocks = nn.ModuleList()
-        
-        # Define midpoint for UNet architecture
-        self.midpoint = self.num_layers // 2
-        
-        # Create transformer blocks with optimized implementation
-        for i in range(self.num_layers):
-            # Enable baseline integration only for selected layers
-            # Typically more useful in later layers
-            layer_use_baseline = (
-                self.use_baseline_integration and 
-                i >= self.midpoint  # Only in decoder layers
-            )
-            
-            # Create block with optimized implementation
-            block = OptimizedBaselineIntegratedBlock(
-                embed_dim=self.embed_dim,
+        # Create transformer blocks
+        self.blocks = nn.ModuleList([
+            OptimizedBaselineIntegratedBlock(
+                hidden_size=self.hidden_size,
                 num_heads=self.num_heads,
-                ffn_dim=self.ffn_dim,
-                use_baseline_integration=layer_use_baseline,
-                baseline_fusion_factor=0.3 if layer_use_baseline else 0.0
-            )
+                intermediate_size=self.intermediate_size,
+                dropout_prob=self.dropout_prob,
+                baseline_connection_weight=connection_scale,
+                debug=debug
+            ) for _ in range(self.num_layers)
+        ])
+        
+        # Final layer norm
+        self.ln_f = nn.LayerNorm(self.hidden_size)
+        
+        # Setup baseline model integration
+        self.baseline_model = baseline_model
+        self.use_baseline_integration = use_baseline_integration
+        
+        # Initialize weights
+        self.apply(self._init_weights)
+        
+        # Set up U-Net skip connections
+        self.setup_skip_connections()
+        
+        # Copy embeddings from baseline model if available
+        if baseline_model is not None:
+            self._copy_baseline_embeddings()
             
-            # Configure UNet skip connections
-            if i >= self.midpoint:  # Decoder layers
-                # Connect to corresponding encoder layer
-                encoder_idx = self.num_layers - i - 1
-                if encoder_idx >= 0:
-                    block.use_skip_connection = True
-                    block.skip_source = encoder_idx
-                    # Gradually increase skip connection strength in deeper layers
-                    block.skip_scale = 0.1 * (1 + (i - self.midpoint) / (self.num_layers - self.midpoint))
+    def _init_weights(self, module):
+        """Initialize the weights."""
+        if isinstance(module, (nn.Linear, nn.Embedding)):
+            module.weight.data.normal_(mean=0.0, std=0.02)
+            if isinstance(module, nn.Linear) and module.bias is not None:
+                module.bias.data.zero_()
+        elif isinstance(module, nn.LayerNorm):
+            module.bias.data.zero_()
+            module.weight.data.fill_(1.0)
             
-            self.blocks.append(block)
-        
-        # Final layer norm and output projection
-        self.ln_f = nn.LayerNorm(self.embed_dim)
-        self.lm_head = nn.Linear(self.embed_dim, config.vocab_size, bias=False)
-        
-        # Tie weights between input embeddings and output layer
-        self.lm_head.weight = self.wte.weight
-        
-        # Create causal attention mask only once and cache it
-        max_pos = min(getattr(config, 'max_position_embeddings', 1024), 1024)
-        causal_mask = torch.tril(torch.ones(max_pos, max_pos))
-        self.register_buffer("bias", causal_mask.view(1, 1, max_pos, max_pos))
-        
-        # Cache for baseline model outputs - improves performance during generation
-        self._baseline_cache = None
+    def _copy_baseline_embeddings(self):
+        """Copy embeddings from baseline model efficiently."""
+        if self.baseline_model is not None:
+            # Copy token embeddings
+            if hasattr(self.baseline_model, 'get_input_embeddings'):
+                baseline_wte = self.baseline_model.get_input_embeddings()
+                self.wte.weight.data.copy_(baseline_wte.weight.data)
+                
+            # Try to copy position embeddings
+            if hasattr(self.baseline_model, 'transformer') and hasattr(self.baseline_model.transformer, 'wpe'):
+                self.wpe.weight.data.copy_(self.baseline_model.transformer.wpe.weight.data)
+            
+            if self.debug:
+                print("Copied embeddings from baseline model")
     
-    def _run_baseline_model(self, input_ids, attention_mask=None, past_key_values=None):
-        """Run baseline model and cache results efficiently."""
-        # Return cached results if available
-        if self._baseline_cache is not None and past_key_values is not None:
-            return self._baseline_cache
+    def setup_skip_connections(self):
+        """Set up U-Net style skip connections between encoder and decoder layers."""
+        midpoint = self.num_layers // 2
         
-        baseline_outputs = {}
-        
-        with torch.no_grad():  # Don't compute gradients for baseline
-            # Get baseline model depending on structure
-            if hasattr(self.baseline_model, "transformer"):
-                # Input embedding from GPT2 model
-                batch_size, seq_len = input_ids.shape
-                position_ids = torch.arange(seq_len, device=input_ids.device).unsqueeze(0).expand(batch_size, -1)
+        # For layers in the decoder half, connect to corresponding encoder layer
+        for i in range(midpoint, self.num_layers):
+            decoder_idx = i
+            encoder_idx = self.num_layers - i - 1
+            
+            # Only connect if encoder idx is valid
+            if encoder_idx >= 0:
+                self.blocks[decoder_idx].use_skip_connection = True
+                self.blocks[decoder_idx].skip_source = encoder_idx
                 
-                baseline_embeds = self.baseline_model.transformer.wte(input_ids)
-                baseline_pos = self.baseline_model.transformer.wpe(position_ids)
-                baseline_h = baseline_embeds + baseline_pos
-                
-                # Process through each transformer block
-                for i, block in enumerate(self.baseline_model.transformer.h):
-                    baseline_h = block(baseline_h)[0]  # GPT2 blocks return a tuple
-                    baseline_outputs[i] = baseline_h  # Store each layer's output
-                
-                # Final normalization
-                baseline_h = self.baseline_model.transformer.ln_f(baseline_h)
-                baseline_logits = self.baseline_model.lm_head(baseline_h)
-                baseline_outputs["final"] = baseline_h
-                baseline_outputs["logits"] = baseline_logits
+                # Scale connection based on depth
+                depth_factor = (i - midpoint) / (self.num_layers - midpoint)
+                self.blocks[decoder_idx].skip_scale = 0.1 * (1.0 - depth_factor * 0.5)
+    
+    def get_input_embeddings(self):
+        """Get the model's input embeddings."""
+        return self.wte
         
-        # Cache results for generation if using past_key_values
-        if past_key_values is not None:
-            self._baseline_cache = baseline_outputs
-        
-        return baseline_outputs
+    def set_input_embeddings(self, embeddings):
+        """Set the model's input embeddings."""
+        self.wte = embeddings
     
     def forward(
         self,
-        input_ids,
+        input_ids=None,
         attention_mask=None,
-        labels=None,
-        step_count=None,
-        return_baseline=False,
+        token_type_ids=None,
+        position_ids=None,
         past_key_values=None,
-        **kwargs
+        inputs_embeds=None,
+        use_cache=None,
+        return_dict=None
     ):
-        """Optimized forward pass through the UNet transformer."""
-        # Basic setup
-        batch_size, seq_len = input_ids.shape
-        device = input_ids.device
+        """
+        Optimized forward pass for the UNet Transformer.
         
-        # Clear cache if not in generation mode (new prompt)
-        if past_key_values is None:
-            self._baseline_cache = None
+        Args:
+            input_ids: Input token IDs
+            attention_mask: Attention mask
+            token_type_ids: Token type IDs
+            position_ids: Position IDs
+            past_key_values: Past key values for efficient generation
+            inputs_embeds: Pre-computed input embeddings
+            use_cache: Whether to use cache for efficient generation
+            return_dict: Whether to return a dictionary or tuple
+            
+        Returns:
+            Dictionary or tuple of outputs
+        """
+        # Default return format
+        return_dict = return_dict if return_dict is not None else True
         
-        # Create position IDs
-        position_ids = torch.arange(seq_len, device=device).unsqueeze(0).expand(batch_size, -1)
+        # Get device
+        device = input_ids.device if input_ids is not None else inputs_embeds.device
         
-        # Get input embeddings
-        hidden_states = self.wte(input_ids) + self.wpe(position_ids)
+        # Get batch size and sequence length
+        if input_ids is not None:
+            batch_size, seq_length = input_ids.shape
+        else:
+            batch_size, seq_length = inputs_embeds.shape[:2]
+            
+        # Create position IDs if not provided
+        if position_ids is None:
+            position_ids = torch.arange(seq_length, dtype=torch.long, device=device)
+            position_ids = position_ids.unsqueeze(0).expand(batch_size, -1)
+        
+        # Create attention mask
+        extended_attention_mask = None
+        if attention_mask is not None:
+            # [batch_size, seq_length] -> [batch_size, 1, 1, seq_length]
+            extended_attention_mask = attention_mask.unsqueeze(1).unsqueeze(2)
+            
+            # Convert mask (1 -> 0, 0 -> -10000)
+            extended_attention_mask = (1.0 - extended_attention_mask) * -10000.0
         
         # Get baseline model outputs if integration is enabled
-        baseline_outputs = None
-        if self.use_baseline_integration and self.baseline_model is not None:
-            baseline_outputs = self._run_baseline_model(input_ids, attention_mask, past_key_values)
+        baseline_hidden_states = None
+        if self.baseline_model is not None and self.use_baseline_integration:
+            with torch.no_grad():
+                baseline_outputs = self.baseline_model(
+                    input_ids=input_ids,
+                    attention_mask=attention_mask,
+                    token_type_ids=token_type_ids,
+                    position_ids=position_ids,
+                    output_hidden_states=True,
+                    return_dict=True
+                )
+                baseline_hidden_states = baseline_outputs.hidden_states
         
-        # Storage for UNet skip connections
-        encoder_outputs = {}
+        # Compute input embeddings
+        if inputs_embeds is None:
+            inputs_embeds = self.wte(input_ids)
         
-        # Create attention mask once - optimized for generation
-        if seq_len <= 1024:
-            # Use pre-computed causal mask
-            causal_mask = self.bias[:, :, :seq_len, :seq_len]
-            attn_mask = (1.0 - causal_mask) * -10000.0
-            attn_mask = attn_mask.squeeze(0).squeeze(0)
-        else:
-            # Create mask on-the-fly for longer sequences
-            attn_mask = torch.triu(torch.ones(seq_len, seq_len, device=device) * -10000.0, diagonal=1)
+        # Add position embeddings and apply dropout
+        position_embeds = self.wpe(position_ids)
+        hidden_states = inputs_embeds + position_embeds
+        hidden_states = self.drop(hidden_states)
+        
+        # Storage for U-Net skip connections
+        layer_outputs = {}
         
         # Process through transformer blocks
         for i, block in enumerate(self.blocks):
-            # In encoder layers, store outputs for later UNet connections
-            if i < self.midpoint:
-                encoder_outputs[i] = hidden_states.clone()
+            # Save output for potential skip connections
+            layer_outputs[i] = hidden_states
             
-            # Get baseline hidden states for this layer if available
-            baseline_states = None
-            if baseline_outputs is not None and i in baseline_outputs:
-                baseline_states = baseline_outputs[i]
+            # Get baseline hidden state for this layer if available
+            baseline_layer_state = None
+            if baseline_hidden_states is not None and i < len(baseline_hidden_states):
+                baseline_layer_state = baseline_hidden_states[i]
             
-            # Get encoder states for UNet skip connection if this is a decoder layer
-            encoder_states = None
-            if block.use_skip_connection and block.skip_source in encoder_outputs:
-                encoder_states = encoder_outputs[block.skip_source]
-            
-            # Process through the block
+            # Process through block
             hidden_states = block(
                 hidden_states,
-                baseline_states=baseline_states,
-                encoder_states=encoder_states,
-                attention_mask=attn_mask,
-                step_count=step_count
+                baseline_hidden_states=baseline_layer_state,
+                attention_mask=extended_attention_mask,
+                skip_memory=layer_outputs
             )
         
-        # Final layer normalization
+        # Apply final layer norm
         hidden_states = self.ln_f(hidden_states)
         
-        # Get logits through language model head
+        if return_dict:
+            return {
+                "last_hidden_state": hidden_states,
+                "hidden_states": layer_outputs
+            }
+        
+        return (hidden_states,)
+
+
+class UNetLMHeadModelOptimized(nn.Module, GenerationMixin):
+    """
+    Optimized UNet transformer model with a language modeling head.
+
+    This class integrates with HuggingFace's generation utilities for
+    streamlined use in language generation tasks.
+    """
+
+    # Required by HuggingFace GenerationMixin
+    _is_stateful = False
+
+    def __init__(
+        self,
+        config,
+        baseline_model=None,
+        use_baseline_integration=True,
+        connection_scale=0.1,
+        debug=False
+    ):
+        super().__init__()
+
+        # Create transformer
+        self.transformer = UNetTransformerOptimized(
+            config=config,
+            baseline_model=baseline_model,
+            use_baseline_integration=use_baseline_integration,
+            connection_scale=connection_scale,
+            debug=debug
+        )
+
+        # Create language model head
+        self.lm_head = nn.Linear(config.hidden_size, config.vocab_size, bias=False)
+
+        # Copy LM head weights from baseline model if available
+        if baseline_model is not None and hasattr(baseline_model, "lm_head"):
+            self.lm_head.weight.data.copy_(baseline_model.lm_head.weight.data)
+
+        # Store configuration
+        self.config = config
+
+        # Copy generation_config from baseline if available, otherwise create default
+        if baseline_model is not None and hasattr(baseline_model, "generation_config"):
+            self.generation_config = baseline_model.generation_config
+        else:
+            from transformers import GenerationConfig
+            self.generation_config = GenerationConfig.from_model_config(config)
+
+        # Required attributes for generation
+        self.main_input_name = "input_ids"
+        
+    @property
+    def device(self):
+        """Get the model's device."""
+        return next(self.parameters()).device
+        
+    def get_output_embeddings(self):
+        """Get the model's output embeddings."""
+        return self.lm_head
+        
+    def set_output_embeddings(self, new_embeddings):
+        """Set the model's output embeddings."""
+        self.lm_head = new_embeddings
+        
+    def forward(
+        self,
+        input_ids=None,
+        attention_mask=None,
+        token_type_ids=None,
+        position_ids=None,
+        past_key_values=None,
+        inputs_embeds=None,
+        labels=None,
+        use_cache=None,
+        return_dict=None
+    ):
+        """
+        Forward pass of the optimized language model.
+        
+        Args:
+            input_ids: Input token IDs
+            attention_mask: Attention mask
+            token_type_ids: Token type IDs
+            position_ids: Position IDs
+            past_key_values: Past key values for efficient generation
+            inputs_embeds: Pre-computed input embeddings
+            labels: Labels for computing the language modeling loss
+            use_cache: Whether to use cache for efficient generation
+            return_dict: Whether to return a dictionary or tuple
+            
+        Returns:
+            CausalLMOutput with loss, logits, and hidden states
+        """
+        # Default return format
+        return_dict = return_dict if return_dict is not None else True
+        
+        # Run transformer
+        transformer_outputs = self.transformer(
+            input_ids=input_ids,
+            attention_mask=attention_mask,
+            token_type_ids=token_type_ids,
+            position_ids=position_ids,
+            past_key_values=past_key_values,
+            inputs_embeds=inputs_embeds,
+            use_cache=use_cache,
+            return_dict=True
+        )
+        
+        # Get last hidden state
+        hidden_states = transformer_outputs["last_hidden_state"]
+        
+        # Apply LM head
         logits = self.lm_head(hidden_states)
         
-        # Calculate loss if labels are provided
+        # Calculate loss if labels provided
         loss = None
         if labels is not None:
-            # Shift for autoregressive loss calculation
+            # Shift logits and labels for next token prediction
             shift_logits = logits[..., :-1, :].contiguous()
             shift_labels = labels[..., 1:].contiguous()
             
@@ -387,259 +504,70 @@ class OptimizedUNetTransformer(nn.Module):
             loss_fct = nn.CrossEntropyLoss()
             loss = loss_fct(shift_logits.view(-1, shift_logits.size(-1)), shift_labels.view(-1))
         
-        # Return appropriate output format
-        if return_baseline and baseline_outputs is not None:
-            # Return both agency and baseline outputs
-            agency_output = CausalLMOutput(loss=loss, logits=logits, past_key_values=past_key_values)
-            return agency_output, baseline_outputs["logits"]
-        elif labels is not None:
-            # Return output with loss
-            return CausalLMOutput(loss=loss, logits=logits, past_key_values=past_key_values)
-        else:
-            # Return logits only
-            return logits
-    
-    def get_gate_activity(self):
-        """Returns a dictionary with gate activity information for analysis."""
-        gate_activity = {}
-        for layer_idx, block in enumerate(self.blocks):
-            # Get gate values from attention module
-            if hasattr(block.attn, "gate"):
-                gate_values = block.attn.gate.detach().cpu()
-                # Get indices of active heads (gate value > threshold)
-                active_heads = [i for i, g in enumerate(gate_values) if float(g) > 0.2]
-                gate_activity[layer_idx] = active_heads
-        return gate_activity
-    
-    def get_agency_report(self):
-        """Generate a comprehensive report on agency status across all layers."""
-        layer_reports = {}
-        total_violations = 0
-        
-        for i, block in enumerate(self.blocks):
-            if hasattr(block.attn, "get_agency_report"):
-                report = block.attn.get_agency_report()
-                layer_reports[i] = report
-                total_violations += report["violation_count"]
-        
-        # Add UNet connection information
-        unet_connections = {}
-        for i, block in enumerate(self.blocks):
-            if hasattr(block, "use_skip_connection") and block.use_skip_connection:
-                unet_connections[i] = {
-                    "source": block.skip_source,
-                    "scale": float(block.skip_scale)
-                }
-        
-        # Add baseline integration information
-        baseline_integration = {}
-        for i, block in enumerate(self.blocks):
-            if hasattr(block, "use_baseline_integration") and block.use_baseline_integration:
-                if hasattr(block, "baseline_gate"):
-                    gate_value = float(torch.sigmoid(block.baseline_gate))
-                    baseline_integration[i] = gate_value
-        
-        return {
-            "layer_reports": layer_reports,
-            "unet_connections": unet_connections,
-            "baseline_integration": baseline_integration,
-            "total_violations": total_violations,
-            "num_layers": self.num_layers,
-        }
-    
-    def set_head_state(self, layer_idx, head_idx, state, consent=None):
-        """Set state and consent for a specific attention head."""
-        if layer_idx < 0 or layer_idx >= self.num_layers:
-            return False
+        if not return_dict:
+            return (loss, logits, transformer_outputs["hidden_states"])
             
-        block = self.blocks[layer_idx]
-        if hasattr(block.attn, "set_head_state"):
-            return block.attn.set_head_state(head_idx, state, consent)
-        return False
-
-
-class OptimizedUNetCausalLmWrapper(OptimizedUNetTransformer, GenerationMixin):
-    """
-    Optimized causal language model wrapper for the UNet transformer.
-    
-    This wrapper optimizes the generation process to make better use of caching
-    and minimize redundant computation during text generation.
-    """
-    main_input_name = "input_ids"
-    supports_gradient_checkpointing = False
-    can_generate = True  # Required for newer transformers versions
-    _supports_cache_class = False  # Required for newer transformers versions
-    
-    def __init__(
-        self,
-        config,
-        token_embeddings,
-        position_embeddings,
-        baseline_model=None,
-        use_baseline_integration=True,
-        debug=False
-    ):
-        super().__init__(
-            config,
-            token_embeddings,
-            position_embeddings,
-            baseline_model,
-            use_baseline_integration,
-            debug
+        return CausalLMOutput(
+            loss=loss,
+            logits=logits,
+            hidden_states=transformer_outputs["hidden_states"],
+            attentions=None
         )
-        
-        # Set up generation configuration
-        from transformers import GenerationConfig
-        try:
-            self.generation_config = GenerationConfig.from_model_config(config)
-        except Exception as e:
-            if debug:
-                print(f"Warning: Could not create generation config, using defaults: {e}")
-            self.generation_config = GenerationConfig()
     
-    def prepare_inputs_for_generation(self, input_ids, attention_mask=None, past_key_values=None, **kwargs):
-        """Prepare inputs for generation process with efficient caching."""
-        # For the first generation step, run normally
-        if past_key_values is None:
-            return {
-                "input_ids": input_ids,
-                "attention_mask": attention_mask,
-                "past_key_values": None
-            }
+    def prepare_inputs_for_generation(self, input_ids, past=None, **kwargs):
+        """
+        Prepare inputs for generation.
         
-        # For subsequent steps, only need the new token
-        input_ids = input_ids[:, -1].unsqueeze(-1)
+        This implements the required method for HuggingFace's GenerationMixin.
         
-        # Build generation inputs
+        Args:
+            input_ids: Input token IDs
+            past: Past key values for efficient generation
+            
+        Returns:
+            Dictionary of model inputs for generation
+        """
+        # Only keep last token for inputs_ids if past is provided
+        if past is not None:
+            input_ids = input_ids[:, -1].unsqueeze(-1)
+            
+        attention_mask = kwargs.get("attention_mask", None)
+        
         return {
             "input_ids": input_ids,
             "attention_mask": attention_mask,
-            "past_key_values": past_key_values
+            "past_key_values": past
         }
-    
-    def _reorder_cache(self, past_key_values, beam_idx):
-        """Reorder cache for beam search if needed."""
-        # This model doesn't use cache yet, but this method is required by GenerationMixin
-        if self._baseline_cache is not None:
-            # Reorder the baseline cache
-            reordered_cache = {}
-            for k, v in self._baseline_cache.items():
-                if isinstance(v, torch.Tensor):
-                    reordered_cache[k] = v.index_select(0, beam_idx)
-                else:
-                    reordered_cache[k] = v
-            self._baseline_cache = reordered_cache
-        
-        return past_key_values
-        
-    def can_generate(self):
-        """Method to check if the model can generate text."""
-        return True
-        
-    @property
-    def device(self):
-        """Return device of the first parameter of the model."""
-        return next(self.parameters()).device
-    
-    def get_output_embeddings(self):
-        """Get output embeddings for generation."""
-        return self.lm_head
-    
-    def forward(self, input_ids, attention_mask=None, return_dict=True, past_key_values=None, **kwargs):
-        """Forward pass optimized for generation efficiency."""
-        # Call the parent class forward method
-        outputs = super().forward(
-            input_ids=input_ids, 
-            attention_mask=attention_mask,
-            past_key_values=past_key_values,
-            **kwargs
-        )
-        
-        # If we're in generation mode, apply post-processing
-        if isinstance(outputs, torch.Tensor) and attention_mask is not None:
-            # Extract batch size and sequence length
-            batch_size, seq_len = input_ids.shape
-            
-            # Check if we're in generation mode (typically sequence length > 1)
-            is_generation = seq_len > 1
-            
-            if is_generation:
-                # For generation, apply mild temperature scaling to improve output quality
-                logits = outputs
-                
-                # Only modify logits for the last position in generation mode
-                last_pos_logits = logits[:, -1:, :]
-                
-                # Apply mild temperature for better distribution
-                temperature = 1.0
-                last_pos_logits = last_pos_logits / temperature
-                
-                # Combine them back
-                if seq_len > 1:
-                    logits = torch.cat([logits[:, :-1, :], last_pos_logits], dim=1)
-                else:
-                    logits = last_pos_logits
-                
-                outputs = logits
-        
-        # Return in the expected format
-        if return_dict and not isinstance(outputs, CausalLMOutput):
-            return CausalLMOutput(logits=outputs, past_key_values=past_key_values)
-        return outputs
 
 
-def load_optimized_unet_model(
-    baseline_model,
-    device="cpu",
-    use_baseline_integration=True,
-    debug=False
-):
+def load_unet_enhanced_model_optimized(baseline_model, device="cuda", use_baseline_integration=True, debug=False):
     """
-    Create an optimized UNet model initialized from a baseline model.
+    Load an optimized UNet-enhanced model from a baseline model.
     
     Args:
-        baseline_model: The baseline model to initialize from
+        baseline_model: The baseline HuggingFace model
         device: Device to load the model on
-        use_baseline_integration: Whether to use baseline knowledge
+        use_baseline_integration: Whether to integrate with baseline model
         debug: Whether to print debug information
         
     Returns:
-        OptimizedUNetCausalLmWrapper: The initialized model
+        Initialized UNetLMHeadModelOptimized
     """
+    # Get model config
     config = baseline_model.config
     
-    # Get token and position embeddings from baseline model
-    if hasattr(baseline_model, "transformer"):
-        # Standard HuggingFace models (GPT-2)
-        token_embeddings = baseline_model.transformer.wte
-        position_embeddings = baseline_model.transformer.wpe
-    else:
-        # Try generic approach
-        print("Warning: Non-standard model structure. Embeddings might not be correctly initialized.")
-        token_embeddings = nn.Embedding(config.vocab_size, config.hidden_size)
-        position_embeddings = nn.Embedding(config.max_position_embeddings, config.hidden_size)
-    
-    # Create and initialize the model
-    model = OptimizedUNetCausalLmWrapper(
+    # Create optimized UNet model
+    unet_model = UNetLMHeadModelOptimized(
         config=config,
-        token_embeddings=token_embeddings,
-        position_embeddings=position_embeddings,
-        baseline_model=baseline_model if use_baseline_integration else None,
+        baseline_model=baseline_model,
         use_baseline_integration=use_baseline_integration,
         debug=debug
     )
     
-    # Move to device
-    model = model.to(device)
-    
-    # Set to evaluation mode
-    model.eval()
+    # Move model to device
+    unet_model = unet_model.to(device)
     
     if debug:
-        num_params = sum(p.numel() for p in model.parameters())
-        baseline_params = sum(p.numel() for p in baseline_model.parameters())
-        print(f"Optimized UNet model initialized with {num_params:,} parameters")
-        print(f"Baseline model has {baseline_params:,} parameters")
-        print(f"Ratio: {num_params / baseline_params:.2f}x")
-    
-    return model
+        print(f"Loaded optimized UNet-enhanced model on {device}")
+        
+    return unet_model

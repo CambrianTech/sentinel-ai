@@ -52,9 +52,9 @@ This document tracks the implementation progress of the neural plasticity cycle 
 ## In-Progress Milestones
 
 ### Advanced Features
-- [ ] Multiple iterative pruning-growth cycles
+- [x] Multiple iterative pruning-growth cycles
 - [ ] Cross-modal architecture adaptation
-- [ ] Dynamic inference-time head activation
+- [x] Dynamic inference-time head activation
 - [ ] Integration with U-Net skip connections
 
 ### Research Opportunities

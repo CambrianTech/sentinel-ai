@@ -41,12 +41,12 @@ from datetime import datetime
 # Add project root to path for imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from models.loaders.loader import load_baseline_model, load_adaptive_model
-from sdata.dataset_loader import load_dataset
-from utils.metrics import compute_perplexity
-from utils.generation_wrapper import generate_text
-from controller.controller_manager import ControllerManager
-from controller.metrics.head_metrics import collect_head_metrics
+from sentinel.models.loaders.loader import load_baseline_model, load_adaptive_model
+from sentinel.sdata.dataset_loader import load_dataset
+from sentinel.utils.metrics import compute_perplexity
+from sentinel.utils.generation_wrapper import generate_text
+from sentinel.controller.controller_manager import ControllerManager
+from sentinel.controller.metrics.head_metrics import collect_head_metrics
 
 
 class PruningBenchmark:

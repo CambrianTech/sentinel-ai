@@ -28,7 +28,15 @@ def compute_attention_entropy(attn_probs: torch.Tensor, eps: float = 1e-8) -> to
     """
     log_attn = torch.log(attn_probs + eps)
     entropy = -torch.sum(attn_probs * log_attn, dim=-1)  # shape: (batch_size, num_heads, seq_len)
-    return entropy.mean(dim=(0, 2))  # average over batch and sequence
+    
+    # Handle different tensor shapes safely
+    if entropy.dim() == 3:  # shape: (batch_size, num_heads, seq_len)
+        return entropy.mean(dim=(0, 2))  # average over batch and sequence
+    elif entropy.dim() == 2:  # shape: (batch_size, num_heads)
+        return entropy.mean(dim=0)  # average over batch only
+    else:
+        # Fallback for unexpected dimensions
+        return entropy.mean(dim=0)  # average over first dimension
 
 
 def collect_attention_distributions(
@@ -57,9 +65,12 @@ def collect_attention_distributions(
     
     # For adaptive transformer in Sentinel-AI, the blocks are accessed differently
     if hasattr(model, 'blocks'):
-        # For blocks, we'll collect attention from the blocks directly
+        # Direct blocks attribute
         return _collect_attention_from_blocks(model, dataloader, num_batches, device)
-        
+    elif hasattr(model, 'transformer') and hasattr(model.transformer, 'blocks'):
+        # Nested transformer with blocks (e.g., UNetLMHeadModelOptimized)
+        return _collect_attention_from_blocks(model.transformer, dataloader, num_batches, device)
+
     # Try standard HuggingFace model structures
     transformer = None
     if hasattr(model, 'transformer'):
@@ -71,7 +82,7 @@ def collect_attention_distributions(
     else:
         logger.warning(f"Could not find transformer attribute in model. Model attributes: {dir(model)}")
         return {}
-    
+
     # Check if transformer has layers
     if not hasattr(transformer, 'h'):
         logger.warning(f"Transformer does not have 'h' attribute. Transformer attributes: {dir(transformer)}")
@@ -197,75 +208,89 @@ def entropy_based_pruning(
 def _collect_attention_from_blocks(model, dataloader, num_batches, device=None):
     """
     Collect attention distributions from a model with blocks structure.
-    
+
     Args:
         model: The model with blocks attribute
         dataloader: DataLoader containing evaluation data
         num_batches: Number of batches to collect distributions from
         device: Device to run on
-        
+
     Returns:
         Dictionary mapping layer indices to attention distributions
     """
     if device is None:
         device = next(model.parameters()).device
-        
+
     model.eval()
     distributions = {}
-    
-    # Add hooks to the attention modules in blocks
-    hooks = []
-    attention_outputs = {}
-    
-    def hook_fn(block_idx):
-        def hook(module, input, output):
-            # Try to extract attention probabilities
-            if isinstance(output, tuple) and len(output) > 1:
-                # Some modules return a tuple with attention as second element
-                attention_outputs[block_idx] = output[1].detach()
-            else:
-                # Direct attention output
-                attention_outputs[block_idx] = output.detach()
-        return hook
-    
-    # Register hooks for each block's attention module
+
+    # Enable attention weight storage on all blocks (which will propagate to attention modules)
+    attention_modules = []
     for i, block in enumerate(model.blocks):
         if hasattr(block, 'attn'):
-            hook = block.attn.register_forward_hook(hook_fn(i))
-            hooks.append(hook)
+            # Set on the block - it will copy to attn during forward()
+            if hasattr(block, 'store_attention_weights'):
+                block.store_attention_weights = True
+            # Also set directly on attn as backup
+            if hasattr(block.attn, 'store_attention_weights'):
+                block.attn.store_attention_weights = True
+            attention_modules.append((i, block.attn))
     
     # Process batches
     with torch.no_grad():
         for batch_idx, batch in enumerate(dataloader):
             if batch_idx >= num_batches:
                 break
-                
+
             # Prepare inputs
             if isinstance(batch, dict):
                 # Dataloader returns dict of tensors
-                inputs = {k: v.to(device) for k, v in batch.items()}
-            else:
-                # Dataloader returns tuple of tensors
-                inputs = {
-                    "input_ids": batch[0].to(device),
-                    "attention_mask": batch[1].to(device) if len(batch) > 1 else None
-                }
-            
-            # Forward pass
-            model(**inputs, output_attentions=True)
-            
-            # Process collected attention outputs
-            for block_idx, attn_output in attention_outputs.items():
-                # Add to distributions
-                if block_idx not in distributions:
-                    distributions[block_idx] = attn_output
+                inputs = {k: v.to(device) if isinstance(v, torch.Tensor) else v for k, v in batch.items()}
+            elif isinstance(batch, (tuple, list)):
+                # Dataloader returns tuple/list of tensors
+                if len(batch) > 0 and isinstance(batch[0], torch.Tensor):
+                    inputs = {
+                        "input_ids": batch[0].to(device),
+                        "attention_mask": batch[1].to(device) if len(batch) > 1 and isinstance(batch[1], torch.Tensor) else None
+                    }
                 else:
-                    distributions[block_idx] = torch.cat([distributions[block_idx], attn_output], dim=0)
-    
-    # Remove hooks
-    for hook in hooks:
-        hook.remove()
-    
+                    # Batch contains non-tensor items, skip
+                    continue
+            else:
+                # Unknown batch format, skip
+                continue
+
+            # Forward pass (attention weights will be stored in attn.attention_weights)
+            model(**inputs)
+
+            # Collect stored attention weights from all attention modules
+            for layer_idx, attn_module in attention_modules:
+                if hasattr(attn_module, 'attention_weights') and attn_module.attention_weights:
+                    # attention_weights is a dict: {head_idx: probs[:, head_idx:head_idx+1]}
+                    # We need to concatenate all heads to get shape (batch, num_heads, seq, seq)
+                    head_probs = []
+                    for head_idx in sorted(attn_module.attention_weights.keys()):
+                        head_probs.append(attn_module.attention_weights[head_idx])
+
+                    # Concatenate along head dimension
+                    attn_probs = torch.cat(head_probs, dim=1)  # (batch, num_heads, seq, seq)
+
+                    # Add to distributions
+                    if layer_idx not in distributions:
+                        distributions[layer_idx] = attn_probs
+                    else:
+                        distributions[layer_idx] = torch.cat([distributions[layer_idx], attn_probs], dim=0)
+
+    # Disable attention weight storage
+    for i, block in enumerate(model.blocks):
+        if hasattr(block, 'store_attention_weights'):
+            block.store_attention_weights = False
+        if hasattr(block, 'attn'):
+            if hasattr(block.attn, 'store_attention_weights'):
+                block.attn.store_attention_weights = False
+            if hasattr(block.attn, 'attention_weights'):
+                block.attn.attention_weights = {}
+
     return distributions
 
 

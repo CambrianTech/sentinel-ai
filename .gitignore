@@ -22,6 +22,8 @@ logs/
 # Colab-specific
 *.ipynb_uploads
 colab_checkpoints/
+colab_notebooks/sentinel-ai/
+sentinel-ai/
 
 # Tokenized datasets and Hugging Face cache
 *.arrow
@@ -32,11 +34,25 @@ datasets/**/*.arrow
 datasets/**/cache/
 ~$*
 
-# Neural plasticity experiment results
+# Consolidated output directories
+experiment_output/         # Main consolidated output directory
+experiment_output/*/      # All subdirectories under it
+
+# Legacy neural plasticity output directories (to be migrated to experiment_output/)
 plasticity_experiments/
+experiment_results/
+neural_plasticity_output/
+plasticity_experiment/
 neural_plasticity_test/
 legacy_datasets/
 experiments/
+dynamic_plasticity_experiment/
+neural_plasticity_report/
+neural_plasticity_results.html
+neural_plasticity_experiment.log
+dashboard/
+*_demo_output.txt
+*.bak
 
 # Output directories for experiment results and generated content
 /output/*
@@ -87,6 +103,8 @@ message.txt
 docs/MANIFESTO.md
 MANIFESTO.md
 PR_DRAFT.md
+PURGE_LIST.txt
+CLAUDE_NOTES.md
 /test_*.py 
 /load_*.py
 
@@ -108,3 +126,12 @@ test_task_alternation.py
 # Benchmark test results
 benchmark_test/
 .private/
+
+# Test output directories
+/test_output/
+/test_outputs/
+archive/
+/package_for_aria.sh
+*_backup_*.ipynb
+/np_test_output/
+/debug/

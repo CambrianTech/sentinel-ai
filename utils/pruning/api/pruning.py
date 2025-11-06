@@ -276,6 +276,111 @@ def prune_heads(model, importance, pruning_percent=0.3, device="cuda"):
             print("Returning empty list of pruned heads")
             return []
 
+# Define a simplified warmup fine-tuning function
+def warmup_fine_tune(model, train_dataloader, val_dataloader, num_epochs=1, learning_rate=5e-5, device=None):
+    """
+    Perform a short warmup fine-tuning to get the model adapted to the dataset.
+    
+    Args:
+        model: The model to fine-tune
+        train_dataloader: DataLoader for training data
+        val_dataloader: DataLoader for validation data
+        num_epochs: Number of warmup epochs (default: 1)
+        learning_rate: Learning rate for optimizer
+        device: Device to use (defaults to model's device)
+        
+    Returns:
+        None
+    """
+    print(f"Starting warmup fine-tuning for {num_epochs} epochs...")
+    
+    # Set device if not provided
+    if device is None:
+        device = next(model.parameters()).device
+    
+    # Set up optimizer
+    optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
+    
+    # Training loop
+    model.train()
+    for epoch in range(num_epochs):
+        for step, batch in enumerate(tqdm(train_dataloader, desc=f"Warmup Epoch {epoch+1}")):
+            # Unpack batch - handle different formats
+            if isinstance(batch, tuple) and len(batch) >= 2:
+                input_ids, attention_mask = batch[0], batch[1]
+            elif isinstance(batch, list) and len(batch) >= 2:
+                input_ids, attention_mask = batch[0], batch[1]
+            elif isinstance(batch, dict):
+                input_ids = batch["input_ids"]
+                attention_mask = batch.get("attention_mask", None)
+            else:
+                print(f"Skipping unsupported batch format: {type(batch)}")
+                continue
+                
+            # Move to device
+            input_ids = input_ids.to(device)
+            if attention_mask is not None:
+                attention_mask = attention_mask.to(device)
+            
+            # Forward pass
+            outputs = model(
+                input_ids=input_ids,
+                attention_mask=attention_mask,
+                labels=input_ids
+            )
+            
+            # Backward pass
+            loss = outputs.loss
+            loss.backward()
+            
+            # Update parameters
+            optimizer.step()
+            optimizer.zero_grad()
+            
+            # Log occasionally
+            if step % 50 == 0:
+                print(f"  Step {step} - Loss: {loss.item():.4f}")
+    
+    # Final evaluation
+    model.eval()
+    with torch.no_grad():
+        eval_loss = 0
+        eval_steps = 0
+        for batch in tqdm(val_dataloader, desc="Evaluating warmup"):
+            # Unpack batch - handle different formats
+            if isinstance(batch, tuple) and len(batch) >= 2:
+                input_ids, attention_mask = batch[0], batch[1]
+            elif isinstance(batch, list) and len(batch) >= 2:
+                input_ids, attention_mask = batch[0], batch[1]
+            elif isinstance(batch, dict):
+                input_ids = batch["input_ids"]
+                attention_mask = batch.get("attention_mask", None)
+            else:
+                print(f"Skipping unsupported batch format: {type(batch)}")
+                continue
+                
+            # Move to device
+            input_ids = input_ids.to(device)
+            if attention_mask is not None:
+                attention_mask = attention_mask.to(device)
+            
+            # Forward pass
+            outputs = model(
+                input_ids=input_ids,
+                attention_mask=attention_mask,
+                labels=input_ids
+            )
+            
+            # Accumulate loss
+            eval_loss += outputs.loss.item()
+            eval_steps += 1
+        
+        avg_loss = eval_loss / eval_steps if eval_steps > 0 else float('inf')
+        perplexity = torch.exp(torch.tensor(avg_loss)).item()
+        
+    print(f"Warmup complete - Loss: {avg_loss:.4f}, Perplexity: {perplexity:.2f}")
+
+
 def fine_tune(model, train_dataloader, val_dataloader, num_epochs=3, 
               learning_rate=5e-5, max_steps=None, device="cuda", 
               eval_every=100, callbacks=None):

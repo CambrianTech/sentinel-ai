@@ -3,12 +3,14 @@ from transformers import AutoConfig, AutoModelForCausalLM
 
 # Import model loaders
 try:
-    # First try to load the fixed version for GPT-2
-    from .fix_gpt2_loader import load_adaptive_model_gpt
+    # Use the clean loader with proper weight transfer
+    from .gpt2_loader_clean import load_adaptive_model_gpt_clean as load_adaptive_model_gpt
 except ImportError:
-    # Fallback to original loader
-    from .gpt2_loader import load_adaptive_model_gpt
-    print("⚠️ Using original GPT2 loader (consider using the fixed version)")
+    try:
+        # Fallback to original loader
+        from .gpt2_loader import load_adaptive_model_gpt
+    except ImportError as e:
+        load_adaptive_model_gpt = None
 
 # Import loaders for additional model types
 try:
@@ -42,19 +44,20 @@ except ImportError:
     load_adaptive_model_llama = None
 
 
-def load_baseline_model(model_name, device):
+def load_baseline_model(model_name, device, from_tf=False):
     """
     Load a baseline Hugging Face language model.
     
     Args:
         model_name: Name of the model to load (e.g., 'distilgpt2', 'gpt2')
         device: Torch device to load the model onto
+        from_tf: Whether to load from TensorFlow checkpoint (for some models)
     
     Returns:
         Loaded baseline model
     """
     try:
-        model = AutoModelForCausalLM.from_pretrained(model_name).to(device)
+        model = AutoModelForCausalLM.from_pretrained(model_name, from_tf=from_tf).to(device)
         model.eval()
         print(f"✅ Loaded baseline model: {model_name} with {sum(p.numel() for p in model.parameters()):,} parameters")
         return model
@@ -86,7 +89,8 @@ def load_adaptive_model(model_name, baseline_model, device, debug=False, quiet=F
     
     # Dispatch to appropriate loader based on model type
     if model_type in ["gpt2", "distilgpt2", "gpt_neo", "gptj"]:
-        return load_adaptive_model_gpt(model_name, baseline_model, config, device, debug=debug, quiet=quiet)
+        # Note: gpt2_loader expects (model_name, baseline_model, config, device, quiet, optimized)
+        return load_adaptive_model_gpt(model_name, baseline_model, config, device, quiet=quiet)
     
     elif model_type == "opt" and load_adaptive_model_opt:
         return load_adaptive_model_opt(model_name, baseline_model, config, device, debug=debug, quiet=quiet)

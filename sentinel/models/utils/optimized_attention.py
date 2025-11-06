@@ -13,6 +13,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import math
+from typing import Optional, Union, Tuple
 import time
 from typing import Dict, List, Optional, Tuple, Union
 
@@ -142,18 +143,22 @@ class OptimizedGatedMultiHeadAttention(nn.Module):
         self,
         hidden_states: torch.Tensor,
         attention_mask: Optional[torch.Tensor] = None,
-        head_mask: Optional[torch.Tensor] = None
-    ) -> torch.Tensor:
+        head_mask: Optional[torch.Tensor] = None,
+        output_attentions: bool = False
+    ) -> Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
         """
         Forward pass for optimized gated multi-head attention.
-        
+
         Args:
             hidden_states: Input tensor [batch_size, seq_len, hidden_size]
-            attention_mask: Optional attention mask [batch_size, 1, 1, seq_len]
-            head_mask: Optional mask for specific heads [batch_size, num_heads, seq_len, seq_len]
-            
+            attention_mask: Attention mask [batch_size, 1, 1, seq_len]
+            head_mask: Head mask [num_heads]
+            output_attentions: Whether to return attention probabilities
+
         Returns:
-            Output tensor [batch_size, seq_len, hidden_size]
+            If output_attentions=False: output tensor [batch_size, seq_len, hidden_size]
+            If output_attentions=True: tuple of (output, attention_probs) where
+                attention_probs has shape [batch_size, num_heads, seq_len, seq_len]
         """
         batch_size, seq_len, _ = hidden_states.shape
         
@@ -238,8 +243,11 @@ class OptimizedGatedMultiHeadAttention(nn.Module):
         if active_gates < self.num_heads:
             # Normalize by the ratio of active heads to total heads
             output = output * (active_gates / self.num_heads)
-        
-        return output
+
+        if output_attentions:
+            return (output, attention_probs)
+        else:
+            return output
 
 # Alias for backward compatibility
 OptimizedAttention = OptimizedGatedMultiHeadAttention

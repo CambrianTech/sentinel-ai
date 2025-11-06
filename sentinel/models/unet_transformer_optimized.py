@@ -383,11 +383,14 @@ class UNetTransformerOptimized(nn.Module):
 class UNetLMHeadModelOptimized(nn.Module, GenerationMixin):
     """
     Optimized UNet transformer model with a language modeling head.
-    
+
     This class integrates with HuggingFace's generation utilities for
     streamlined use in language generation tasks.
     """
-    
+
+    # Required by HuggingFace GenerationMixin
+    _is_stateful = False
+
     def __init__(
         self,
         config,
@@ -397,7 +400,7 @@ class UNetLMHeadModelOptimized(nn.Module, GenerationMixin):
         debug=False
     ):
         super().__init__()
-        
+
         # Create transformer
         self.transformer = UNetTransformerOptimized(
             config=config,
@@ -406,17 +409,24 @@ class UNetLMHeadModelOptimized(nn.Module, GenerationMixin):
             connection_scale=connection_scale,
             debug=debug
         )
-        
+
         # Create language model head
         self.lm_head = nn.Linear(config.hidden_size, config.vocab_size, bias=False)
-        
+
         # Copy LM head weights from baseline model if available
         if baseline_model is not None and hasattr(baseline_model, "lm_head"):
             self.lm_head.weight.data.copy_(baseline_model.lm_head.weight.data)
-        
+
         # Store configuration
         self.config = config
-        
+
+        # Copy generation_config from baseline if available, otherwise create default
+        if baseline_model is not None and hasattr(baseline_model, "generation_config"):
+            self.generation_config = baseline_model.generation_config
+        else:
+            from transformers import GenerationConfig
+            self.generation_config = GenerationConfig.from_model_config(config)
+
         # Required attributes for generation
         self.main_input_name = "input_ids"
         

@@ -1,0 +1,368 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Neural Plasticity Dashboard</title>
+    <style>
+        :root {
+            --primary-color: #4a6fa5;
+            --secondary-color: #6fb98f;
+            --accent-color: #ff7e67;
+            --bg-color: #f7f9fb;
+            --text-color: #2c3e50;
+            --card-bg: #ffffff;
+            --border-color: #e6e6e6;
+            --success-color: #28a745;
+            --warning-color: #ffc107;
+            --danger-color: #dc3545;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            line-height: 1.6;
+            color: var(--text-color);
+            background-color: var(--bg-color);
+            margin: 0;
+            padding: 20px;
+        }
+        
+        .dashboard {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        
+        .dashboard-header {
+            text-align: center;
+            margin-bottom: 30px;
+            padding: 20px;
+            background-color: var(--card-bg);
+            border-radius: 8px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+        
+        .dashboard-title {
+            font-size: 24px;
+            font-weight: bold;
+            margin: 0;
+            color: var(--primary-color);
+        }
+        
+        .dashboard-subtitle {
+            font-size: 16px;
+            color: #666;
+            margin-top: 5px;
+        }
+        
+        .metrics-summary {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+        
+        .metric-card {
+            flex: 1;
+            min-width: 200px;
+            background-color: var(--card-bg);
+            padding: 15px;
+            border-radius: 8px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+        
+        .metric-title {
+            font-size: 16px;
+            font-weight: 500;
+            margin-bottom: 10px;
+            color: var(--text-color);
+        }
+        
+        .metric-value {
+            font-size: 24px;
+            font-weight: bold;
+            color: var(--primary-color);
+        }
+        
+        .metric-delta {
+            font-size: 14px;
+            margin-top: 5px;
+        }
+        
+        .positive-delta {
+            color: var(--success-color);
+        }
+        
+        .negative-delta {
+            color: var(--danger-color);
+        }
+        
+        .section {
+            background-color: var(--card-bg);
+            padding: 20px;
+            margin-bottom: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+        
+        .section-title {
+            font-size: 18px;
+            font-weight: bold;
+            margin-top: 0;
+            margin-bottom: 15px;
+            color: var(--primary-color);
+            border-bottom: 1px solid var(--border-color);
+            padding-bottom: 10px;
+        }
+        
+        .visualization-container {
+            margin-top: 20px;
+            text-align: center;
+        }
+        
+        .visualization {
+            max-width: 100%;
+            height: auto;
+            margin: 10px 0;
+            border: 1px solid var(--border-color);
+            border-radius: 5px;
+        }
+        
+        .tabs {
+            display: flex;
+            border-bottom: 1px solid var(--border-color);
+            margin-bottom: 20px;
+        }
+        
+        .tab {
+            padding: 10px 20px;
+            cursor: pointer;
+            border-bottom: 3px solid transparent;
+        }
+        
+        .tab.active {
+            border-bottom-color: var(--primary-color);
+            font-weight: bold;
+        }
+        
+        .tab-content {
+            display: none;
+        }
+        
+        .tab-content.active {
+            display: block;
+        }
+        
+        .footer {
+            text-align: center;
+            margin-top: 40px;
+            padding-top: 20px;
+            border-top: 1px solid var(--border-color);
+            font-size: 14px;
+            color: #666;
+        }
+        
+        .metrics-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+        
+        .metrics-table th,
+        .metrics-table td {
+            padding: 8px 12px;
+            text-align: left;
+            border-bottom: 1px solid var(--border-color);
+        }
+        
+        .metrics-table th {
+            background-color: #f0f4f8;
+        }
+        
+        .code-block {
+            background-color: #f1f1f1;
+            padding: 15px;
+            border-radius: 5px;
+            font-family: monospace;
+            overflow-x: auto;
+            white-space: pre-wrap;
+            margin-top: 10px;
+        }
+        
+        .token-container {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 5px;
+            margin-top: 10px;
+        }
+        
+        .token {
+            display: inline-flex;
+            flex-direction: column;
+            align-items: center;
+            background-color: #f0f4f8;
+            border-radius: 5px;
+            padding: 8px;
+            margin: 3px;
+        }
+        
+        .token-correct {
+            background-color: #d4edda;
+        }
+        
+        .token-incorrect {
+            background-color: #f8d7da;
+        }
+        
+        .token-value {
+            font-weight: bold;
+        }
+        
+        .token-prob {
+            font-size: 12px;
+            color: #666;
+            margin-top: 3px;
+        }
+        
+        .perplexity-value {
+            margin-top: 15px;
+            font-weight: bold;
+            color: var(--primary-color);
+        }
+        
+        #attention-viz-container {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            justify-content: center;
+        }
+        
+        .loading {
+            text-align: center;
+            padding: 20px;
+            font-style: italic;
+            color: #666;
+        }
+    </style>
+</head>
+<body>
+    <div class="dashboard">
+        <div class="dashboard-header">
+            <h1 class="dashboard-title">Neural Plasticity Experiment Dashboard</h1>
+            <p class="dashboard-subtitle">Generated on {timestamp}</p>
+        </div>
+        
+        <div class="metrics-summary">
+            {metrics_summary}
+        </div>
+        
+        <div class="section">
+            <h2 class="section-title">Experiment Summary</h2>
+            <p>This dashboard shows results from a neural plasticity experiment using {model_name} on {dataset_name}.</p>
+            
+            <div class="metrics-table">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Setting</th>
+                            <th>Value</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td>Model</td>
+                            <td>{model_name}</td>
+                        </tr>
+                        <tr>
+                            <td>Dataset</td>
+                            <td>{dataset_name}</td>
+                        </tr>
+                        <tr>
+                            <td>Pruning Strategy</td>
+                            <td>{pruning_strategy}</td>
+                        </tr>
+                        <tr>
+                            <td>Pruning Level</td>
+                            <td>{pruning_level:.1%}</td>
+                        </tr>
+                        <tr>
+                            <td>Learning Rate</td>
+                            <td>{learning_rate}</td>
+                        </tr>
+                        <tr>
+                            <td>Training Steps</td>
+                            <td>{training_steps}</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        
+        <div class="section">
+            <h2 class="section-title">Training Process</h2>
+            <div class="visualization-container">
+                {training_viz}
+            </div>
+        </div>
+        
+        <div class="section">
+            <h2 class="section-title">Attention Head Analysis</h2>
+            <div class="visualization-container">
+                {entropy_viz}
+            </div>
+            <div class="visualization-container">
+                {gradient_viz}
+            </div>
+        </div>
+        
+        <div class="section">
+            <h2 class="section-title">Pruning Decisions</h2>
+            <div class="visualization-container">
+                {pruning_viz}
+            </div>
+            <div class="code-block">
+{pruned_heads_text}
+            </div>
+        </div>
+        
+        {samples_section}
+        
+        <div class="section">
+            <h2 class="section-title">Attention Patterns</h2>
+            <div id="attention-viz-container">
+                {attention_viz}
+            </div>
+        </div>
+        
+        <div class="footer">
+            <p>Neural Plasticity Dashboard | Sentinel AI Research</p>
+        </div>
+    </div>
+    
+    <script>
+        function showTab(tabId) {
+            // Hide all tab contents
+            const tabContents = document.getElementsByClassName('tab-content');
+            for (let i = 0; i < tabContents.length; i++) {
+                tabContents[i].classList.remove('active');
+            }
+            
+            // Deactivate all tabs
+            const tabs = document.getElementsByClassName('tab');
+            for (let i = 0; i < tabs.length; i++) {
+                tabs[i].classList.remove('active');
+            }
+            
+            // Activate selected tab and content
+            document.getElementById(tabId).classList.add('active');
+            
+            // Find and activate the tab button
+            const tabButtons = document.getElementsByClassName('tab');
+            for (let i = 0; i < tabButtons.length; i++) {
+                if (tabButtons[i].getAttribute('onclick').includes(tabId)) {
+                    tabButtons[i].classList.add('active');
+                }
+            }
+        }
+    </script>
+</body>
+</html>

@@ -28,43 +28,47 @@ class GatedMultiHeadSelfAttention(nn.Module):
         self.embed_dim = embed_dim
         self.num_heads = num_heads
         self.head_dim = embed_dim // num_heads
-        
-        # Create separate parameter matrices for each attention head
-        # Each head has its own query, key, value, and output projections
-        # This enables more fine-grained control and potential specialization
-        self.W_q = nn.ParameterList([
-            nn.Parameter(torch.randn(embed_dim, self.head_dim) / math.sqrt(embed_dim))
-            for _ in range(num_heads)
-        ])
-        
-        self.W_k = nn.ParameterList([
-            nn.Parameter(torch.randn(embed_dim, self.head_dim) / math.sqrt(embed_dim))
-            for _ in range(num_heads)
-        ])
-        
-        self.W_v = nn.ParameterList([
-            nn.Parameter(torch.randn(embed_dim, self.head_dim) / math.sqrt(embed_dim))
-            for _ in range(num_heads)
-        ])
-        
+
+        # HYBRID APPROACH: Fused QKV projection (like GPT-2), per-head output projection
+        # This gives us exact GPT-2 equivalence while still enabling per-head pruning
+
+        # Fused QKV projection - matches GPT-2 exactly
+        self.c_attn = nn.Linear(embed_dim, 3 * embed_dim)
+
+        # Per-head output projections - enables per-head pruning/gating
         self.W_o = nn.ParameterList([
             nn.Parameter(torch.randn(self.head_dim, embed_dim) / math.sqrt(self.head_dim))
             for _ in range(num_heads)
         ])
-        
+        self.b_o = nn.ParameterList([
+            nn.Parameter(torch.zeros(embed_dim))
+            for _ in range(num_heads)
+        ])
+
+        # Causal mask for autoregressive generation (like GPT-2)
+        # Register as buffer so it moves with model to GPU/CPU
+        # We'll create a large enough mask and slice it as needed
+        max_seq_len = 1024  # GPT-2's max position
+        self.register_buffer(
+            "bias",
+            torch.tril(torch.ones((max_seq_len, max_seq_len), dtype=torch.bool)).view(
+                1, 1, max_seq_len, max_seq_len
+            ),
+        )
+
         # Sentinel gates: learnable parameters to control each head's contribution
-        # As described in the paper: "Gates are scalar values g_i ∈ (0,1) 
+        # As described in the paper: "Gates are scalar values g_i ∈ (0,1)
         # that modulate the contribution of each attention head"
         self.gate = nn.Parameter(torch.ones(num_heads))
-        
+
         # Agency tracking for each head
         self.agency_signals = {}  # Will store signals like {head_idx: {"state": state, "consent": True}}
         self.consent_violations = {}  # Track potential violations for analysis
-        
+
         # Flag to store attention weights during forward pass (for visualization)
         self.store_attention_weights = False
         self.attention_weights = {}
-        
+
         # Debug flag
         self.debug = debug
     
@@ -149,97 +153,139 @@ class GatedMultiHeadSelfAttention(nn.Module):
     
     def forward(self, hidden_states, attention_mask=None, head_mask=None):
         """
-        Forward pass with gated attention computation.
-        
+        Forward pass with gated attention computation (HYBRID APPROACH).
+
+        Uses fused QKV projection (like GPT-2) for exact weight transfer,
+        then splits into per-head attention with per-head output projections
+        for pruning capability.
+
         Args:
             hidden_states: Input tensor [batch_size, seq_len, embed_dim]
             attention_mask: Attention mask [batch_size, 1, 1, seq_len]
             head_mask: Optional mask for specific heads [batch_size, num_heads, seq_len, seq_len]
-            
+
         Returns:
             attention_output: Output tensor [batch_size, seq_len, embed_dim]
         """
+        # Handle various input tensor shapes
+        original_shape = hidden_states.shape
+
+        # Squeeze out any extra dimensions
+        while hidden_states.dim() > 3:
+            hidden_states = hidden_states.squeeze(0)
+
+        # Add batch dimension if needed
+        if hidden_states.dim() == 2:
+            hidden_states = hidden_states.unsqueeze(0)
+
+        # Now should be [batch, seq, embed_dim]
+        if hidden_states.dim() != 3:
+            raise ValueError(f"Expected 3D hidden_states after reshaping, got shape {hidden_states.shape} (original: {original_shape})")
+
         batch_size, seq_len, _ = hidden_states.shape
-        
+
+        # HYBRID STEP 1: Fused QKV projection (exactly like GPT-2)
+        qkv = self.c_attn(hidden_states)  # [batch, seq, 3*embed_dim]
+
+        # Split into Q, K, V
+        q_all, k_all, v_all = qkv.split(self.embed_dim, dim=-1)  # Each: [batch, seq, embed_dim]
+
+        # Reshape to separate heads: [batch, seq, num_heads, head_dim]
+        q_all = q_all.view(batch_size, seq_len, self.num_heads, self.head_dim)
+        k_all = k_all.view(batch_size, seq_len, self.num_heads, self.head_dim)
+        v_all = v_all.view(batch_size, seq_len, self.num_heads, self.head_dim)
+
+        # Transpose to [batch, num_heads, seq, head_dim] for attention computation
+        q_all = q_all.transpose(1, 2)
+        k_all = k_all.transpose(1, 2)
+        v_all = v_all.transpose(1, 2)
+
         # Initialize output
         attention_output = torch.zeros(
             (batch_size, seq_len, self.embed_dim),
             device=hidden_states.device
         )
-        
+
         # Clear attention weights if we're storing them
         if self.store_attention_weights:
             self.attention_weights = {}
-        
+
         # Track maximum attention value for normalization
         max_attention_value = 0.0
-        
-        # Process each attention head
+
+        # HYBRID STEP 2: Per-head attention computation with gating
         for h in range(self.num_heads):
             # Get effective gate value accounting for agency state
             effective_gate = self.get_effective_gate(h)
-            
+
             # Skip computation for effectively pruned heads (gate ≈ 0)
             if effective_gate < 1e-4:
                 continue
-                
-            # Compute query, key, value projections for this head
-            q = torch.matmul(hidden_states, self.W_q[h])  # [batch, seq, head_dim]
-            k = torch.matmul(hidden_states, self.W_k[h])  # [batch, seq, head_dim]
-            v = torch.matmul(hidden_states, self.W_v[h])  # [batch, seq, head_dim]
-            
+
+            # Extract Q, K, V for this head
+            q = q_all[:, h, :, :]  # [batch, seq, head_dim]
+            k = k_all[:, h, :, :]  # [batch, seq, head_dim]
+            v = v_all[:, h, :, :]  # [batch, seq, head_dim]
+
             # Compute attention scores
             attention_scores = torch.matmul(q, k.transpose(-1, -2))  # [batch, seq, seq]
-            
+
             # Scale attention scores
             attention_scores = attention_scores / math.sqrt(self.head_dim)
-            
+
+            # Apply causal mask (like GPT-2)
+            # bias is [1, 1, max_seq, max_seq], slice to [seq_len, seq_len]
+            causal_mask = self.bias[0, 0, :seq_len, :seq_len]
+            attention_scores = torch.where(causal_mask, attention_scores, torch.tensor(float('-inf'), device=attention_scores.device))
+
             # Apply attention mask if provided
             if attention_mask is not None:
                 attention_scores = attention_scores + attention_mask
-            
+
             # Apply specific head mask if provided
             if head_mask is not None and head_mask[:, h].sum() > 0:
                 attention_scores = attention_scores + head_mask[:, h]
-            
+
             # Apply softmax to get attention probabilities
             attention_probs = torch.softmax(attention_scores, dim=-1)
-            
+
             # Store attention weights if requested
             if self.store_attention_weights:
                 self.attention_weights[h] = attention_probs.detach()
-            
+
             # Track maximum attention value (for normalization)
             max_attention_value = max(max_attention_value, attention_probs.abs().max().item())
-            
+
             # Apply attention to values
             context = torch.matmul(attention_probs, v)  # [batch, seq, head_dim]
-            
-            # Project back to embed_dim
-            head_output = torch.matmul(context, self.W_o[h])  # [batch, seq, embed_dim]
-            
+
+            # HYBRID STEP 3: Per-head output projection (enables pruning)
+            head_output = torch.matmul(context, self.W_o[h]) + self.b_o[h]  # [batch, seq, embed_dim]
+
             # Apply gate and add to output
             attention_output = attention_output + effective_gate * head_output
-            
+
             # Update utilization metric for this head (used by agency system)
             if h in self.agency_signals:
                 # Calculate average activation level as a proxy for utilization
                 activation_level = attention_probs.abs().mean().item()
-                
+
                 # Update exponential moving average of utilization
                 prev_util = self.agency_signals[h].get("utilization", 0.0)
                 alpha = 0.9  # Smoothing factor
                 new_util = alpha * prev_util + (1-alpha) * activation_level
                 self.agency_signals[h]["utilization"] = new_util
-        
-        # Optional: normalize the output based on active gates
-        # This helps prevent exploding values when many heads are pruned
-        active_gates = sum(self.get_effective_gate(h) > 1e-4 for h in range(self.num_heads))
-        if active_gates > 0:
-            # Only normalize when we have active heads and significant attention values
-            if max_attention_value > 1e-4:
-                attention_output = attention_output / max(1.0, active_gates / self.num_heads)
-        
+
+        # NOTE: GPT-2 does NOT normalize by active gates
+        # When all gates are 1.0 (after weight transfer), this should be identical to GPT-2
+        # The normalization is only needed during pruning experiments
+        # For now, comment it out to match GPT-2 exactly:
+        #
+        # active_gates = sum(self.get_effective_gate(h) > 1e-4 for h in range(self.num_heads))
+        # if active_gates > 0:
+        #     if max_attention_value > 1e-4:
+        #         attention_output = attention_output / max(1.0, active_gates / self.num_heads)
+
         return attention_output
 
 
@@ -382,11 +428,13 @@ class AdaptiveTransformer(nn.Module):
         self.dropout_prob = getattr(config, 'hidden_dropout_prob', 0.1)
         
         # Create transformer blocks
+        # Use prenorm=True to match GPT-2's pre-norm architecture
         self.blocks = nn.ModuleList([
             AdaptiveTransformerBlock(
                 hidden_size=config.hidden_size,
                 num_heads=self.num_heads,
                 intermediate_size=self.intermediate_size,
+                prenorm=True,  # GPT-2 uses pre-norm (norm before attention/FFN)
                 dropout_prob=self.dropout_prob,
                 debug=debug
             ) for _ in range(self.num_layers)
@@ -406,21 +454,23 @@ class AdaptiveTransformer(nn.Module):
         """Set the model's token embedding layer."""
         self.token_embedding = embeddings
         
-    def forward(self, input_ids, attention_mask=None, head_mask=None, 
-                position_ids=None, return_dict=True):
+    def forward(self, input_ids, attention_mask=None, head_mask=None,
+                position_ids=None, return_dict=True, **kwargs):
         """
         Forward pass for the Adaptive Transformer.
-        
+
         Args:
             input_ids: Input token ids [batch_size, seq_len]
             attention_mask: Attention mask [batch_size, seq_len]
             head_mask: Optional mask for specific heads
             position_ids: Optional position ids
             return_dict: Whether to return a dictionary with outputs
-            
+            **kwargs: Additional arguments (e.g., past_key_values) - currently ignored
+
         Returns:
             Last hidden states or dictionary of outputs
         """
+        # Note: We ignore past_key_values and other kwargs since we don't implement KV-cache yet
         device = input_ids.device
         batch_size, seq_len = input_ids.shape
         
@@ -476,18 +526,21 @@ class AdaptiveCausalLmWrapper(nn.Module, GenerationMixin):
     """
     Wrapper for the Adaptive Transformer that adds a language modeling head
     and integrates with HuggingFace's generation utilities.
-    
+
     This enables seamless use with HuggingFace's generate() method while
     providing adaptive architecture benefits.
     """
+
+    # Required by HuggingFace GenerationMixin
+    _is_stateful = False
+
     def __init__(self, base_model, transformer, config):
         super().__init__()
-        
-        # Store components
-        self.base_model = base_model  # Original pretrained model
+
+        # Store adaptive transformer and config
         self.transformer = transformer  # Adaptive transformer
         self.config = config
-        
+
         # Get the language modeling head from the base model
         if hasattr(base_model, 'lm_head'):
             self.lm_head = base_model.lm_head
@@ -499,10 +552,18 @@ class AdaptiveCausalLmWrapper(nn.Module, GenerationMixin):
         else:
             # Fallback: create new language model head
             self.lm_head = nn.Linear(config.hidden_size, config.vocab_size, bias=False)
-        
+
         # For generation
         self.main_input_name = "input_ids"
-        
+
+        # Copy generation_config from base model (required by GenerationMixin)
+        if hasattr(base_model, 'generation_config'):
+            self.generation_config = base_model.generation_config
+
+        # MEMORY FIX: Don't store base_model - it doubles our parameter count!
+        # After extracting lm_head and generation_config, we don't need it anymore.
+        # The base_model reference would keep 124M parameters in memory unnecessarily.
+
     @property
     def device(self):
         """Get the model's device."""
@@ -511,21 +572,25 @@ class AdaptiveCausalLmWrapper(nn.Module, GenerationMixin):
     def forward(self, input_ids, attention_mask=None, labels=None, **kwargs):
         """
         Forward pass for the language model.
-        
+
         Args:
             input_ids: Input token ids [batch_size, seq_len]
             attention_mask: Attention mask [batch_size, seq_len]
             labels: Optional target token ids for language modeling loss
-            
+
         Returns:
             CausalLMOutput object with logits and optional loss
         """
+        # Filter out return_dict from kwargs to avoid duplicate parameter error
+        # (GenerationMixin.generate() passes it, but we hardcode it below)
+        filtered_kwargs = {k: v for k, v in kwargs.items() if k != 'return_dict'}
+
         # Get transformer outputs
         transformer_outputs = self.transformer(
             input_ids=input_ids,
             attention_mask=attention_mask,
             return_dict=True,
-            **kwargs
+            **filtered_kwargs
         )
         
         hidden_states = transformer_outputs["last_hidden_state"]
@@ -577,15 +642,20 @@ class AdaptiveCausalLmWrapper(nn.Module, GenerationMixin):
     
     def set_active_adapters(self, adapter_names):
         """
-        Set active adapters if the base model supports it.
-        
-        This is for compatibility with adapter-enabled models.
-        
+        Set active adapters if the transformer supports it.
+
+        This is for compatibility with adapter-enabled models (PEFT/LoRA).
+
         Args:
             adapter_names: List of adapter names to activate
         """
-        if hasattr(self.base_model, "set_active_adapters"):
-            self.base_model.set_active_adapters(adapter_names)
+        # After memory fix, adapters should be attached to transformer, not base_model
+        if hasattr(self.transformer, "set_active_adapters"):
+            self.transformer.set_active_adapters(adapter_names)
+        else:
+            # Fallback: log that adapter support needs to be implemented
+            import sys
+            print(f"⚠️ Adapter support not yet implemented for {type(self.transformer).__name__}", file=sys.stderr)
     
     def enable_unet_connections(self, enable=True, layer_indices=None):
         """
