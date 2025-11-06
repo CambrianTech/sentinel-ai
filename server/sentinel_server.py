@@ -152,6 +152,7 @@ def generate():
         max_tokens = data.get('num_predict', 150)
 
         logger.info(f"Generate request: model={model_name}, prompt_len={len(prompt)}, max_tokens={max_tokens}")
+        logger.info(f"PROMPT: {repr(prompt)[:500]}")
 
         # Load model
         load_start = time.time()
