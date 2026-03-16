@@ -74,17 +74,27 @@ class AdaptiveHeadManager:
                 self.head_lineage[(layer_idx, head_idx)] = None  # Original head
 
     def update_stats(self, layer_idx: int, head_idx: int,
-                     entropy: float, gradient_mag: float):
-        """Update statistics for a specific head."""
+                     gate_value: float, gradient_mag: float):
+        """Update statistics for a specific head.
+
+        Args:
+            layer_idx: Layer index
+            head_idx: Head index
+            gate_value: Current gate value (raw, not normalized)
+            gradient_mag: Gradient magnitude for this head's gate
+        """
         # Exponential moving average
         alpha = 0.1
         stats = self.head_stats[(layer_idx, head_idx)]
 
-        stats.attention_entropy = (1 - alpha) * stats.attention_entropy + alpha * entropy
+        stats.attention_entropy = (1 - alpha) * stats.attention_entropy + alpha * gate_value
         stats.gradient_magnitude = (1 - alpha) * stats.gradient_magnitude + alpha * gradient_mag
 
-        # Combined utilization score (weighted average)
-        stats.utilization_score = 0.6 * stats.attention_entropy + 0.4 * stats.gradient_magnitude
+        # Utilization score: gate value IS the primary signal
+        # Gate > 1.0 means the head is growing beyond its initial capacity
+        # Gate near 0 means the head is dying
+        # Gradient magnitude is secondary — high gradient = head matters to loss
+        stats.utilization_score = 0.8 * stats.attention_entropy + 0.2 * stats.gradient_magnitude
 
     def get_active_heads(self, layer_idx: int) -> List[int]:
         """Get list of active (non-pruned) heads in a layer."""
@@ -275,15 +285,17 @@ class AdaptiveHeadManager:
         """
         self.step_count += 1
 
-        # Update statistics from gradients if provided
+        # Update statistics from gradients AND gate values
         if batch_gradients:
             for (layer_idx, head_idx), grad_mag in batch_gradients.items():
                 stats = self.head_stats.get((layer_idx, head_idx))
                 if stats:
-                    # Entropy would come from attention weights (not available here)
-                    # For now, use gradient as proxy
+                    # Use actual gate value as utilization signal
+                    # Gate > 1.0 = high utilization (growing), gate near 0 = low (dying)
+                    layer = self.model.transformer.blocks[layer_idx]
+                    gate_value = max(layer.attn.gate.data[head_idx].item(), 0.0)
                     self.update_stats(layer_idx, head_idx,
-                                    entropy=0.5,  # Would need attention weights
+                                    gate_value=gate_value,
                                     gradient_mag=grad_mag)
 
         # Make adaptation decisions periodically
