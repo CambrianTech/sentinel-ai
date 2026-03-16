@@ -74,17 +74,27 @@ class AdaptiveHeadManager:
                 self.head_lineage[(layer_idx, head_idx)] = None  # Original head
 
     def update_stats(self, layer_idx: int, head_idx: int,
-                     entropy: float, gradient_mag: float):
-        """Update statistics for a specific head."""
+                     gate_value: float, gradient_mag: float):
+        """Update statistics for a specific head.
+
+        Args:
+            layer_idx: Layer index
+            head_idx: Head index
+            gate_value: Current gate value (raw, not normalized)
+            gradient_mag: Gradient magnitude for this head's gate
+        """
         # Exponential moving average
         alpha = 0.1
         stats = self.head_stats[(layer_idx, head_idx)]
 
-        stats.attention_entropy = (1 - alpha) * stats.attention_entropy + alpha * entropy
+        stats.attention_entropy = (1 - alpha) * stats.attention_entropy + alpha * gate_value
         stats.gradient_magnitude = (1 - alpha) * stats.gradient_magnitude + alpha * gradient_mag
 
-        # Combined utilization score (weighted average)
-        stats.utilization_score = 0.6 * stats.attention_entropy + 0.4 * stats.gradient_magnitude
+        # Utilization score: gate value IS the primary signal
+        # Gate > 1.0 means the head is growing beyond its initial capacity
+        # Gate near 0 means the head is dying
+        # Gradient magnitude is secondary — high gradient = head matters to loss
+        stats.utilization_score = 0.8 * stats.attention_entropy + 0.2 * stats.gradient_magnitude
 
     def get_active_heads(self, layer_idx: int) -> List[int]:
         """Get list of active (non-pruned) heads in a layer."""
@@ -139,43 +149,33 @@ class AdaptiveHeadManager:
             new_k_start = new_q_start + embed_dim
             new_v_start = new_k_start + embed_dim
 
-            # SPLIT parent weights in half (mitosis!)
-            # Copy full weights to new head
-            layer.attn.c_attn.weight.data[:, new_q_start:new_q_start+head_dim] = \
-                layer.attn.c_attn.weight.data[:, parent_q_start:parent_q_start+head_dim].clone()
+            # CLONE QKV weights to new head (identical copy — NOT halved!)
+            # QKV must stay intact because softmax(Q@K^T) is nonlinear:
+            # softmax(0.5*scores) ≠ softmax(scores), so halving QKV breaks output continuity.
+            # NOTE: c_attn is nn.Linear → weight shape is [out_features, in_features] = [3*embed_dim, embed_dim]
+            # Per-head weights are in ROWS (dim 0), not columns.
+            layer.attn.c_attn.weight.data[new_q_start:new_q_start+head_dim, :] = \
+                layer.attn.c_attn.weight.data[parent_q_start:parent_q_start+head_dim, :].clone()
             layer.attn.c_attn.bias.data[new_q_start:new_q_start+head_dim] = \
                 layer.attn.c_attn.bias.data[parent_q_start:parent_q_start+head_dim].clone()
 
-            layer.attn.c_attn.weight.data[:, new_k_start:new_k_start+head_dim] = \
-                layer.attn.c_attn.weight.data[:, parent_k_start:parent_k_start+head_dim].clone()
+            layer.attn.c_attn.weight.data[new_k_start:new_k_start+head_dim, :] = \
+                layer.attn.c_attn.weight.data[parent_k_start:parent_k_start+head_dim, :].clone()
             layer.attn.c_attn.bias.data[new_k_start:new_k_start+head_dim] = \
                 layer.attn.c_attn.bias.data[parent_k_start:parent_k_start+head_dim].clone()
 
-            layer.attn.c_attn.weight.data[:, new_v_start:new_v_start+head_dim] = \
-                layer.attn.c_attn.weight.data[:, parent_v_start:parent_v_start+head_dim].clone()
+            layer.attn.c_attn.weight.data[new_v_start:new_v_start+head_dim, :] = \
+                layer.attn.c_attn.weight.data[parent_v_start:parent_v_start+head_dim, :].clone()
             layer.attn.c_attn.bias.data[new_v_start:new_v_start+head_dim] = \
                 layer.attn.c_attn.bias.data[parent_v_start:parent_v_start+head_dim].clone()
 
-            # Copy output projection (W_o and b_o in hybrid architecture)
+            # Clone output projection, then HALVE both (the mitosis step!)
+            # Only output weights get halved: parent contributes 0.5, child contributes 0.5,
+            # combined output = original (continuous). Both start identical then diverge.
             layer.attn.W_o[new_head_idx].data = \
                 layer.attn.W_o[parent_head_idx].data.clone()
             layer.attn.b_o[new_head_idx].data = \
                 layer.attn.b_o[parent_head_idx].data.clone()
-
-            # NOW divide both by 2 (the mitosis step!)
-            layer.attn.c_attn.weight.data[:, parent_q_start:parent_q_start+head_dim] *= 0.5
-            layer.attn.c_attn.bias.data[parent_q_start:parent_q_start+head_dim] *= 0.5
-            layer.attn.c_attn.weight.data[:, parent_k_start:parent_k_start+head_dim] *= 0.5
-            layer.attn.c_attn.bias.data[parent_k_start:parent_k_start+head_dim] *= 0.5
-            layer.attn.c_attn.weight.data[:, parent_v_start:parent_v_start+head_dim] *= 0.5
-            layer.attn.c_attn.bias.data[parent_v_start:parent_v_start+head_dim] *= 0.5
-
-            layer.attn.c_attn.weight.data[:, new_q_start:new_q_start+head_dim] *= 0.5
-            layer.attn.c_attn.bias.data[new_q_start:new_q_start+head_dim] *= 0.5
-            layer.attn.c_attn.weight.data[:, new_k_start:new_k_start+head_dim] *= 0.5
-            layer.attn.c_attn.bias.data[new_k_start:new_k_start+head_dim] *= 0.5
-            layer.attn.c_attn.weight.data[:, new_v_start:new_v_start+head_dim] *= 0.5
-            layer.attn.c_attn.bias.data[new_v_start:new_v_start+head_dim] *= 0.5
 
             layer.attn.W_o[parent_head_idx].data *= 0.5
             layer.attn.b_o[parent_head_idx].data *= 0.5
@@ -275,15 +275,17 @@ class AdaptiveHeadManager:
         """
         self.step_count += 1
 
-        # Update statistics from gradients if provided
+        # Update statistics from gradients AND gate values
         if batch_gradients:
             for (layer_idx, head_idx), grad_mag in batch_gradients.items():
                 stats = self.head_stats.get((layer_idx, head_idx))
                 if stats:
-                    # Entropy would come from attention weights (not available here)
-                    # For now, use gradient as proxy
+                    # Use actual gate value as utilization signal
+                    # Gate > 1.0 = high utilization (growing), gate near 0 = low (dying)
+                    layer = self.model.transformer.blocks[layer_idx]
+                    gate_value = max(layer.attn.gate.data[head_idx].item(), 0.0)
                     self.update_stats(layer_idx, head_idx,
-                                    entropy=0.5,  # Would need attention weights
+                                    gate_value=gate_value,
                                     gradient_mag=grad_mag)
 
         # Make adaptation decisions periodically
