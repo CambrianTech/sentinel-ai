@@ -149,43 +149,33 @@ class AdaptiveHeadManager:
             new_k_start = new_q_start + embed_dim
             new_v_start = new_k_start + embed_dim
 
-            # SPLIT parent weights in half (mitosis!)
-            # Copy full weights to new head
-            layer.attn.c_attn.weight.data[:, new_q_start:new_q_start+head_dim] = \
-                layer.attn.c_attn.weight.data[:, parent_q_start:parent_q_start+head_dim].clone()
+            # CLONE QKV weights to new head (identical copy — NOT halved!)
+            # QKV must stay intact because softmax(Q@K^T) is nonlinear:
+            # softmax(0.5*scores) ≠ softmax(scores), so halving QKV breaks output continuity.
+            # NOTE: c_attn is nn.Linear → weight shape is [out_features, in_features] = [3*embed_dim, embed_dim]
+            # Per-head weights are in ROWS (dim 0), not columns.
+            layer.attn.c_attn.weight.data[new_q_start:new_q_start+head_dim, :] = \
+                layer.attn.c_attn.weight.data[parent_q_start:parent_q_start+head_dim, :].clone()
             layer.attn.c_attn.bias.data[new_q_start:new_q_start+head_dim] = \
                 layer.attn.c_attn.bias.data[parent_q_start:parent_q_start+head_dim].clone()
 
-            layer.attn.c_attn.weight.data[:, new_k_start:new_k_start+head_dim] = \
-                layer.attn.c_attn.weight.data[:, parent_k_start:parent_k_start+head_dim].clone()
+            layer.attn.c_attn.weight.data[new_k_start:new_k_start+head_dim, :] = \
+                layer.attn.c_attn.weight.data[parent_k_start:parent_k_start+head_dim, :].clone()
             layer.attn.c_attn.bias.data[new_k_start:new_k_start+head_dim] = \
                 layer.attn.c_attn.bias.data[parent_k_start:parent_k_start+head_dim].clone()
 
-            layer.attn.c_attn.weight.data[:, new_v_start:new_v_start+head_dim] = \
-                layer.attn.c_attn.weight.data[:, parent_v_start:parent_v_start+head_dim].clone()
+            layer.attn.c_attn.weight.data[new_v_start:new_v_start+head_dim, :] = \
+                layer.attn.c_attn.weight.data[parent_v_start:parent_v_start+head_dim, :].clone()
             layer.attn.c_attn.bias.data[new_v_start:new_v_start+head_dim] = \
                 layer.attn.c_attn.bias.data[parent_v_start:parent_v_start+head_dim].clone()
 
-            # Copy output projection (W_o and b_o in hybrid architecture)
+            # Clone output projection, then HALVE both (the mitosis step!)
+            # Only output weights get halved: parent contributes 0.5, child contributes 0.5,
+            # combined output = original (continuous). Both start identical then diverge.
             layer.attn.W_o[new_head_idx].data = \
                 layer.attn.W_o[parent_head_idx].data.clone()
             layer.attn.b_o[new_head_idx].data = \
                 layer.attn.b_o[parent_head_idx].data.clone()
-
-            # NOW divide both by 2 (the mitosis step!)
-            layer.attn.c_attn.weight.data[:, parent_q_start:parent_q_start+head_dim] *= 0.5
-            layer.attn.c_attn.bias.data[parent_q_start:parent_q_start+head_dim] *= 0.5
-            layer.attn.c_attn.weight.data[:, parent_k_start:parent_k_start+head_dim] *= 0.5
-            layer.attn.c_attn.bias.data[parent_k_start:parent_k_start+head_dim] *= 0.5
-            layer.attn.c_attn.weight.data[:, parent_v_start:parent_v_start+head_dim] *= 0.5
-            layer.attn.c_attn.bias.data[parent_v_start:parent_v_start+head_dim] *= 0.5
-
-            layer.attn.c_attn.weight.data[:, new_q_start:new_q_start+head_dim] *= 0.5
-            layer.attn.c_attn.bias.data[new_q_start:new_q_start+head_dim] *= 0.5
-            layer.attn.c_attn.weight.data[:, new_k_start:new_k_start+head_dim] *= 0.5
-            layer.attn.c_attn.bias.data[new_k_start:new_k_start+head_dim] *= 0.5
-            layer.attn.c_attn.weight.data[:, new_v_start:new_v_start+head_dim] *= 0.5
-            layer.attn.c_attn.bias.data[new_v_start:new_v_start+head_dim] *= 0.5
 
             layer.attn.W_o[parent_head_idx].data *= 0.5
             layer.attn.b_o[parent_head_idx].data *= 0.5
