@@ -4,6 +4,7 @@ import math
 import time
 from transformers.generation.utils import GenerationMixin
 from transformers.modeling_outputs import CausalLMOutput
+from transformers.activations import NewGELUActivation
 
 class GatedMultiHeadSelfAttention(nn.Module):
     """
@@ -191,50 +192,56 @@ class GatedMultiHeadSelfAttention(nn.Module):
         
         # Process each attention head
         for h in range(self.num_heads):
-            # Get effective gate value accounting for agency state
-            effective_gate = self.get_effective_gate(h)
-            
+            # Use detached gate value for skip decision
+            gate_value_detached = self.gate[h].detach().item()
+
+            # Check agency overrides
+            if h in self.agency_signals:
+                state = self.agency_signals[h]
+                if state["state"] == "withdrawn" or not state.get("consent", True):
+                    continue
+
             # Skip computation for effectively pruned heads (gate ≈ 0)
-            if effective_gate < 1e-4:
+            if gate_value_detached < 1e-4:
                 continue
-                
+
             # Compute query, key, value projections for this head
             q = torch.matmul(hidden_states, self.W_q[h])  # [batch, seq, head_dim]
             k = torch.matmul(hidden_states, self.W_k[h])  # [batch, seq, head_dim]
             v = torch.matmul(hidden_states, self.W_v[h])  # [batch, seq, head_dim]
-            
+
             # Compute attention scores
             attention_scores = torch.matmul(q, k.transpose(-1, -2))  # [batch, seq, seq]
-            
+
             # Scale attention scores
             attention_scores = attention_scores / math.sqrt(self.head_dim)
-            
+
             # Apply attention mask if provided
             if attention_mask is not None:
                 attention_scores = attention_scores + attention_mask
-            
+
             # Apply specific head mask if provided
             if head_mask is not None and head_mask[:, h].sum() > 0:
                 attention_scores = attention_scores + head_mask[:, h]
-            
+
             # Apply softmax to get attention probabilities
             attention_probs = torch.softmax(attention_scores, dim=-1)
-            
+
             # Store attention weights if requested
             if self.store_attention_weights:
                 self.attention_weights[h] = attention_probs.detach()
-            
+
             # Track maximum attention value (for normalization)
             max_attention_value = max(max_attention_value, attention_probs.abs().max().item())
-            
+
             # Apply attention to values
             context = torch.matmul(attention_probs, v)  # [batch, seq, head_dim]
-            
+
             # Project back to embed_dim
             head_output = torch.matmul(context, self.W_o[h])  # [batch, seq, embed_dim]
-            
-            # Apply gate and add to output
-            attention_output = attention_output + effective_gate * head_output
+
+            # Apply gate WITH gradient flow (self.gate[h] is a tensor, not detached scalar)
+            attention_output = attention_output + self.gate[h] * head_output
             
             # Update utilization metric for this head (used by agency system)
             if h in self.agency_signals:
@@ -288,7 +295,7 @@ class AdaptiveTransformerBlock(nn.Module):
         self.norm2 = nn.LayerNorm(hidden_size)
         self.ffn = nn.Sequential(
             nn.Linear(hidden_size, intermediate_size),
-            nn.GELU() if activation == "gelu" else nn.ReLU(),
+            NewGELUActivation() if activation == "gelu" else nn.ReLU(),
             nn.Dropout(dropout_prob),
             nn.Linear(intermediate_size, hidden_size),
             nn.Dropout(dropout_prob)
