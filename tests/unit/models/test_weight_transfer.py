@@ -261,7 +261,8 @@ class TestWeightTransferMath:
 
         # Baseline forward
         with torch.no_grad():
-            baseline_out = baseline_layer(x)[0]
+            result = baseline_layer(x)
+            baseline_out = result[0] if isinstance(result, tuple) else result
 
         # Adaptive forward
         with torch.no_grad():
@@ -292,6 +293,10 @@ class TestWeightTransferMath:
             device="cpu",
             quiet=True
         )
+
+        # Eval mode disables dropout for deterministic comparison
+        gpt2_model.eval()
+        adaptive_model.eval()
 
         # Create random input
         input_ids = torch.randint(0, config.vocab_size, (2, 20))
@@ -331,6 +336,10 @@ class TestWeightTransferMath:
             device="cpu",
             quiet=True
         )
+
+        # Eval mode for deterministic comparison (no dropout)
+        gpt2_model.eval()
+        adaptive_model.eval()
 
         # Use greedy decoding (deterministic)
         input_ids = torch.tensor([[15496, 318]])  # "Hello is"

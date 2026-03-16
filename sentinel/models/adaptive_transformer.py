@@ -4,6 +4,7 @@ import math
 import time
 from transformers.generation.utils import GenerationMixin
 from transformers.modeling_outputs import CausalLMOutput
+from transformers.activations import NewGELUActivation
 
 class GatedMultiHeadSelfAttention(nn.Module):
     """
@@ -215,11 +216,17 @@ class GatedMultiHeadSelfAttention(nn.Module):
 
         # HYBRID STEP 2: Per-head attention computation with gating
         for h in range(self.num_heads):
-            # Get effective gate value accounting for agency state
-            effective_gate = self.get_effective_gate(h)
+            # Use detached gate value for skip decision (no gradient needed for boolean check)
+            gate_value_detached = self.gate[h].detach().item()
+
+            # Check agency overrides (withdrawn/no-consent → skip)
+            if h in self.agency_signals:
+                state = self.agency_signals[h]
+                if state["state"] == "withdrawn" or not state.get("consent", True):
+                    continue
 
             # Skip computation for effectively pruned heads (gate ≈ 0)
-            if effective_gate < 1e-4:
+            if gate_value_detached < 1e-4:
                 continue
 
             # Extract Q, K, V for this head
@@ -262,8 +269,10 @@ class GatedMultiHeadSelfAttention(nn.Module):
             # HYBRID STEP 3: Per-head output projection (enables pruning)
             head_output = torch.matmul(context, self.W_o[h]) + self.b_o[h]  # [batch, seq, embed_dim]
 
-            # Apply gate and add to output
-            attention_output = attention_output + effective_gate * head_output
+            # Apply gate WITH gradient flow — self.gate[h] is a tensor, not a detached scalar
+            # This is critical: the LM loss gradient flows through the gate multiplication,
+            # creating per-head differentiation (important heads get larger gradients)
+            attention_output = attention_output + self.gate[h] * head_output
 
             # Update utilization metric for this head (used by agency system)
             if h in self.agency_signals:
@@ -319,7 +328,7 @@ class AdaptiveTransformerBlock(nn.Module):
         self.norm2 = nn.LayerNorm(hidden_size)
         self.ffn = nn.Sequential(
             nn.Linear(hidden_size, intermediate_size),
-            nn.GELU() if activation == "gelu" else nn.ReLU(),
+            NewGELUActivation() if activation == "gelu" else nn.ReLU(),
             nn.Dropout(dropout_prob),
             nn.Linear(intermediate_size, hidden_size),
             nn.Dropout(dropout_prob)

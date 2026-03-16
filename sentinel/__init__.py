@@ -25,7 +25,10 @@ SENTINEL_METADATA = {
 # Import main modules
 from sentinel.models import adaptive_transformer
 from sentinel.controller import controller_manager
-from sentinel.pruning import pruning_module
+try:
+    from sentinel.pruning import pruning_module
+except ImportError:
+    pruning_module = None  # JAX/Flax not available — legacy module skipped
 from sentinel.plasticity import plasticity_loop, sleep_cycle, defrag_heads
 
 # Import new plasticity tracking modules
