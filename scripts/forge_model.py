@@ -396,20 +396,40 @@ def make_dataloaders(tokenizer, cfg: ForgeConfig, domain: str, max_samples=2000)
 # Evaluation
 # ---------------------------------------------------------------------------
 
+def write_status(output_dir: Path, phase: str, detail: str = "", **extra):
+    """Write status.json — any external process can monitor progress."""
+    status = {
+        "phase": phase,
+        "detail": detail,
+        "vram_gb": round(torch.cuda.memory_allocated() / 1e9, 1),
+        "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S"),
+        **extra,
+    }
+    status_path = output_dir / "status.json"
+    status_path.parent.mkdir(parents=True, exist_ok=True)
+    status_path.write_text(json.dumps(status))
+
+
 @torch.no_grad()
-def evaluate(model, eval_loader):
+def evaluate(model, eval_loader, output_dir: Path = None, label: str = "eval"):
     """Perplexity with eval-batch=1 to minimize VRAM spike from 248K logits."""
     model.eval()
     total_loss, total_tokens = 0.0, 0
-    for batch in eval_loader:
+    n_batches = len(eval_loader)
+    for bi, batch in enumerate(eval_loader):
         ids = batch["input_ids"].to(model.device)
         mask = batch["attention_mask"].to(model.device)
-        # Process one sample at a time to avoid huge logit tensors
         for i in range(ids.shape[0]):
             out = model(input_ids=ids[i:i+1], attention_mask=mask[i:i+1], labels=ids[i:i+1])
             n = (mask[i:i+1] > 0).sum().item()
             total_loss += out.loss.item() * n
             total_tokens += n
+        if (bi + 1) % 10 == 0 or bi == n_batches - 1:
+            ppl_so_far = torch.exp(torch.tensor(total_loss / max(total_tokens, 1))).item()
+            print(f"  [{label}] {bi+1}/{n_batches} batches, ppl={ppl_so_far:.2f}")
+            if output_dir:
+                write_status(output_dir, label, f"batch {bi+1}/{n_batches}",
+                            perplexity=round(ppl_so_far, 2), batch=bi+1, total_batches=n_batches)
     avg = total_loss / max(total_tokens, 1)
     return {"loss": avg, "perplexity": torch.exp(torch.tensor(avg)).item()}
 
@@ -555,7 +575,7 @@ def prune(model, prune_percent, info, method="zero_weights"):
 # Training with LoRA
 # ---------------------------------------------------------------------------
 
-def train_lora(model, train_loader, cfg: ForgeConfig, steps=1000, lr=2e-4):
+def train_lora(model, train_loader, cfg: ForgeConfig, steps=1000, lr=2e-4, output_dir: Path = None):
     """LoRA training with gradient accumulation and proper checkpointing."""
     from peft import LoraConfig, get_peft_model, TaskType
 
@@ -610,10 +630,45 @@ def train_lora(model, train_loader, cfg: ForgeConfig, steps=1000, lr=2e-4):
             total_loss += out.loss.item()
             step += 1
 
-            if step % 100 == 0 or step == steps:
+            # Progress every 10 steps — never go blind
+            if step % 10 == 0 or step == 1 or step == steps:
                 elapsed = time.time() - t0
-                print(f"  Step {step}/{steps} — loss: {total_loss/step:.4f}, "
-                      f"{step/elapsed:.1f} it/s, VRAM: {torch.cuda.memory_allocated()/1e9:.1f}GB")
+                it_s = step / elapsed if elapsed > 0 else 0
+                eta = (steps - step) / it_s if it_s > 0 else 0
+                vram = torch.cuda.memory_allocated() / 1e9
+                avg_loss = total_loss / step
+                print(f"  [{step}/{steps}] loss={avg_loss:.4f} | {it_s:.1f} it/s | "
+                      f"ETA {eta:.0f}s | VRAM {vram:.1f}GB")
+
+                if output_dir:
+                    write_status(output_dir, "training",
+                                f"Step {step}/{steps}, loss={avg_loss:.4f}",
+                                step=step, total_steps=steps,
+                                loss=round(avg_loss, 4),
+                                it_per_sec=round(it_s, 2),
+                                eta_seconds=round(eta))
+
+            # Inference sample every 200 steps — PROVE the model is learning
+            if (step % 200 == 0 or step == steps) and output_dir:
+                model.eval()
+                try:
+                    from transformers import AutoTokenizer
+                    tok = AutoTokenizer.from_pretrained(model.config._name_or_path)
+                    if tok.pad_token is None:
+                        tok.pad_token = tok.eos_token
+                    prompt = "def binary_search(arr, target):"
+                    inputs = tok(prompt, return_tensors="pt").to(model.device)
+                    with torch.no_grad():
+                        out_ids = model.generate(**inputs, max_new_tokens=80,
+                                                temperature=0.7, do_sample=True, top_p=0.9)
+                    sample = tok.decode(out_ids[0], skip_special_tokens=True)
+                    print(f"  [SAMPLE@{step}] {sample[:120]}...")
+                    write_status(output_dir, "training_sample",
+                                f"Step {step} sample",
+                                step=step, sample=sample[:300])
+                except Exception as e:
+                    print(f"  [SAMPLE@{step}] failed: {e}")
+                model.train()
 
     # Merge LoRA back
     model = model.merge_and_unload()
@@ -688,14 +743,19 @@ def main():
     print(f"{'='*60}\n")
 
     # --- 1. Load ---
+    write_status(out, "loading", f"Loading {args.model}")
     print("[1] Loading model...")
     model, tokenizer = load_model(args.model, cfg.load_4bit)
+    write_status(out, "loading_data", f"Loading {args.domain} dataset")
     train_loader, eval_loader = make_dataloaders(tokenizer, cfg, args.domain, args.max_samples)
 
     # --- 2. Baseline ---
+    write_status(out, "baseline_eval", "Evaluating baseline perplexity")
     print("[2] Evaluating baseline...")
-    baseline = evaluate(model, eval_loader)
+    baseline = evaluate(model, eval_loader, out, "baseline")
     print(f"  Baseline: perplexity={baseline['perplexity']:.2f}")
+    write_status(out, "baseline_done", f"Baseline: {baseline['perplexity']:.2f}",
+                perplexity=round(baseline['perplexity'], 2))
     check_vram("baseline")
     torch.cuda.empty_cache()
 
@@ -705,21 +765,32 @@ def main():
 
     for cycle in range(1, args.cycles + 1):
         print(f"\n[3.{cycle}] Cycle {cycle}/{args.cycles}")
+        write_status(out, "pruning", f"Cycle {cycle}/{args.cycles}: pruning heads",
+                    cycle=cycle, total_cycles=args.cycles)
 
         cycle_prune = args.prune_level / args.cycles
         heads, hooks = prune(model, cycle_prune, info, cfg.pruning_method)
         all_hooks.extend(hooks)
 
-        post_prune = evaluate(model, eval_loader)
+        write_status(out, "post_prune_eval", f"Cycle {cycle}: evaluating after prune",
+                    cycle=cycle)
+        post_prune = evaluate(model, eval_loader, out, f"post-prune-c{cycle}")
         print(f"  After prune: perplexity={post_prune['perplexity']:.2f}")
         check_vram("post-prune")
 
+        write_status(out, "training", f"Cycle {cycle}: LoRA training {args.steps} steps",
+                    cycle=cycle, total_steps=args.steps)
         print(f"  Training {args.steps} steps (LoRA)...")
-        model = train_lora(model, train_loader, cfg, args.steps, args.lr)
+        model = train_lora(model, train_loader, cfg, args.steps, args.lr, out)
 
-        post_train = evaluate(model, eval_loader)
+        write_status(out, "post_train_eval", f"Cycle {cycle}: evaluating after training",
+                    cycle=cycle)
+        post_train = evaluate(model, eval_loader, out, f"post-train-c{cycle}")
         imp = (baseline["perplexity"] - post_train["perplexity"]) / baseline["perplexity"] * 100
         print(f"  After train: perplexity={post_train['perplexity']:.2f} ({imp:+.1f}% vs baseline)")
+        write_status(out, "cycle_done", f"Cycle {cycle}: {imp:+.1f}% vs baseline",
+                    cycle=cycle, perplexity=round(post_train['perplexity'], 2),
+                    improvement_pct=round(imp, 2))
         check_vram("post-train")
 
         cycle_results.append({
