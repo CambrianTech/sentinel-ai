@@ -107,8 +107,8 @@ def get_dataloader_builder(
 
     def build_dataloaders() -> Tuple[DataLoader, DataLoader]:
         # Load datasets
-        train_dataset = load_dataset(dataset_name, dataset_config, split="train")
-        validation_dataset = load_dataset(dataset_name, dataset_config, split="validation")
+        train_dataset = load_dataset(dataset_name, dataset_config, split="train[:5000]")
+        validation_dataset = load_dataset(dataset_name, dataset_config, split="validation[:500]")
 
         # For large models, use a subset to reduce CPU RAM usage
         if max_length <= 128 and len(train_dataset) > 5000:
@@ -460,56 +460,47 @@ class NeuralPlasticityExperiment:
         _cfg.output_attentions = True
 
         # Estimate model size to decide loading strategy
-        param_estimate = getattr(_cfg, 'num_parameters', None)
-        if param_estimate is None:
-            # Rough estimate: hidden_size^2 * num_layers * 12 (Q,K,V,O + FFN)
-            h = getattr(_cfg, 'hidden_size', 768)
-            n = getattr(_cfg, 'num_hidden_layers', 12)
-            param_estimate = h * h * n * 12
+        # Try model name first (handles nested configs like Qwen3.5 VLM)
+        import re
+        size_match = re.search(r'(\d+\.?\d*)[Bb]', self.model_name)
+        if size_match:
+            param_estimate = float(size_match.group(1)) * 1e9
+        else:
+            param_estimate = getattr(_cfg, 'num_parameters', None)
+            if param_estimate is None:
+                # Handle nested configs (e.g., Qwen3.5 has text_config)
+                text_cfg = getattr(_cfg, 'text_config', _cfg)
+                h = getattr(text_cfg, 'hidden_size', getattr(_cfg, 'hidden_size', 768))
+                n = getattr(text_cfg, 'num_hidden_layers', getattr(_cfg, 'num_hidden_layers', 12))
+                param_estimate = h * h * n * 12
 
-        large_model = param_estimate > 2e9  # >3B params
+        large_model = param_estimate > 2e9  # >2B params
 
         if large_model and str(self.device) != 'cpu':
             if self.verbose:
                 print(f"Large model detected (~{param_estimate/1e9:.1f}B params)")
-                print(f"  Using: torch_dtype=float16, gradient_checkpointing, batch_size=2")
-            try:
-                from transformers import BitsAndBytesConfig
-                bnb_config = BitsAndBytesConfig(
-                    load_in_4bit=True,
-                    bnb_4bit_compute_dtype=torch.float16,
-                )
-                self.model = AutoModelForCausalLM.from_pretrained(
-                    self.model_name, config=_cfg,
-                    quantization_config=bnb_config,
-                    device_map='auto',
-                    low_cpu_mem_usage=True,
-                )
-                if self.verbose:
-                    mem = torch.cuda.memory_allocated() / 1e9
-                    print(f'  Loaded in 4-bit: {mem:.1f}GB VRAM')
-                # Update device to match model's actual placement
-                self.device = next(self.model.parameters()).device
-            except ImportError:
-                print('  bitsandbytes not available, falling back to fp16')
-                self.model = AutoModelForCausalLM.from_pretrained(
-                    self.model_name, config=_cfg,
-                    torch_dtype=torch.float16,
-                    device_map='auto',
-                    low_cpu_mem_usage=True,
-                )
+                print(f"  Using: fp16, device_map=auto, gradient_checkpointing, batch_size=1")
+            self.model = AutoModelForCausalLM.from_pretrained(
+                self.model_name, config=_cfg,
+                torch_dtype=torch.float16,
+                device_map='auto',
+                low_cpu_mem_usage=True,
+            )
+            if self.verbose:
+                mem = torch.cuda.memory_allocated() / 1e9
+                print(f'  Loaded in fp16: {mem:.1f}GB VRAM')
+            self.device = next(self.model.parameters()).device
             self.model.gradient_checkpointing_enable()
-            # Reduce batch size for memory
-            if self.batch_size > 2:
-                self.batch_size = 2
+            self.batch_size = 1
+            self._use_8bit_optimizer = True
         else:
             self.model = AutoModelForCausalLM.from_pretrained(self.model_name, config=_cfg).to(self.device)
         
         # Load datasets
         if self.verbose:
             print(f"Loading dataset: {self.dataset}/{self.dataset_config}")
-        train_dataset = load_dataset(self.dataset, self.dataset_config, split="train")
-        validation_dataset = load_dataset(self.dataset, self.dataset_config, split="validation")
+        train_dataset = load_dataset(self.dataset, self.dataset_config, split="train[:5000]")
+        validation_dataset = load_dataset(self.dataset, self.dataset_config, split="validation[:500]")
 
         # Define tokenization function
         def tokenize_function(examples):
@@ -1135,7 +1126,16 @@ class NeuralPlasticityExperiment:
             print(f"\n=== Running Additional Training ({epochs} epochs) ===")
             
         # Initialize optimizer and scheduler
-        optimizer = torch.optim.AdamW(self.model.parameters(), lr=self.learning_rate)
+        if getattr(self, '_use_8bit_optimizer', False):
+            try:
+                import bitsandbytes as bnb
+                optimizer = bnb.optim.AdamW8bit(self.model.parameters(), lr=self.learning_rate)
+                if self.verbose:
+                    print("  Using 8-bit AdamW (halves optimizer VRAM)")
+            except ImportError:
+                optimizer = torch.optim.AdamW(self.model.parameters(), lr=self.learning_rate)
+        else:
+            optimizer = torch.optim.AdamW(self.model.parameters(), lr=self.learning_rate)
         total_steps = steps * epochs
         scheduler = get_linear_schedule_with_warmup(
             optimizer, 
