@@ -162,7 +162,23 @@ def main():
     print("Loading model...")
     config = AutoConfig.from_pretrained(args.model_name)
     config.output_attentions = True
-    model = AutoModelForCausalLM.from_pretrained(args.model_name, config=config).to(device)
+
+    # Estimate size for loading strategy
+    h = getattr(config, 'hidden_size', 768)
+    n = getattr(config, 'num_hidden_layers', 12)
+    param_estimate = h * h * n * 12
+    large_model = param_estimate > 3e9
+
+    if large_model and str(device) != 'cpu':
+        print(f"Large model (~{param_estimate/1e9:.1f}B params): fp16 + gradient checkpointing")
+        model = AutoModelForCausalLM.from_pretrained(
+            args.model_name, config=config,
+            torch_dtype=torch.float16,
+            low_cpu_mem_usage=True,
+        ).to(device)
+        model.gradient_checkpointing_enable()
+    else:
+        model = AutoModelForCausalLM.from_pretrained(args.model_name, config=config).to(device)
     tokenizer = AutoTokenizer.from_pretrained(args.model_name)
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token

@@ -450,7 +450,52 @@ class NeuralPlasticityExperiment:
         from transformers import AutoConfig
         _cfg = AutoConfig.from_pretrained(self.model_name)
         _cfg.output_attentions = True
-        self.model = AutoModelForCausalLM.from_pretrained(self.model_name, config=_cfg).to(self.device)
+
+        # Estimate model size to decide loading strategy
+        param_estimate = getattr(_cfg, 'num_parameters', None)
+        if param_estimate is None:
+            # Rough estimate: hidden_size^2 * num_layers * 12 (Q,K,V,O + FFN)
+            h = getattr(_cfg, 'hidden_size', 768)
+            n = getattr(_cfg, 'num_hidden_layers', 12)
+            param_estimate = h * h * n * 12
+
+        large_model = param_estimate > 3e9  # >3B params
+
+        if large_model and str(self.device) != 'cpu':
+            if self.verbose:
+                print(f"Large model detected (~{param_estimate/1e9:.1f}B params)")
+                print(f"  Using: torch_dtype=float16, gradient_checkpointing, batch_size=2")
+            try:
+                from transformers import BitsAndBytesConfig
+                bnb_config = BitsAndBytesConfig(
+                    load_in_4bit=True,
+                    bnb_4bit_compute_dtype=torch.float16,
+                )
+                self.model = AutoModelForCausalLM.from_pretrained(
+                    self.model_name, config=_cfg,
+                    quantization_config=bnb_config,
+                    device_map='auto',
+                    low_cpu_mem_usage=True,
+                )
+                if self.verbose:
+                    mem = torch.cuda.memory_allocated() / 1e9
+                    print(f'  Loaded in 4-bit: {mem:.1f}GB VRAM')
+                # Update device to match model's actual placement
+                self.device = next(self.model.parameters()).device
+            except ImportError:
+                print('  bitsandbytes not available, falling back to fp16')
+                self.model = AutoModelForCausalLM.from_pretrained(
+                    self.model_name, config=_cfg,
+                    torch_dtype=torch.float16,
+                    device_map='auto',
+                    low_cpu_mem_usage=True,
+                )
+            self.model.gradient_checkpointing_enable()
+            # Reduce batch size for memory
+            if self.batch_size > 2:
+                self.batch_size = 2
+        else:
+            self.model = AutoModelForCausalLM.from_pretrained(self.model_name, config=_cfg).to(self.device)
         
         # Load datasets
         if self.verbose:
@@ -1112,7 +1157,9 @@ class NeuralPlasticityExperiment:
                 # Move batch to device
                 batch = {k: v.to(self.device) for k, v in batch.items() if isinstance(v, torch.Tensor)}
                 
-                # Forward pass
+                # Forward pass - ensure labels present for causal LM
+                if 'labels' not in batch and 'input_ids' in batch:
+                    batch['labels'] = batch['input_ids'].clone()
                 outputs = self.model(**batch)
                 loss = outputs.loss
                 
