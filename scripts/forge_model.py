@@ -346,10 +346,14 @@ def make_dataloaders(tokenizer, cfg: ForgeConfig, domain: str, max_samples=2000)
     config = ds_cfg["config"]
     text_col = ds_cfg["text_col"]
 
+    # Tier C (large models) gets fewer val samples — each eval is expensive
+    val_size = 50 if cfg.tier == "C" else 200
     print(f"  Dataset: {dataset_id}" + (f" ({config})" if config else ""))
+    print(f"  Val samples: {val_size} (tier {cfg.tier})")
 
     load_kwargs = {"split": ds_cfg["train_split"]}
-    val_kwargs = {"split": ds_cfg["val_split"]}
+    val_split = ds_cfg["val_split"].replace("200", str(val_size))
+    val_kwargs = {"split": val_split}
     if config:
         load_kwargs["name"] = config
         val_kwargs["name"] = config
