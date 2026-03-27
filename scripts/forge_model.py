@@ -777,9 +777,22 @@ def main():
 
     for cycle in range(1, args.cycles + 1):
         print(f"\n[3.{cycle}] Cycle {cycle}/{args.cycles}")
-        write_status(out, "pruning", f"Cycle {cycle}/{args.cycles}: pruning heads",
-                    cycle=cycle, total_cycles=args.cycles)
 
+        # TRAIN first — strengthen the model on domain data
+        write_status(out, "training", f"Cycle {cycle}: LoRA training {args.steps} steps",
+                    cycle=cycle, total_cycles=args.cycles, total_steps=args.steps)
+        print(f"  Training {args.steps} steps (LoRA)...")
+        model = train_lora(model, train_loader, cfg, args.steps, args.lr, out)
+
+        write_status(out, "post_train_eval", f"Cycle {cycle}: evaluating after training",
+                    cycle=cycle)
+        post_train = evaluate(model, eval_loader, out, f"post-train-c{cycle}")
+        print(f"  After train: perplexity={post_train['perplexity']:.2f}")
+        check_vram("post-train")
+
+        # THEN prune — remove heads that didn't contribute during training
+        write_status(out, "pruning", f"Cycle {cycle}: pruning heads after training",
+                    cycle=cycle)
         cycle_prune = args.prune_level / args.cycles
         heads, hooks = prune(model, cycle_prune, info, cfg.pruning_method)
         all_hooks.extend(hooks)
@@ -787,23 +800,12 @@ def main():
         write_status(out, "post_prune_eval", f"Cycle {cycle}: evaluating after prune",
                     cycle=cycle)
         post_prune = evaluate(model, eval_loader, out, f"post-prune-c{cycle}")
-        print(f"  After prune: perplexity={post_prune['perplexity']:.2f}")
-        check_vram("post-prune")
-
-        write_status(out, "training", f"Cycle {cycle}: LoRA training {args.steps} steps",
-                    cycle=cycle, total_steps=args.steps)
-        print(f"  Training {args.steps} steps (LoRA)...")
-        model = train_lora(model, train_loader, cfg, args.steps, args.lr, out)
-
-        write_status(out, "post_train_eval", f"Cycle {cycle}: evaluating after training",
-                    cycle=cycle)
-        post_train = evaluate(model, eval_loader, out, f"post-train-c{cycle}")
-        imp = (baseline["perplexity"] - post_train["perplexity"]) / baseline["perplexity"] * 100
-        print(f"  After train: perplexity={post_train['perplexity']:.2f} ({imp:+.1f}% vs baseline)")
+        imp = (baseline["perplexity"] - post_prune["perplexity"]) / baseline["perplexity"] * 100
+        print(f"  After prune: perplexity={post_prune['perplexity']:.2f} ({imp:+.1f}% vs baseline)")
         write_status(out, "cycle_done", f"Cycle {cycle}: {imp:+.1f}% vs baseline",
-                    cycle=cycle, perplexity=round(post_train['perplexity'], 2),
+                    cycle=cycle, perplexity=round(post_prune['perplexity'], 2),
                     improvement_pct=round(imp, 2))
-        check_vram("post-train")
+        check_vram("post-prune")
 
         cycle_results.append({
             "cycle": cycle,
