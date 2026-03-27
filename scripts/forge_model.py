@@ -16,11 +16,17 @@ Usage:
 import argparse
 import gc
 import json
+import os
 import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
+
+# Flush all output immediately — no buffering, ever
+os.environ["PYTHONUNBUFFERED"] = "1"
+sys.stdout.reconfigure(line_buffering=True) if hasattr(sys.stdout, 'reconfigure') else None
+sys.stderr.reconfigure(line_buffering=True) if hasattr(sys.stderr, 'reconfigure') else None
 
 import torch
 import torch.nn.functional as F
