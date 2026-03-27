@@ -21,6 +21,24 @@ Experiments run on RTX 5090 (32GB), March 2026. All models from HuggingFace, dat
 
 **Strategy ranking**: combined (+3.6%) > entropy (+2.7%) > baseline > random (-3.6%)
 
+### Qwen3.5 Domain-Specific Forging (NEW)
+
+Domain-specific training dramatically amplifies the plasticity effect. Using `forge_model.py` v3 with LoRA + AMP mixed precision:
+
+| Model | Params | Domain | Training Data | Baseline PPL | Final PPL | Change | Device |
+|-------|--------|--------|--------------|-------------|-----------|--------|--------|
+| **Qwen3.5-4B** | 3.4B | **Code** | CodeFeedback (156K) | 3.04 | **2.31** | **+24.0%** | RTX 5090 |
+
+**+24% improvement** — the largest gain yet, and on a 3.4B model. Domain-specific data (real code Q&A) drives far more head specialization than generic text. The heads that survive pruning are optimized for code generation.
+
+Published: [continuum-ai/qwen3.5-4b-code-forged](https://huggingface.co/continuum-ai/qwen3.5-4b-code-forged)
+
+```bash
+# Forge any Qwen3.5 model on any domain
+python scripts/forge_model.py Qwen/Qwen3.5-4B --domain code
+python scripts/forge_model.py Qwen/Qwen3.5-27B --domain code  # auto 4-bit on 32GB VRAM
+```
+
 ![Strategy Comparison](paper/figures/strategy_comparison.png)
 
 ### Cross-Architecture Validation
