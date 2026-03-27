@@ -441,13 +441,33 @@ def train_lora(model, train_loader, cfg: ForgeConfig, steps=1000, lr=2e-4):
 # ---------------------------------------------------------------------------
 
 def generate_samples(model, tokenizer):
-    """Proof-of-quality output samples."""
+    """Proof-of-quality output samples — prompts that actually challenge the model."""
     model.eval()
     prompts = {
-        "reasoning": "Let me think step by step about how to solve this problem:",
-        "code": 'def fibonacci(n: int) -> list[int]:\n    """Return first n Fibonacci numbers."""',
-        "science": "The relationship between quantum mechanics and general relativity",
-        "creative": "In the year 2045, the first truly conscious AI",
+        "reasoning": (
+            "A farmer has 3 fields. Field A produces 40% more wheat than Field B. "
+            "Field C produces half of what A and B produce combined. "
+            "If Field B produces 500kg, how much total wheat is produced? "
+            "Show your reasoning step by step."
+        ),
+        "code": (
+            "Write a Python function that implements a thread-safe LRU cache with TTL "
+            "(time-to-live) expiration. It should handle concurrent reads and writes, "
+            "evict expired entries lazily, and support a max_size parameter. "
+            "Include type hints and docstring."
+        ),
+        "analysis": (
+            "Compare the architectural trade-offs between transformer-based and "
+            "state-space models (like Mamba) for long-context inference. Consider "
+            "memory complexity, training efficiency, and real-world deployment "
+            "on consumer hardware with 32GB VRAM."
+        ),
+        "agentic": (
+            "You are an AI assistant with access to a file system and a web browser. "
+            "A user asks: 'Find all Python files in my project that import requests "
+            "but don't handle connection timeouts, then suggest fixes.' "
+            "Describe your step-by-step approach and what tools you'd use."
+        ),
     }
     samples = {}
     for name, prompt in prompts.items():
