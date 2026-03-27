@@ -101,7 +101,7 @@ license: apache-2.0
 
 # {base}-{domain_label}-forged
 
-A **forged** version of [{model}](https://huggingface.co/{model}) — optimized through [Experiential Plasticity](https://github.com/CambrianTech/sentinel-ai) for **{domain_label}** use.
+A **forged** version of [{model}](https://huggingface.co/{model}) — optimized through [Experiential Plasticity](https://github.com/CambrianTech/continuum/blob/main/docs/papers/EXPERIENTIAL-PLASTICITY.md) for **{domain_label}** use.
 
 ## What is Forging?
 
