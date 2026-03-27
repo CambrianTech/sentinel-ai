@@ -1,10 +1,19 @@
 """
 Fine-tuning utilities for pruned transformer models.
-
-This module provides specialized fine-tuning capabilities for models after pruning,
-with a focus on maintaining or improving performance despite having fewer parameters.
+Re-exports from utils.pruning where implementations live.
 """
 
-from sentinel.pruning.fine_tuning.fine_tuner import FineTuner
-from sentinel.pruning.fine_tuning.fine_tuner_consolidated import ConsolidatedFineTuner
-from sentinel.pruning.fine_tuning.fine_tuner_improved import ImprovedFineTuner
+try:
+    from utils.pruning.fine_tuner import FineTuner
+except ImportError:
+    pass
+
+try:
+    from utils.pruning.fine_tuner_consolidated import ConsolidatedFineTuner
+except ImportError:
+    pass
+
+try:
+    from utils.pruning.fine_tuner_improved import ImprovedFineTuner
+except ImportError:
+    pass

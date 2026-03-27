@@ -7,8 +7,12 @@ and the newer PyTorch-based implementation to support scripts that expect the or
 
 import os
 import sys
-import jax
-import jax.numpy as jnp
+try:
+    import jax
+    import jax.numpy as jnp
+except ImportError:
+    import numpy as jnp
+    jax = None
 import torch
 import numpy as np
 from typing import Dict, List, Tuple, Any, Optional, Union

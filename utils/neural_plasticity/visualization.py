@@ -15,6 +15,7 @@ The visualization system includes comprehensive dashboards showing:
 Version: v0.0.66 (2025-04-20 23:55:00)
 """
 
+import os
 import torch
 import numpy as np
 import matplotlib.pyplot as plt
@@ -141,7 +142,7 @@ def visualize_head_entropy(
     
     # Convert to numpy if tensor
     if isinstance(entropy_values, torch.Tensor):
-        entropy_data = entropy_values.detach().cpu().numpy()
+        entropy_data = entropy_values.detach().cpu().float().numpy()
     else:
         entropy_data = entropy_values
     
@@ -202,7 +203,7 @@ def visualize_head_gradients(
     """
     # Convert to numpy if tensor
     if isinstance(grad_norm_values, torch.Tensor):
-        grad_data = grad_norm_values.detach().cpu().numpy()
+        grad_data = grad_norm_values.detach().cpu().float().numpy()
     else:
         grad_data = grad_norm_values
         
@@ -260,12 +261,12 @@ def visualize_pruning_decisions(
     """
     # Convert to numpy arrays
     if isinstance(grad_norm_values, torch.Tensor):
-        grad_data = grad_norm_values.detach().cpu().numpy()
+        grad_data = grad_norm_values.detach().cpu().float().numpy()
     else:
         grad_data = grad_norm_values
         
     if isinstance(pruning_mask, torch.Tensor):
-        mask_data = pruning_mask.detach().cpu().numpy()
+        mask_data = pruning_mask.detach().cpu().float().numpy()
     else:
         mask_data = pruning_mask
     
@@ -277,7 +278,7 @@ def visualize_pruning_decisions(
     ax.set_title(title)
     
     # Create a masked array where pruned heads are highlighted
-    masked_grads = np.ma.array(grad_data, mask=~mask_data)
+    masked_grads = np.ma.array(grad_data, mask=~mask_data.astype(bool))
     
     # Overlay plot with pruned heads highlighted
     plt.imshow(
@@ -1582,7 +1583,7 @@ def visualize_attention_patterns(
             if isinstance(attn, torch.Tensor):
                 # Handle potential NaN/Inf values during conversion
                 try:
-                    head_attention = attn[0, head_idx].cpu().numpy()
+                    head_attention = attn[0, head_idx].cpu().float().numpy()
                     if np.isnan(head_attention).any() or np.isinf(head_attention).any():
                         head_attention = np.nan_to_num(head_attention, nan=0.0, posinf=1.0, neginf=0.0)
                 except Exception as e:
@@ -1625,7 +1626,7 @@ def visualize_attention_patterns(
                 # Extract head attention and safely convert to numpy
                 if isinstance(attn, torch.Tensor):
                     try:
-                        head_attention = attn[0, i].cpu().numpy()
+                        head_attention = attn[0, i].cpu().float().numpy()
                         # Check for NaN/Inf values
                         if np.isnan(head_attention).any() or np.isinf(head_attention).any():
                             head_attention = np.nan_to_num(head_attention, nan=0.0, posinf=1.0, neginf=0.0)

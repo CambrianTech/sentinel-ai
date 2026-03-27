@@ -8,8 +8,12 @@ For new code, consider using the fixed_pruning_module or fixed_pruning_module_ja
 # For backward compatibility
 __all__ = ['PruningModule']
 
-import jax
-import jax.numpy as jnp
+try:
+    import jax
+    import jax.numpy as jnp
+except ImportError:
+    import numpy as jnp
+    jax = None
 from transformers import AutoTokenizer, FlaxAutoModelForCausalLM
 
 class PruningModule:

@@ -257,7 +257,7 @@ def plot_baseline_entropy(
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=figsize)
     
     # Plot entropy
-    entropy_data = entropy_values.detach().cpu().numpy()
+    entropy_data = entropy_values.detach().cpu().float().numpy()
     im1 = ax1.imshow(entropy_data, cmap="viridis", aspect="auto")
     fig.colorbar(im1, ax=ax1, label='Entropy')
     ax1.set_title('Head Entropy (Higher = Less Focused)')
@@ -268,7 +268,7 @@ def plot_baseline_entropy(
     im1.set_clim(0, max(0.1, entropy_data.max()))
     
     # Plot gradients
-    grad_data = grad_norm_values.detach().cpu().numpy()
+    grad_data = grad_norm_values.detach().cpu().float().numpy()
     im2 = ax2.imshow(grad_data, cmap="plasma", aspect="auto")
     fig.colorbar(im2, ax=ax2, label='Gradient Norm')
     ax2.set_title('Head Gradient Norms (Higher = More Learning)')
@@ -447,7 +447,10 @@ class NeuralPlasticityExperiment:
         # Load model
         if self.verbose:
             print(f"Loading model: {self.model_name}")
-        self.model = AutoModelForCausalLM.from_pretrained(self.model_name).to(self.device)
+        from transformers import AutoConfig
+        _cfg = AutoConfig.from_pretrained(self.model_name)
+        _cfg.output_attentions = True
+        self.model = AutoModelForCausalLM.from_pretrained(self.model_name, config=_cfg).to(self.device)
         
         # Load datasets
         if self.verbose:
@@ -1242,8 +1245,8 @@ class NeuralPlasticityExperiment:
                 f.write(f"Pruning Strategy: {self.pruning_strategy}\n")
                 f.write(f"Pruning Level: {self.pruning_level:.2f}\n\n")
                 
-                f.write(f"Baseline Loss: {self.baseline_loss:.4f}\n")
-                f.write(f"Baseline Perplexity: {self.baseline_perplexity:.2f}\n\n")
+                f.write(f"Baseline Loss: {self.baseline_loss if self.baseline_loss is not None else 0:.4f}\n")
+                f.write(f"Baseline Perplexity: {(self.baseline_perplexity or 0):.2f}\n\n")
                 
                 f.write(f"Final Loss: {eval_loss:.4f}\n")
                 f.write(f"Final Perplexity: {eval_perplexity:.2f}\n")
@@ -1451,7 +1454,7 @@ class NeuralPlasticityExperiment:
             return None
         
         # Extract current model attention
-        current_attentions = [attn.detach().cpu().numpy() for attn in outputs.attentions]
+        current_attentions = [attn.detach().cpu().float().numpy() for attn in outputs.attentions]
         
         # Store the current model state
         current_state = self.model.state_dict().copy()
@@ -1468,7 +1471,7 @@ class NeuralPlasticityExperiment:
                     baseline_outputs = self.model(input_ids=input_ids, output_attentions=True)
                     
                 if hasattr(baseline_outputs, 'attentions') and baseline_outputs.attentions:
-                    baseline_attentions = [attn.detach().cpu().numpy() for attn in baseline_outputs.attentions]
+                    baseline_attentions = [attn.detach().cpu().float().numpy() for attn in baseline_outputs.attentions]
                 
                 # Restore current model state
                 self.model.load_state_dict(current_state)
@@ -2075,12 +2078,12 @@ class NeuralPlasticityExperiment:
                 # Send entropy and gradient data if available
                 if "entropy_values" in pruning_results and isinstance(pruning_results["entropy_values"], torch.Tensor):
                     self.metrics_callback(cycle, {
-                        "entropy_values": pruning_results["entropy_values"].detach().cpu().numpy()
+                        "entropy_values": pruning_results["entropy_values"].detach().cpu().float().numpy()
                     })
                 
                 if "grad_norm_values" in pruning_results and isinstance(pruning_results["grad_norm_values"], torch.Tensor):
                     self.metrics_callback(cycle, {
-                        "grad_norm_values": pruning_results["grad_norm_values"].detach().cpu().numpy()
+                        "grad_norm_values": pruning_results["grad_norm_values"].detach().cpu().float().numpy()
                     })
             
             # Save the heatmap
@@ -2272,8 +2275,8 @@ class NeuralPlasticityExperiment:
                 f.write(f"Pruning Strategy: {self.pruning_strategy}\n")
                 f.write(f"Pruning Level: {self.pruning_level:.2f}\n\n")
                 
-                f.write(f"Baseline Loss: {self.baseline_loss:.4f}\n")
-                f.write(f"Baseline Perplexity: {self.baseline_perplexity:.2f}\n\n")
+                f.write(f"Baseline Loss: {self.baseline_loss if self.baseline_loss is not None else 0:.4f}\n")
+                f.write(f"Baseline Perplexity: {(self.baseline_perplexity or 0):.2f}\n\n")
                 
                 f.write(f"Final Loss: {self.final_loss:.4f}\n")
                 f.write(f"Final Perplexity: {self.final_perplexity:.2f}\n")

@@ -21,7 +21,12 @@ from models.loaders.gpt2_loader_clean import load_adaptive_model_gpt_clean
 from sentinel.models.adaptive_head_cloning import AdaptiveHeadManager
 import math
 
-DEVICE = "mps" if torch.backends.mps.is_available() else "cpu"
+if torch.cuda.is_available():
+    DEVICE = "cuda"
+elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+    DEVICE = "mps"
+else:
+    DEVICE = "cpu"
 print(f"=== SENTINEL-AI FULL PLASTICITY EXPERIMENT ===")
 print(f"Device: {DEVICE}")
 print()
