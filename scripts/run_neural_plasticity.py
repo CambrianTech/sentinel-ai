@@ -489,9 +489,16 @@ if __name__ == "__main__":
             # Save the model if requested
             if args.save_model:
                 logger.info("Saving trained model...")
-                model_path = os.path.join(models_dir, "pruned_model")
-                experiment.save_model(path=model_path)
+                model_path = os.path.join(models_dir, "final_model")
+                os.makedirs(model_path, exist_ok=True)
+                model_to_save = experiment.model.module if hasattr(experiment.model, 'module') else experiment.model
+                model_to_save.save_pretrained(model_path)
                 logger.info(f"Model saved to {model_path}")
+                # Save tokenizer alongside model
+                from transformers import AutoTokenizer
+                _tokenizer = AutoTokenizer.from_pretrained(args.model_name)
+                _tokenizer.save_pretrained(model_path)
+                logger.info(f"Tokenizer saved to {model_path}")
             
             # Create metrics dashboards
             if not args.no_visualize:

@@ -31,6 +31,8 @@ STEPS="1000"
 CYCLES="3"
 DEVICE="cuda"
 BATCH_FILE=""
+PUBLISH=false
+DOMAIN="general"
 
 # Parse args
 MODEL=""
@@ -42,13 +44,15 @@ while [[ $# -gt 0 ]]; do
         --cycles) CYCLES="$2"; shift 2 ;;
         --device) DEVICE="$2"; shift 2 ;;
         --batch) BATCH_FILE="$2"; shift 2 ;;
+        --publish) PUBLISH=true; shift ;;
+        --domain) DOMAIN="$2"; shift 2 ;;
         *) MODEL="$1"; shift ;;
     esac
 done
 
 forge_model() {
     local model="$1"
-    local model_slug=$(echo "$model" | tr '/' '-' | tr '[:upper:]' '[:lower:]')
+    local model_slug=$(basename "$model" | tr '[:upper:]' '[:lower:]')
     local output_dir="output/forged/${model_slug}"
     local timestamp=$(date +%Y%m%d_%H%M%S)
 
@@ -63,13 +67,14 @@ forge_model() {
     mkdir -p "$output_dir/figures" "$output_dir/benchmark"
 
     # Step 1: Run plasticity experiment
-    echo "[1/4] Running experiential plasticity..."
+    echo "[1/5] Running experiential plasticity..."
     .venv/bin/python3 scripts/run_neural_plasticity.py \
         --model_name "$model" \
         --pruning_strategy "$STRATEGY" \
         --pruning_level "$PRUNING_LEVEL" \
         --training_steps "$STEPS" \
         --cycles "$CYCLES" \
+        --save_model \
         --device "$DEVICE" 2>&1 | tee "$output_dir/forge.log"
 
     # Find the experiment output directory (most recent)
@@ -80,18 +85,20 @@ forge_model() {
     fi
 
     # Step 2: Collect results
-    echo "[2/4] Collecting results..."
+    echo "[2/5] Collecting results..."
     local model_info="$exp_dir/model/model_info.txt"
     if [ -f "$model_info" ]; then
         cp "$model_info" "$output_dir/"
 
         # Extract metrics for results.json
-        local final_ppl=$(grep "Final Perplexity" "$model_info" | awk '{print $NF}')
+        local final_ppl=$(grep "After Training:.*Perplexity" "$output_dir/forge.log" | tail -1 | sed "s/.*Perplexity = //" | tr -d " ")
+        # Fallback: last evaluation perplexity
+        [ -z "$final_ppl" ] && final_ppl=$(grep "Evaluation:.*Perplexity" "$output_dir/forge.log" | tail -1 | sed "s/.*Perplexity = //" | tr -d " ")
         local strategy=$(grep "Pruning Strategy" "$model_info" | awk '{print $NF}')
         local level=$(grep "Pruning Level" "$model_info" | awk '{print $NF}')
 
         # Get baseline from log
-        local baseline_ppl=$(grep "Baseline perplexity" "$output_dir/forge.log" | tail -1 | awk '{print $NF}')
+        local baseline_ppl=$(grep "Baseline:.*Perplexity" "$output_dir/forge.log" | head -1 | sed "s/.*Perplexity = //" | tr -d " ")
 
         .venv/bin/python3 -c "
 import json
@@ -116,7 +123,7 @@ print(json.dumps(results, indent=2))
     fi
 
     # Step 3: Copy figures
-    echo "[3/4] Collecting figures..."
+    echo "[3/5] Collecting figures..."
     cp "$exp_dir"/*.png "$output_dir/figures/" 2>/dev/null || true
     cp "$exp_dir"/cycle_*/*.png "$output_dir/figures/" 2>/dev/null || true
     cp "$exp_dir"/visualizations/*.png "$output_dir/figures/" 2>/dev/null || true
@@ -124,8 +131,21 @@ print(json.dumps(results, indent=2))
     # Copy generation samples
     cp "$exp_dir"/generation/*.txt "$output_dir/benchmark/" 2>/dev/null || true
 
-    # Step 4: Generate model card
-    echo "[4/4] Generating model card..."
+    # Step 4: Copy model weights
+    echo "[4/5] Copying model weights..."
+    local model_src="${exp_dir}models/final_model"
+    if [ -d "$model_src" ]; then
+        mkdir -p "$output_dir/model"
+        cp -r "$model_src"/* "$output_dir/model/"
+        local weight_count=$(ls "$output_dir/model/"*.safetensors 2>/dev/null | wc -l)
+        echo "  Copied $weight_count safetensors files + config/tokenizer"
+    else
+        echo "  WARNING: No model weights found at $model_src"
+        echo "  The model was not saved — check --save_model flag"
+    fi
+
+    # Step 5: Generate model card
+    echo "[5/5] Generating model card..."
     .venv/bin/python3 -c "
 import json
 
@@ -211,7 +231,15 @@ print('Model card generated: $output_dir/model_card.md')
     echo "  Results: $output_dir/results.json"
     echo "  Model card: $output_dir/model_card.md"
     echo "  Figures: $output_dir/figures/"
+    echo "  Model: $output_dir/model/"
     echo "============================================================"
+
+    # Publish to HuggingFace if requested
+    if [ "$PUBLISH" = true ]; then
+        echo ""
+        echo "[PUBLISH] Uploading to HuggingFace..."
+        .venv/bin/python3 publish_forged.py "$output_dir" --domain "$DOMAIN"
+    fi
 }
 
 # Batch mode
@@ -228,7 +256,7 @@ fi
 
 # Single model
 if [ -z "$MODEL" ]; then
-    echo "Usage: ./forge.sh <model_name> [--strategy combined] [--pruning 0.3] [--steps 1000] [--cycles 3]"
+    echo "Usage: ./forge.sh <model_name> [--strategy combined] [--pruning 0.3] [--steps 1000] [--cycles 3] [--domain general] [--publish]"
     echo "       ./forge.sh --batch forge_list.txt"
     exit 1
 fi
