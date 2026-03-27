@@ -110,6 +110,14 @@ def get_dataloader_builder(
         train_dataset = load_dataset(dataset_name, dataset_config, split="train")
         validation_dataset = load_dataset(dataset_name, dataset_config, split="validation")
 
+        # For large models, use a subset to reduce CPU RAM usage
+        if max_length <= 128 and len(train_dataset) > 5000:
+            import gc
+            gc.collect()
+            # Limit dataset to reduce memory footprint
+            train_dataset = train_dataset.select(range(min(5000, len(train_dataset))))
+            validation_dataset = validation_dataset.select(range(min(1000, len(validation_dataset))))
+
         # Define tokenization function
         def tokenize_function(examples):
             return tokenizer(
