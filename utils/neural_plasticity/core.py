@@ -477,6 +477,9 @@ def calculate_head_gradients(
                 inputs["labels"] = batch[2].to(device)
         
         # Forward pass with gradient tracking
+        # Add labels for causal LM if not present
+        if "labels" not in inputs and "input_ids" in inputs:
+            inputs["labels"] = inputs["input_ids"].clone()
         outputs = model(**inputs)
         
         # Get loss
@@ -1209,7 +1212,10 @@ def evaluate_model(
                     inputs["labels"] = batch[2].to(device)
             
             # Forward pass
-            outputs = model(**inputs)
+            # Add labels for causal LM if not present
+        if "labels" not in inputs and "input_ids" in inputs:
+            inputs["labels"] = inputs["input_ids"].clone()
+        outputs = model(**inputs)
             
             # Get loss
             if hasattr(outputs, "loss"):
