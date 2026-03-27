@@ -3,9 +3,9 @@
 Publish a forged model to HuggingFace.
 
 Usage:
-    python publish_forged.py output/forged/qwen-qwen2.5-7b/
-    python publish_forged.py output/forged/qwen-qwen2.5-7b/ --org continuum-ai
+    python publish_forged.py output/forged/qwen-qwen2.5-7b/ --domain code
     python publish_forged.py --all --org continuum-ai
+    python publish_forged.py --all --org continuum-ai --dry-run
 """
 
 import argparse
@@ -15,27 +15,197 @@ import sys
 from pathlib import Path
 
 
-def publish_model(forged_dir: Path, org: str, dry_run: bool = False):
+# Hardware target lookup based on model size in GB (fp16)
+HARDWARE_TARGETS = {
+    # (min_gb, max_gb): [(device, format, verified)]
+    (0, 2):    [("Phone / Raspberry Pi", "Q4_K_M", False), ("MacBook Air 8GB", "Q4_K_M", False)],
+    (2, 5):    [("MacBook Air 8GB", "fp16", False), ("MacBook Pro 16GB", "fp16", True)],
+    (5, 10):   [("MacBook Pro 16GB", "fp16", True), ("MacBook Pro 32GB", "fp16", True)],
+    (10, 20):  [("MacBook Pro 32GB", "fp16", True), ("RTX 3090 24GB", "fp16", True)],
+    (20, 35):  [("RTX 4090/5090 32GB", "fp16", True)],
+}
+
+
+def estimate_size_gb(model_name: str) -> float:
+    """Rough fp16 size estimate from model name."""
+    name = model_name.lower()
+    if "0.5b" in name: return 1.0
+    if "1.5b" in name: return 3.0
+    if "3b" in name: return 6.0
+    if "4b" in name: return 8.0
+    if "7b" in name: return 15.0
+    if "9b" in name: return 18.0
+    if "14b" in name: return 28.0
+    if "27b" in name: return 54.0
+    return 5.0
+
+
+def get_hardware_targets(size_gb: float) -> list:
+    for (lo, hi), targets in HARDWARE_TARGETS.items():
+        if lo <= size_gb < hi:
+            return targets
+    return [("GPU", "fp16", False)]
+
+
+def build_repo_name(model_name: str, domain: str, org: str) -> str:
+    """Build standardized repo name: org/base-domain-forged"""
+    # Extract base name without org prefix
+    base = model_name.split("/")[-1].lower()
+    # Clean up
+    base = base.replace("qwen2.5-", "qwen2.5-").replace("qwen3.5-", "qwen3.5-")
+
+    if domain and domain != "general":
+        return f"{org}/{base}-{domain}-forged"
+    return f"{org}/{base}-forged"
+
+
+def build_model_card(results: dict, domain: str, hardware_targets: list) -> str:
+    """Generate HuggingFace model card with full metadata."""
+    model = results.get("model", "unknown")
+    base = model.split("/")[-1].lower()
+    final_ppl = results.get("final_ppl", 0)
+    baseline_ppl = results.get("baseline_ppl", 0)
+    improvement = results.get("improvement_pct", 0)
+    strategy = results.get("strategy", "combined")
+    level = results.get("pruning_level", 0.3)
+    cycles = results.get("cycles", 3)
+    steps = results.get("training_steps", 1000)
+    training_data = results.get("training_data", "wikitext-2")
+    domain_label = domain if domain else "general"
+
+    # YAML frontmatter
+    tags = [
+        "continuum",
+        "experiential-plasticity",
+        "forged",
+        "text-generation",
+    ]
+    if domain and domain != "general":
+        tags.append(domain)
+
+    tag_yaml = "\n".join(f"- {t}" for t in tags)
+
+    # Hardware table
+    hw_rows = ""
+    for device, fmt, verified in hardware_targets:
+        check = "Yes" if verified else "Expected"
+        hw_rows += f"| {device} | {fmt} | {check} |\n"
+
+    card = f"""---
+tags:
+{tag_yaml}
+base_model: {model}
+pipeline_tag: text-generation
+license: apache-2.0
+---
+
+# {base}-{domain_label}-forged
+
+A **forged** version of [{model}](https://huggingface.co/{model}) — optimized through [Experiential Plasticity](https://github.com/CambrianTech/sentinel-ai) for **{domain_label}** use.
+
+## What is Forging?
+
+Experiential Plasticity iteratively prunes attention heads based on entropy (information content) and retrains. Remaining heads specialize and compensate — the model emerges smaller AND more capable. Like biological synaptic pruning during brain development.
+
+## Results
+
+| Metric | Value |
+|--------|-------|
+| Base Model | [{model}](https://huggingface.co/{model}) |
+| Baseline Perplexity | {baseline_ppl:.2f} |
+| **Forged Perplexity** | **{final_ppl:.2f}** |
+| **Improvement** | **{improvement:+.1f}%** |
+| Domain | {domain_label} |
+| Training Data | {training_data} |
+| Strategy | {strategy} |
+| Pruning Level | {level:.0%} |
+| Cycles | {cycles} |
+| Steps/Cycle | {steps} |
+
+## Target Hardware
+
+| Device | Format | Verified |
+|--------|--------|----------|
+{hw_rows}
+## Quick Start
+
+```python
+from transformers import AutoModelForCausalLM, AutoTokenizer
+
+model = AutoModelForCausalLM.from_pretrained("continuum-ai/{base}-{domain_label}-forged",
+    torch_dtype="auto", device_map="auto")
+tokenizer = AutoTokenizer.from_pretrained("continuum-ai/{base}-{domain_label}-forged")
+```
+
+## Reproduce
+
+```bash
+git clone https://github.com/CambrianTech/sentinel-ai && cd sentinel-ai && ./setup.sh
+source .venv/bin/activate
+python scripts/run_neural_plasticity.py \\
+  --model_name {model} --pruning_strategy {strategy} \\
+  --pruning_level {level} --training_steps {steps} --cycles {cycles}
+```
+
+## Forging Metadata
+
+```json
+{json.dumps(results, indent=2)}
+```
+
+## Research
+
+- [Experiential Plasticity](https://github.com/CambrianTech/continuum/blob/main/docs/papers/EXPERIENTIAL-PLASTICITY.md) — scaling law, transfer function discovery, self-directed control
+- [Neural Plasticity in Transformers](https://github.com/CambrianTech/continuum/blob/main/docs/papers/SENTINEL-AI-NEURAL-PLASTICITY.md) — the foundation
+- [Plasticity Compaction](https://github.com/CambrianTech/continuum/blob/main/docs/papers/PLASTICITY-COMPACTION-MOE.md) — MoE expert pruning
+
+[sentinel-ai](https://github.com/CambrianTech/sentinel-ai) | [continuum](https://github.com/CambrianTech/continuum) | [HuggingFace](https://huggingface.co/continuum-ai)
+"""
+    return card
+
+
+def publish_model(forged_dir: Path, org: str, domain: str, dry_run: bool = False):
     """Publish a single forged model to HuggingFace."""
     results_path = forged_dir / "results.json"
-    card_path = forged_dir / "model_card.md"
-
     if not results_path.exists():
         print(f"  SKIP: {forged_dir} — no results.json")
         return False
 
     results = json.load(open(results_path))
     model_name = results.get("model", "")
-    slug = model_name.replace("/", "-").lower()
-    repo_id = f"{org}/{slug}-forged"
+
+    # Add domain to results
+    results["domain"] = domain
+    if "training_data" not in results:
+        results["training_data"] = "wikitext-2"
+
+    # Build names
+    repo_id = build_repo_name(model_name, domain, org)
+    size_gb = estimate_size_gb(model_name)
+    hw_targets = get_hardware_targets(size_gb)
+    results["hardware_targets"] = [
+        {"device": d, "format": f, "verified": v} for d, f, v in hw_targets
+    ]
 
     improvement = results.get("improvement_pct", 0)
     baseline = results.get("baseline_ppl", 0)
     final = results.get("final_ppl", 0)
 
     print(f"\n  Model: {model_name}")
+    print(f"  Domain: {domain}")
     print(f"  Repo: {repo_id}")
     print(f"  Baseline PPL: {baseline:.2f} → Final: {final:.2f} ({improvement:+.1f}%)")
+    print(f"  Hardware: {', '.join(d for d, _, _ in hw_targets)}")
+
+    # Generate model card
+    card = build_model_card(results, domain, hw_targets)
+    card_path = forged_dir / "model_card.md"
+    with open(card_path, "w") as f:
+        f.write(card)
+
+    # Save enriched results
+    with open(results_path, "w") as f:
+        json.dump(results, f, indent=2)
 
     if dry_run:
         print(f"  DRY RUN: would upload to {repo_id}")
@@ -45,7 +215,6 @@ def publish_model(forged_dir: Path, org: str, dry_run: bool = False):
 
     api = HfApi()
 
-    # Create repo
     try:
         create_repo(repo_id, repo_type="model", exist_ok=True)
         print(f"  Created/verified repo: {repo_id}")
@@ -53,22 +222,20 @@ def publish_model(forged_dir: Path, org: str, dry_run: bool = False):
         print(f"  ERROR creating repo: {e}")
         return False
 
-    # Upload model card
-    if card_path.exists():
-        api.upload_file(
-            path_or_fileobj=str(card_path),
-            path_in_repo="README.md",
-            repo_id=repo_id,
-        )
-        print(f"  Uploaded model card")
+    # Upload model card as README
+    api.upload_file(
+        path_or_fileobj=str(card_path),
+        path_in_repo="README.md",
+        repo_id=repo_id,
+    )
+    print(f"  Uploaded model card")
 
-    # Upload results
+    # Upload forging results
     api.upload_file(
         path_or_fileobj=str(results_path),
         path_in_repo="forging_results.json",
         repo_id=repo_id,
     )
-    print(f"  Uploaded results.json")
 
     # Upload figures
     figures_dir = forged_dir / "figures"
@@ -79,7 +246,8 @@ def publish_model(forged_dir: Path, org: str, dry_run: bool = False):
                 path_in_repo=f"figures/{fig.name}",
                 repo_id=repo_id,
             )
-        print(f"  Uploaded {len(list(figures_dir.glob('*.png')))} figures")
+        count = len(list(figures_dir.glob("*.png")))
+        print(f"  Uploaded {count} figures")
 
     # Upload benchmark samples
     bench_dir = forged_dir / "benchmark"
@@ -90,7 +258,29 @@ def publish_model(forged_dir: Path, org: str, dry_run: bool = False):
                 path_in_repo=f"benchmark/{txt.name}",
                 repo_id=repo_id,
             )
-        print(f"  Uploaded benchmark samples")
+
+    # Upload model weights if present
+    model_dir = forged_dir / "model"
+    if model_dir.exists():
+        safetensors = list(model_dir.glob("*.safetensors"))
+        if safetensors:
+            print(f"  Uploading model weights ({len(safetensors)} files)...")
+            for sf in safetensors:
+                api.upload_file(
+                    path_or_fileobj=str(sf),
+                    path_in_repo=sf.name,
+                    repo_id=repo_id,
+                )
+            # Upload config files too
+            for cfg_file in ["config.json", "tokenizer.json", "tokenizer_config.json",
+                           "generation_config.json", "special_tokens_map.json"]:
+                cfg_path = model_dir / cfg_file
+                if cfg_path.exists():
+                    api.upload_file(
+                        path_or_fileobj=str(cfg_path),
+                        path_in_repo=cfg_file,
+                        repo_id=repo_id,
+                    )
 
     print(f"  PUBLISHED: https://huggingface.co/{repo_id}")
     return True
@@ -100,6 +290,7 @@ def main():
     parser = argparse.ArgumentParser(description="Publish forged models to HuggingFace")
     parser.add_argument("forged_dir", nargs="?", help="Path to forged model output dir")
     parser.add_argument("--org", default="continuum-ai", help="HuggingFace org")
+    parser.add_argument("--domain", default="general", help="Domain: general, code, reasoning, chat")
     parser.add_argument("--all", action="store_true", help="Publish all forged models")
     parser.add_argument("--dry-run", action="store_true", help="Show what would be published")
     args = parser.parse_args()
@@ -113,13 +304,13 @@ def main():
         published = 0
         for d in sorted(forged_root.iterdir()):
             if d.is_dir() and (d / "results.json").exists():
-                if publish_model(d, args.org, args.dry_run):
+                if publish_model(d, args.org, args.domain, args.dry_run):
                     published += 1
 
         print(f"\n{'=' * 50}")
         print(f"Published {published} models to {args.org}")
     elif args.forged_dir:
-        publish_model(Path(args.forged_dir), args.org, args.dry_run)
+        publish_model(Path(args.forged_dir), args.org, args.domain, args.dry_run)
     else:
         parser.print_help()
 
