@@ -831,7 +831,7 @@ def generate_pruning_mask(
                     # Make values reasonably distributed for entropy (0.2-0.8 range)
                     entropy_values = 0.2 + 0.6 * entropy_values
             
-        flat_entropy = entropy_values.view(-1)
+        flat_entropy = entropy_values.reshape(-1)
         
         # Safety check: Ensure the flattened dimension matches the expected size
         if flat_entropy.numel() != total_heads:
@@ -942,7 +942,7 @@ def generate_pruning_mask(
                     # Make values reasonably distributed for entropy (0.2-0.8 range)
                     entropy_values = 0.2 + 0.6 * entropy_values
             
-        flat_entropy = entropy_values.view(-1)
+        flat_entropy = entropy_values.reshape(-1)
         
         # Safety check: Ensure the flattened dimension matches
         if flat_entropy.numel() != total_heads:

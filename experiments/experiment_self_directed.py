@@ -217,8 +217,12 @@ def main():
         with torch.no_grad():
             outputs = model(**inputs, output_attentions=True)
         entropy_values = torch.stack([calculate_head_entropy(a) for a in outputs.attentions])
-        if entropy_values.ndim > 2:
-            entropy_values = entropy_values.mean(dim=list(range(1, entropy_values.ndim - 1)))
+        # Reduce to [layers, heads] — average over batch and any extra dims
+        while entropy_values.ndim > 2:
+            entropy_values = entropy_values.mean(dim=1)
+        # Ensure shape matches num_heads (may have sequence dim)
+        if entropy_values.shape[-1] != config.num_attention_heads:
+            entropy_values = entropy_values[:, :config.num_attention_heads]
 
         grad_norms = calculate_head_gradients(model, eval_loader)
 
