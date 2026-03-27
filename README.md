@@ -8,84 +8,94 @@ Sentinel-AI dynamically rewires transformer attention heads during training. It 
 
 Experiments run on RTX 5090 (32GB), March 2026. All models from HuggingFace, dataset: wikitext-2.
 
-| Model | Params | Pruning | Heads Pruned | Baseline PPL | Final PPL | Change | Time |
-|-------|--------|---------|-------------|-------------|-----------|--------|------|
-| distilgpt2 | 82M | 30% entropy, 3 cycles | 3/72 + 1 mitosis | 474.24 | **3.08** | -99.4% | ~1 min |
-| gpt2-medium | 355M | 30% entropy, 3 cycles | 115/384 | 3.34 | **3.25** | +2.7% | 3 min |
-| gpt2-large | 774M | 30% entropy, 3 cycles | 216/720 | 3.05 | **3.17** | -4.0% | 10 min |
-| gpt2-large | 774M | 40% entropy, 3 cycles | 288/720 | 3.03 | **3.27** | -8.1% | 6 min |
-| Qwen2.5-3B | 3B | 30% entropy, 3 cycles | 30% sparsity | 2.30 | **2.29** | +0.45% | 19 min |
+| Model | Params | Architecture | Strategy | Pruning | Baseline PPL | Final PPL | Change | Time |
+|-------|--------|-------------|----------|---------|-------------|-----------|--------|------|
+| distilgpt2 | 82M | MHA | entropy+mitosis | 30% | 474.24 | **3.08** | -99.4% | 1 min |
+| gpt2-medium | 355M | MHA | combined | 30%, 3 cycles | 3.34 | **3.22** | **+3.6%** | 3 min |
+| gpt2-medium | 355M | MHA | entropy | 30%, 3 cycles | 3.34 | **3.25** | +2.7% | 3 min |
+| gpt2-medium | 355M | MHA | random | 30%, 3 cycles | 3.34 | 3.46 | -3.6% | 3 min |
+| gpt2-large | 774M | MHA | entropy | 30%, 3 cycles | 3.05 | **3.17** | -4.0% | 10 min |
+| gpt2-large | 774M | MHA | entropy | 40%, 2000 steps | 3.03 | **3.18** | -5.0% | 18 min |
+| **Qwen2.5-3B** | **3.1B** | **GQA** | entropy | 30%, 3 cycles | 2.30 | **2.28** | **+0.9%** | 34 min |
 
-Key findings:
-- **30% pruning consistently recovers or improves** over baseline after retraining
-- **40% pruning recovers most quality** but benefits from more training steps
-- **Head mitosis** (cloning overutilized heads) produces specialized copies that diverge
-- **Larger models are more pruning-tolerant** — they have more redundancy to exploit
+**Strategy ranking**: combined (+3.6%) > entropy (+2.7%) > baseline > random (-3.6%)
+
+![Strategy Comparison](paper/figures/strategy_comparison.png)
+
+### Cross-Architecture Validation
+
+The plasticity cycle works identically on Multi-Head Attention (GPT-2) and Grouped Query Attention (Qwen2.5):
+
+![Cross-Architecture](paper/figures/cross_architecture.png)
+
+### Self-Directed Plasticity
+
+The `AdaptivePlasticityController` eliminates human-specified hyperparameters entirely. It observes the model's attention entropy, decides how much to prune, and stops when quality degrades:
+
+![Three Generations](paper/figures/three_generations.png)
+
+The model's recovery follows an exponential decay — a **transfer function** that predicts the optimal stopping point:
+
+![Recovery Decay](paper/figures/recovery_decay_fit.png)
 
 ## Quick Start
 
 ```bash
 git clone https://github.com/CambrianTech/sentinel-ai.git
 cd sentinel-ai
-
-# One-command setup (auto-detects CUDA/MPS/CPU, creates venv, installs deps)
-./setup.sh
-
-# Activate the environment
+./setup.sh              # Auto-detects CUDA/MPS/CPU, creates venv, installs deps
 source .venv/bin/activate
 ```
 
 ## Run Experiments
 
-### Full Plasticity Cycle (recommended)
-
-The experiment runner handles warmup, attention analysis, multi-cycle pruning, retraining, evaluation, and text generation:
+### Full Plasticity Cycle
 
 ```bash
-# GPT2-medium — good balance of speed and substance
+# GPT2-medium — combined strategy (best results)
 python scripts/run_neural_plasticity.py \
   --model_name gpt2-medium \
-  --pruning_strategy entropy \
+  --pruning_strategy combined \
   --pruning_level 0.3 \
   --training_steps 500 \
   --cycles 3
 
-# GPT2-large — bigger model, more headroom
-python scripts/run_neural_plasticity.py \
-  --model_name gpt2-large \
-  --pruning_strategy entropy \
-  --pruning_level 0.3 \
-  --training_steps 1000 \
-  --cycles 3
-
-# Qwen2.5-3B — modern architecture with GQA
+# Qwen2.5-3B — modern GQA architecture
 python scripts/run_neural_plasticity.py \
   --model_name Qwen/Qwen2.5-3B \
   --pruning_strategy entropy \
   --pruning_level 0.3 \
-  --training_steps 500 \
+  --training_steps 1000 \
   --cycles 3
 ```
 
-Results are saved to `output/neural_plasticity_<timestamp>/` with:
-- Training metrics (CSV)
-- Attention heatmaps and pruning decision visualizations (PNG)
-- Generated text samples (baseline vs pruned)
-- Saved model checkpoint
+### Self-Directed (no hyperparameters)
 
-### Adaptive Architecture Experiment
+The controller decides everything — pruning ratio, strategy, training budget, when to stop:
 
-Demonstrates the full biological cycle with gate-based pruning and head mitosis (cloning):
+```bash
+python experiments/experiment_self_directed.py --model_name gpt2-medium
+```
+
+### Adaptive Architecture (head mitosis)
+
+Gate-based pruning with head cloning and divergence:
 
 ```bash
 python experiment_plasticity.py
 ```
 
-### Colab Notebook
+### Notebooks
 
-[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/CambrianTech/sentinel-ai/blob/main/colab_notebooks/NeuralPlasticityDemo.ipynb)
+| Notebook | Description |
+|----------|-------------|
+| [Neural Plasticity Evidence](paper/NEURAL-PLASTICITY-EVIDENCE.ipynb) | All experimental results with publication figures |
+| [Self-Directed Plasticity](paper/SELF-DIRECTED-PLASTICITY.ipynb) | V1→V2→PID controller evolution with transfer function analysis |
+| [Colab Demo](colab_notebooks/NeuralPlasticityDemo.ipynb) | Run on free Colab T4 GPU [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/CambrianTech/sentinel-ai/blob/main/colab_notebooks/NeuralPlasticityDemo.ipynb) |
 
-The notebook runs end-to-end on a free Colab T4 GPU.
+### Output
+
+Results save to `output/` with training metrics (CSV), attention heatmaps, pruning decision visualizations, generated text samples, and model checkpoints.
 
 ## How It Works
 
@@ -100,47 +110,40 @@ PRUNE → MEASURE → GROW → LEARN
   └─ Remove low-entropy heads (least informative)
 ```
 
-1. **Prune** — Identify and remove attention heads with low information content (high entropy = uniform attention = not useful). Strategies: entropy, magnitude, random.
+**Why it works**: Transformers have significant redundancy in their attention heads. Pruning forces remaining heads to specialize. The result is fewer parameters attending more efficiently — mirroring biological synaptic pruning during brain development.
 
-2. **Measure** — Evaluate perplexity impact. Track which layers lost capacity, which compensated.
+## Papers
 
-3. **Grow** — Clone high-utilization heads into freed slots. Each clone starts at 50% capacity, maintaining output continuity (0.5 + 0.5 = 1.0). Clones then diverge and specialize.
-
-4. **Learn** — Retrain with the pruned/grown architecture. Remaining heads adapt to cover lost capacity. New heads specialize into new roles.
-
-### Why It Works
-
-Transformers have significant redundancy in their attention heads. Many heads learn similar patterns. Pruning forces the remaining heads to specialize, and the retraining phase lets them adapt. The result is a model with fewer parameters that attends more efficiently.
-
-This mirrors biological neural plasticity — the brain continuously prunes synapses during development and sleep, yet cognitive capability improves because remaining connections specialize.
+- **[Neural Plasticity in Transformers](https://github.com/CambrianTech/continuum/blob/main/docs/papers/SENTINEL-AI-NEURAL-PLASTICITY.md)** — Full paper with theory, cross-architecture results, self-directed controller design, and hypothetical training cost analysis (~4x reduction via plasticity from inception)
+- **[Plasticity Compaction: SOTA-to-COTS via MoE Expert Pruning](https://github.com/CambrianTech/continuum/blob/main/docs/papers/PLASTICITY-COMPACTION-MOE.md)** — Applying plasticity principles to MoE models (67GB → 14GB)
+- **[Published models on HuggingFace](https://huggingface.co/continuum-ai)** — Compacted models ready to use
 
 ## Project Structure
 
 ```
 sentinel-ai/
-├── setup.sh                          # One-command setup
-├── experiment_plasticity.py           # Adaptive architecture demo
+├── setup.sh                              # One-command setup
+├── experiment_plasticity.py               # Adaptive architecture with head mitosis
+├── experiments/
+│   └── experiment_self_directed.py        # Self-directed plasticity (no hyperparams)
 ├── scripts/
-│   └── run_neural_plasticity.py       # Full experiment runner
-├── utils/neural_plasticity/
-│   ├── experiment.py                  # NeuralPlasticityExperiment class
-│   ├── visualization.py              # Attention heatmaps, dashboards
-│   ├── core.py                       # Head metrics, pruning masks
-│   └── training.py                   # Training loops
+│   └── run_neural_plasticity.py           # Full experiment runner
 ├── sentinel/
-│   ├── models/                       # Adaptive transformer, head cloning
-│   ├── plasticity/                   # Plasticity loop, sleep cycle
-│   └── pruning/                      # Pruning strategies, fine-tuning
-├── models/loaders/                   # Model-specific loaders (GPT2, OPT, etc.)
-├── colab_notebooks/                  # Colab-ready notebooks
-└── output/                           # Experiment results
+│   ├── controller/                        # Self-directed plasticity controller
+│   ├── models/                            # Adaptive transformer, head cloning
+│   ├── plasticity/                        # Plasticity loop, sleep cycle
+│   └── pruning/                           # Pruning strategies
+├── utils/neural_plasticity/
+│   ├── experiment.py                      # NeuralPlasticityExperiment class
+│   ├── core.py                            # Head metrics, pruning masks
+│   └── visualization.py                   # Attention heatmaps, dashboards
+├── paper/                                 # Publication notebooks and figures
+│   ├── NEURAL-PLASTICITY-EVIDENCE.ipynb
+│   ├── SELF-DIRECTED-PLASTICITY.ipynb
+│   └── figures/                           # Generated 300 DPI figures
+├── colab_notebooks/                       # Colab-ready notebooks
+└── output/                                # Experiment results
 ```
-
-## Related Work
-
-- **Paper**: [Neural Plasticity in Transformers](../continuum/docs/papers/SENTINEL-AI-NEURAL-PLASTICITY.md) — the theoretical foundation
-- **Paper**: [Plasticity Compaction](../continuum/docs/papers/PLASTICITY-COMPACTION.md) — applying plasticity to MoE models (67GB → 14GB)
-- **Published models**: [continuum-ai on HuggingFace](https://huggingface.co/continuum-ai) — compacted models ready to use
 
 ## License
 
