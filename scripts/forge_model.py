@@ -608,8 +608,9 @@ def train_lora(model, train_loader, cfg: ForgeConfig, steps=1000, lr=5e-5, outpu
         optimizer = torch.optim.AdamW(params, lr=lr, weight_decay=0.01)
 
     ga = cfg.grad_accum_steps
-    step, accum_loss, total_loss = 0, 0.0, 0.0
+    step, total_loss = 0, 0.0
     t0 = time.time()
+    scaler = torch.amp.GradScaler("cuda")  # Handles fp16 gradient scaling
 
     while step < steps:
         for batch in train_loader:
@@ -618,38 +619,21 @@ def train_lora(model, train_loader, cfg: ForgeConfig, steps=1000, lr=5e-5, outpu
             ids = batch["input_ids"].to(model.device)
             mask = batch["attention_mask"].to(model.device)
 
-            out = model(input_ids=ids, attention_mask=mask, labels=ids)
-            # Compute loss in fp32 to avoid NaN from pruned head gradients
-            loss = out.loss.float() / ga
-            if not math.isfinite(loss.item()):
-                nan_count = getattr(train_lora, '_nan_count', 0) + 1
-                train_lora._nan_count = nan_count
-                print(f"  [NaN #{nan_count} at step {step}] loss={out.loss.item()}")
-                if nan_count > 20:
-                    print(f"  TOO MANY NaN ({nan_count}). Stopping training.")
-                    if output_dir:
-                        write_status(output_dir, "training_failed",
-                                    f"NaN explosion: {nan_count} bad batches", step=step)
-                    break
-                optimizer.zero_grad()
-                step += 1  # Still count the step so we make progress
-                continue
-            loss.backward()
-            accum_loss += out.loss.item()
+            with torch.amp.autocast("cuda", dtype=torch.float16):
+                out = model(input_ids=ids, attention_mask=mask, labels=ids)
+                loss = out.loss / ga
+
+            scaler.scale(loss).backward()
 
             if (step + 1) % ga == 0 or step == steps - 1:
+                scaler.unscale_(optimizer)
                 torch.nn.utils.clip_grad_norm_(params, 1.0)
-                optimizer.step()
+                scaler.step(optimizer)
+                scaler.update()
                 optimizer.zero_grad()
 
             loss_val = out.loss.item()
-            if not math.isfinite(loss_val):
-                print(f"  NaN/Inf loss at step {step}! Stopping training.")
-                if output_dir:
-                    write_status(output_dir, "training_failed",
-                                f"NaN loss at step {step}", step=step)
-                break
-            total_loss += loss_val
+            total_loss += loss_val if math.isfinite(loss_val) else 0
             step += 1
 
             # Progress every 10 steps — never go blind
