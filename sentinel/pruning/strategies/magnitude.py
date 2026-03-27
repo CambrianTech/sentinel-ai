@@ -2,7 +2,10 @@
 Magnitude-based pruning strategy.
 """
 
-import jax.numpy as jnp
+try:
+    import jax.numpy as jnp
+except ImportError:
+    import numpy as jnp
 from typing import List, Tuple, Any
 from sentinel.pruning.strategies.base import PruningStrategy
 

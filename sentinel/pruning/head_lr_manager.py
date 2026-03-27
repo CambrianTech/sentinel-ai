@@ -8,8 +8,12 @@ for newly added heads during the growth phase of neural plasticity.
 # For backward compatibility
 __all__ = ['HeadLRManager']
 
-import jax
-import jax.numpy as jnp
+try:
+    import jax
+    import jax.numpy as jnp
+except ImportError:
+    import numpy as jnp
+    jax = None
 import numpy as np
 
 class HeadLRManager:
