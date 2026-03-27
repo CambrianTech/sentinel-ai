@@ -447,7 +447,10 @@ class NeuralPlasticityExperiment:
         # Load model
         if self.verbose:
             print(f"Loading model: {self.model_name}")
-        self.model = AutoModelForCausalLM.from_pretrained(self.model_name).to(self.device)
+        from transformers import AutoConfig
+        _cfg = AutoConfig.from_pretrained(self.model_name)
+        _cfg.output_attentions = True
+        self.model = AutoModelForCausalLM.from_pretrained(self.model_name, config=_cfg).to(self.device)
         
         # Load datasets
         if self.verbose:
