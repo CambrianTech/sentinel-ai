@@ -184,11 +184,12 @@ def load_model(model_name: str, load_4bit: bool):
 # Each domain: (dataset_id, config, text_column, train_split, val_split)
 DOMAIN_DATASETS = {
     "code": {
-        "dataset": "bigcode/starcoderdata",
-        "config": "python",
-        "text_col": "content",
+        "dataset": "m-a-p/CodeFeedback-Filtered-Instruction",
+        "config": None,
+        "text_col": "query",
+        "answer_col": "answer",
         "train_split": "train[:5000]",
-        "val_split": "train[5000:5200]",  # starcoderdata has no val split
+        "val_split": "train[5000:5200]",
     },
     "reasoning": {
         "dataset": "gsm8k",
@@ -199,11 +200,11 @@ DOMAIN_DATASETS = {
         "val_split": "test[:200]",
     },
     "general": {
-        "dataset": "HuggingFaceFW/fineweb",
-        "config": "sample-10BT",
+        "dataset": "Salesforce/wikitext",
+        "config": "wikitext-103-raw-v1",
         "text_col": "text",
         "train_split": "train[:5000]",
-        "val_split": "train[5000:5200]",
+        "val_split": "validation[:200]",
     },
     "chat": {
         "dataset": "stingning/ultrachat",
