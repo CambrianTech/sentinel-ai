@@ -16,6 +16,7 @@ Usage:
 import argparse
 import gc
 import json
+import math
 import os
 import sys
 import time
@@ -575,7 +576,7 @@ def prune(model, prune_percent, info, method="zero_weights"):
 # Training with LoRA
 # ---------------------------------------------------------------------------
 
-def train_lora(model, train_loader, cfg: ForgeConfig, steps=1000, lr=2e-4, output_dir: Path = None):
+def train_lora(model, train_loader, cfg: ForgeConfig, steps=1000, lr=5e-5, output_dir: Path = None):
     """LoRA training with gradient accumulation and proper checkpointing."""
     from peft import LoraConfig, get_peft_model, TaskType
 
@@ -618,7 +619,11 @@ def train_lora(model, train_loader, cfg: ForgeConfig, steps=1000, lr=2e-4, outpu
             mask = batch["attention_mask"].to(model.device)
 
             out = model(input_ids=ids, attention_mask=mask, labels=ids)
-            loss = out.loss / ga
+            # Compute loss in fp32 to avoid NaN from pruned head gradients
+            loss = out.loss.float() / ga
+            if not math.isfinite(loss.item()):
+                optimizer.zero_grad()
+                continue  # Skip this batch, don't propagate NaN
             loss.backward()
             accum_loss += out.loss.item()
 
@@ -627,7 +632,14 @@ def train_lora(model, train_loader, cfg: ForgeConfig, steps=1000, lr=2e-4, outpu
                 optimizer.step()
                 optimizer.zero_grad()
 
-            total_loss += out.loss.item()
+            loss_val = out.loss.item()
+            if not math.isfinite(loss_val):
+                print(f"  NaN/Inf loss at step {step}! Stopping training.")
+                if output_dir:
+                    write_status(output_dir, "training_failed",
+                                f"NaN loss at step {step}", step=step)
+                break
+            total_loss += loss_val
             step += 1
 
             # Progress every 10 steps — never go blind
@@ -712,7 +724,7 @@ def main():
     parser.add_argument("--cycles", type=int, default=3)
     parser.add_argument("--steps", type=int, default=1000)
     parser.add_argument("--prune-level", type=float, default=0.3)
-    parser.add_argument("--lr", type=float, default=2e-4)
+    parser.add_argument("--lr", type=float, default=5e-5)
     parser.add_argument("--max-samples", type=int, default=2000)
     parser.add_argument("--early-stop", type=float, default=None,
                        help="Stop if per-cycle improvement < this %%")
