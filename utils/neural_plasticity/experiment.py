@@ -459,7 +459,7 @@ class NeuralPlasticityExperiment:
             n = getattr(_cfg, 'num_hidden_layers', 12)
             param_estimate = h * h * n * 12
 
-        large_model = param_estimate > 3e9  # >3B params
+        large_model = param_estimate > 2e9  # >3B params
 
         if large_model and str(self.device) != 'cpu':
             if self.verbose:

@@ -14,7 +14,7 @@
 #   ├── figures/          (entropy heatmaps, recovery curves)
 #   └── benchmark/        (perplexity, generation samples)
 
-set -euo pipefail
+set -uo pipefail
 cd "$(dirname "$0")"
 
 # Ensure venv
