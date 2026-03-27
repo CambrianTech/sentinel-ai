@@ -17,6 +17,7 @@ Experiments run on RTX 5090 (32GB), March 2026. All models from HuggingFace, dat
 | gpt2-large | 774M | MHA | entropy | 30%, 3 cycles | 3.05 | **3.17** | -4.0% | 10 min |
 | gpt2-large | 774M | MHA | entropy | 40%, 2000 steps | 3.03 | **3.18** | -5.0% | 18 min |
 | **Qwen2.5-3B** | **3.1B** | **GQA** | entropy | 30%, 3 cycles | 2.30 | **2.28** | **+0.9%** | 34 min |
+| **Qwen2.5-7B** | **7.6B** | **GQA** | entropy | 30%, 3 cycles (4-bit) | 2.46 | **2.17** | **+11.8%** | 10 min |
 
 **Strategy ranking**: combined (+3.6%) > entropy (+2.7%) > baseline > random (-3.6%)
 

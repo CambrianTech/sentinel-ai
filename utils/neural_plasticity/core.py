@@ -1215,7 +1215,7 @@ def evaluate_model(
             # Add labels for causal LM if not present
             if "labels" not in inputs and "input_ids" in inputs:
                 inputs["labels"] = inputs["input_ids"].clone()
-                outputs = model(**inputs)
+            outputs = model(**inputs)
             
             # Get loss
             if hasattr(outputs, "loss"):

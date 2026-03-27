@@ -135,3 +135,4 @@ archive/
 *_backup_*.ipynb
 /np_test_output/
 /debug/
+paper/output
