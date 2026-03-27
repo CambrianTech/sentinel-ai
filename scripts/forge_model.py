@@ -69,7 +69,7 @@ class ForgeConfig:
                 tier="B", load_4bit=False,
                 batch_size=2, seq_len=256, grad_accum_steps=4,
                 lora_r=16, lora_alpha=32, use_8bit_optim=False,
-                pruning_method="zero_weights",
+                pruning_method="forward_hooks",  # hooks everywhere — zeroing causes NaN
             )
         else:
             # Tier A: comfortable
@@ -77,7 +77,7 @@ class ForgeConfig:
                 tier="A", load_4bit=False,
                 batch_size=4, seq_len=256, grad_accum_steps=2,
                 lora_r=16, lora_alpha=32, use_8bit_optim=False,
-                pruning_method="zero_weights",
+                pruning_method="forward_hooks",  # hooks everywhere — zeroing causes NaN
             )
 
 
