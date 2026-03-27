@@ -1242,8 +1242,8 @@ class NeuralPlasticityExperiment:
                 f.write(f"Pruning Strategy: {self.pruning_strategy}\n")
                 f.write(f"Pruning Level: {self.pruning_level:.2f}\n\n")
                 
-                f.write(f"Baseline Loss: {self.baseline_loss:.4f}\n")
-                f.write(f"Baseline Perplexity: {self.baseline_perplexity:.2f}\n\n")
+                f.write(f"Baseline Loss: {self.baseline_loss if self.baseline_loss is not None else 0:.4f}\n")
+                f.write(f"Baseline Perplexity: {(self.baseline_perplexity or 0):.2f}\n\n")
                 
                 f.write(f"Final Loss: {eval_loss:.4f}\n")
                 f.write(f"Final Perplexity: {eval_perplexity:.2f}\n")
@@ -2272,8 +2272,8 @@ class NeuralPlasticityExperiment:
                 f.write(f"Pruning Strategy: {self.pruning_strategy}\n")
                 f.write(f"Pruning Level: {self.pruning_level:.2f}\n\n")
                 
-                f.write(f"Baseline Loss: {self.baseline_loss:.4f}\n")
-                f.write(f"Baseline Perplexity: {self.baseline_perplexity:.2f}\n\n")
+                f.write(f"Baseline Loss: {self.baseline_loss if self.baseline_loss is not None else 0:.4f}\n")
+                f.write(f"Baseline Perplexity: {(self.baseline_perplexity or 0):.2f}\n\n")
                 
                 f.write(f"Final Loss: {self.final_loss:.4f}\n")
                 f.write(f"Final Perplexity: {self.final_perplexity:.2f}\n")

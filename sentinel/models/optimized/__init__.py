@@ -1,8 +1,9 @@
 """
 Sentinel-AI Optimized Model Components
-
-This module provides optimized implementations of model components
-for improved performance in various environments.
+Re-exports from models.optimized where implementations live.
 """
 
-from sentinel.models.optimized.integration_optimized import OptimizedModelIntegration
+try:
+    from models.optimized.integration_optimized import OptimizedModelIntegration
+except ImportError:
+    pass
