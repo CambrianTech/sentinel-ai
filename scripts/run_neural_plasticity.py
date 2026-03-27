@@ -93,7 +93,7 @@ if __name__ == "__main__":
     # Pruning configuration group
     pruning_group = parser.add_argument_group("Pruning Configuration")
     pruning_group.add_argument("--pruning_strategy", type=str, default="entropy", 
-                             choices=["entropy", "magnitude", "random", "combined"],
+                             choices=["entropy", "gradient", "random", "combined"],
                              help="Pruning strategy to use")
     pruning_group.add_argument("--pruning_level", type=float, default=0.2, 
                              help="Pruning level (0.0 to 1.0)")
