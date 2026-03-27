@@ -14,7 +14,7 @@ Experiments run on RTX 5090 (32GB), March 2026. All models from HuggingFace, dat
 | gpt2-medium | 355M | 30% entropy, 3 cycles | 115/384 | 3.34 | **3.25** | +2.7% | 3 min |
 | gpt2-large | 774M | 30% entropy, 3 cycles | 216/720 | 3.05 | **3.17** | -4.0% | 10 min |
 | gpt2-large | 774M | 40% entropy, 3 cycles | 288/720 | 3.03 | **3.27** | -8.1% | 6 min |
-| Qwen2.5-3B | 3B | 30% entropy | — | 2.30 | **2.25** | +2.2% | ~20 min |
+| Qwen2.5-3B | 3B | 30% entropy, 3 cycles | 30% sparsity | 2.30 | **2.29** | +0.45% | 19 min |
 
 Key findings:
 - **30% pruning consistently recovers or improves** over baseline after retraining
