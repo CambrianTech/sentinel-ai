@@ -622,8 +622,18 @@ def train_lora(model, train_loader, cfg: ForgeConfig, steps=1000, lr=5e-5, outpu
             # Compute loss in fp32 to avoid NaN from pruned head gradients
             loss = out.loss.float() / ga
             if not math.isfinite(loss.item()):
+                nan_count = getattr(train_lora, '_nan_count', 0) + 1
+                train_lora._nan_count = nan_count
+                print(f"  [NaN #{nan_count} at step {step}] loss={out.loss.item()}")
+                if nan_count > 20:
+                    print(f"  TOO MANY NaN ({nan_count}). Stopping training.")
+                    if output_dir:
+                        write_status(output_dir, "training_failed",
+                                    f"NaN explosion: {nan_count} bad batches", step=step)
+                    break
                 optimizer.zero_grad()
-                continue  # Skip this batch, don't propagate NaN
+                step += 1  # Still count the step so we make progress
+                continue
             loss.backward()
             accum_loss += out.loss.item()
 
