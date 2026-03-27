@@ -54,9 +54,9 @@ def build_repo_name(model_name: str, domain: str, org: str) -> str:
     # Clean up
     base = base.replace("qwen2.5-", "qwen2.5-").replace("qwen3.5-", "qwen3.5-")
 
-    if domain and domain != "general":
-        return f"{org}/{base}-{domain}-forged"
-    return f"{org}/{base}-forged"
+    if not domain:
+        raise ValueError("Domain is required. Use: general, code, reasoning, chat, science, teaching")
+    return f"{org}/{base}-{domain}-forged"
 
 
 def build_model_card(results: dict, domain: str, hardware_targets: list, generation_samples: dict = None) -> str:
