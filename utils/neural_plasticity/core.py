@@ -477,6 +477,9 @@ def calculate_head_gradients(
                 inputs["labels"] = batch[2].to(device)
         
         # Forward pass with gradient tracking
+        # Add labels for causal LM if not present
+        if "labels" not in inputs and "input_ids" in inputs:
+            inputs["labels"] = inputs["input_ids"].clone()
         outputs = model(**inputs)
         
         # Get loss
@@ -828,7 +831,7 @@ def generate_pruning_mask(
                     # Make values reasonably distributed for entropy (0.2-0.8 range)
                     entropy_values = 0.2 + 0.6 * entropy_values
             
-        flat_entropy = entropy_values.view(-1)
+        flat_entropy = entropy_values.reshape(-1)
         
         # Safety check: Ensure the flattened dimension matches the expected size
         if flat_entropy.numel() != total_heads:
@@ -939,7 +942,7 @@ def generate_pruning_mask(
                     # Make values reasonably distributed for entropy (0.2-0.8 range)
                     entropy_values = 0.2 + 0.6 * entropy_values
             
-        flat_entropy = entropy_values.view(-1)
+        flat_entropy = entropy_values.reshape(-1)
         
         # Safety check: Ensure the flattened dimension matches
         if flat_entropy.numel() != total_heads:
@@ -1209,7 +1212,10 @@ def evaluate_model(
                     inputs["labels"] = batch[2].to(device)
             
             # Forward pass
-            outputs = model(**inputs)
+            # Add labels for causal LM if not present
+            if "labels" not in inputs and "input_ids" in inputs:
+                inputs["labels"] = inputs["input_ids"].clone()
+                outputs = model(**inputs)
             
             # Get loss
             if hasattr(outputs, "loss"):
