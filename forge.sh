@@ -33,6 +33,8 @@ DEVICE="cuda"
 BATCH_FILE=""
 PUBLISH=false
 DOMAIN="general"
+EARLY_STOP=""
+RESUME=""
 
 # Parse args
 MODEL=""
@@ -46,6 +48,8 @@ while [[ $# -gt 0 ]]; do
         --batch) BATCH_FILE="$2"; shift 2 ;;
         --publish) PUBLISH=true; shift ;;
         --domain) DOMAIN="$2"; shift 2 ;;
+        --early-stop) EARLY_STOP="$2"; shift 2 ;;
+        --resume) RESUME="$2"; shift 2 ;;
         *) MODEL="$1"; shift ;;
     esac
 done
@@ -67,14 +71,22 @@ forge_model() {
     mkdir -p "$output_dir/figures" "$output_dir/benchmark"
 
     # Step 1: Run plasticity experiment
+    # If resuming, use saved model weights as the starting point
+    local effective_model="$model"
+    if [ -n "$RESUME" ] && [ -d "$RESUME/model" ]; then
+        effective_model="$RESUME/model"
+        echo "[RESUME] Continuing from $RESUME/model"
+    fi
+
     echo "[1/5] Running experiential plasticity..."
     .venv/bin/python3 scripts/run_neural_plasticity.py \
-        --model_name "$model" \
+        --model_name "$effective_model" \
         --pruning_strategy "$STRATEGY" \
         --pruning_level "$PRUNING_LEVEL" \
         --training_steps "$STEPS" \
         --cycles "$CYCLES" \
         --save_model \
+        ${EARLY_STOP:+--early_stop "$EARLY_STOP"} \
         --device "$DEVICE" 2>&1 | tee "$output_dir/forge.log"
 
     # Find the experiment output directory (most recent)
@@ -256,7 +268,7 @@ fi
 
 # Single model
 if [ -z "$MODEL" ]; then
-    echo "Usage: ./forge.sh <model_name> [--strategy combined] [--pruning 0.3] [--steps 1000] [--cycles 3] [--domain general] [--publish]"
+    echo "Usage: ./forge.sh <model_name> [--strategy combined] [--pruning 0.3] [--steps 1000] [--cycles 3] [--domain general] [--publish] [--early-stop 0.5] [--resume output/forged/qwen2.5-7b]"
     echo "       ./forge.sh --batch forge_list.txt"
     exit 1
 fi

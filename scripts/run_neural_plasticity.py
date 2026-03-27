@@ -101,6 +101,8 @@ if __name__ == "__main__":
                              help="Learning rate for training")
     pruning_group.add_argument("--cycles", type=int, default=1, 
                              help="Number of pruning cycles to run")
+    pruning_group.add_argument("--early_stop", type=float, default=None,
+                             help="Stop if per-cycle improvement drops below this %% (e.g., 0.5)")
     pruning_group.add_argument("--training_steps", type=int, default=100, 
                              help="Number of training steps per cycle")
     
@@ -338,6 +340,8 @@ if __name__ == "__main__":
                 "pruning_cycles": args.cycles,
                 "training_steps": training_steps,
             }
+            if args.early_stop is not None:
+                experiment_opts["early_stop_threshold"] = args.early_stop
             
             # Check if the run_full_experiment method accepts our callback parameters
             run_experiment_params = inspect.signature(experiment.run_full_experiment).parameters

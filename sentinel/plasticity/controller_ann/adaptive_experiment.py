@@ -763,7 +763,10 @@ class AdaptiveNeuralPlasticityExperiment(NeuralPlasticityExperiment):
         pruning_cycles=3,
         pruning_level=0.2,
         learning_rate=5e-5,
-        config=None
+        config=None,
+        early_stop_threshold=None,
+        progress_callback=None,
+        pruning_callback=None,
     ):
         """
         Run the complete adaptive neural plasticity experiment.
@@ -857,6 +860,17 @@ class AdaptiveNeuralPlasticityExperiment(NeuralPlasticityExperiment):
                 "pruning": pruning_results,
                 "finetuning": finetuning_results
             })
+
+            # Convergence detection: stop early if improvement plateaus
+            if early_stop_threshold is not None and len(cycle_results) >= 2:
+                prev_ppl = cycle_results[-2].get("finetuning", {}).get("final_perplexity", 0)
+                curr_ppl = finetuning_results.get("final_perplexity", 0)
+                if prev_ppl > 0 and curr_ppl > 0:
+                    cycle_improvement = abs(prev_ppl - curr_ppl) / prev_ppl * 100
+                    if cycle_improvement < early_stop_threshold:
+                        logger.info(f"Convergence detected: cycle {cycle} improvement {cycle_improvement:.3f}% < threshold {early_stop_threshold}%")
+                        logger.info(f"Stopping early at cycle {cycle}/{pruning_cycles}")
+                        break
         
         results["cycles"] = cycle_results
         
