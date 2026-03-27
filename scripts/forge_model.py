@@ -178,28 +178,208 @@ def load_model(model_name: str, load_4bit: bool):
 
 
 # ---------------------------------------------------------------------------
-# Data
+# Domain-driven data — the domain determines EVERYTHING about training
 # ---------------------------------------------------------------------------
 
-def make_dataloaders(tokenizer, cfg: ForgeConfig, max_samples=2000):
-    """Load limited dataset with config-driven batch size."""
+# Each domain: (dataset_id, config, text_column, train_split, val_split)
+DOMAIN_DATASETS = {
+    "code": {
+        "dataset": "bigcode/starcoderdata",
+        "config": "python",
+        "text_col": "content",
+        "train_split": "train[:5000]",
+        "val_split": "train[5000:5200]",  # starcoderdata has no val split
+    },
+    "reasoning": {
+        "dataset": "gsm8k",
+        "config": "main",
+        "text_col": "question",  # Will concat question + answer
+        "answer_col": "answer",
+        "train_split": "train[:5000]",
+        "val_split": "test[:200]",
+    },
+    "general": {
+        "dataset": "HuggingFaceFW/fineweb",
+        "config": "sample-10BT",
+        "text_col": "text",
+        "train_split": "train[:5000]",
+        "val_split": "train[5000:5200]",
+    },
+    "chat": {
+        "dataset": "stingning/ultrachat",
+        "config": None,
+        "text_col": "data",  # needs special handling — list of turns
+        "train_split": "train[:5000]",
+        "val_split": "train[5000:5200]",
+    },
+    "science": {
+        "dataset": "scientific_papers",
+        "config": "arxiv",
+        "text_col": "article",
+        "train_split": "train[:5000]",
+        "val_split": "validation[:200]",
+    },
+}
+
+# Domain-specific generation prompts — must actually challenge the model
+DOMAIN_PROMPTS = {
+    "code": {
+        "concurrent_system": (
+            "Implement a lock-free concurrent hash map in Python using atomics. "
+            "Handle resize operations without blocking readers. Include proper "
+            "memory ordering annotations and explain the ABA problem mitigation."
+        ),
+        "system_design": (
+            "Design a distributed rate limiter that works across multiple servers "
+            "without a central coordinator. Use a sliding window algorithm. "
+            "Handle clock skew between nodes. Show the implementation."
+        ),
+        "debugging": (
+            "This async Python server has a memory leak that only manifests under "
+            "high concurrency. The leak grows at ~50MB/hour. Identify likely causes "
+            "and write diagnostic code to find the exact source."
+        ),
+        "refactoring": (
+            "Refactor this 500-line God class into a proper domain model using "
+            "the repository pattern, dependency injection, and event sourcing. "
+            "Show the key interfaces and one concrete implementation."
+        ),
+    },
+    "reasoning": {
+        "multi_step": (
+            "A company has 3 departments. Engineering has twice as many people as Sales. "
+            "Marketing has 15 fewer people than Engineering. The total headcount is 285. "
+            "Each engineer costs $150K/year, each salesperson $120K, each marketer $95K. "
+            "What is the total annual salary budget? Show every step."
+        ),
+        "logic": (
+            "Five houses in a row are painted different colors. Each owner has a different "
+            "pet, drink, and hobby. Given: The red house is immediately left of the white house. "
+            "The dog owner drinks tea. The painter lives in the yellow house. "
+            "The horse owner is next to the painter. Work through this systematically."
+        ),
+        "optimization": (
+            "You have 12 servers, each with different CPU and memory specs. You need to "
+            "schedule 50 jobs with varying resource requirements to minimize total completion "
+            "time. Describe the algorithm, prove its approximation ratio, and show edge cases."
+        ),
+        "proof": (
+            "Prove that for any continuous function f: [0,1] -> [0,1], there exists a "
+            "fixed point x such that f(x) = x. Then generalize to higher dimensions "
+            "and explain why this matters for neural network convergence."
+        ),
+    },
+    "general": {
+        "analysis": (
+            "Analyze the economic implications of widespread adoption of local AI models "
+            "running on consumer hardware. Consider impacts on cloud providers, data privacy "
+            "regulations, employment in AI services, and the democratization of intelligence. "
+            "Use specific examples and data points."
+        ),
+        "synthesis": (
+            "Compare the governance structures of the EU AI Act, China's AI regulations, "
+            "and the US executive order on AI. Identify the fundamental philosophical "
+            "differences, practical enforcement challenges, and predict convergence or "
+            "divergence over the next decade."
+        ),
+        "technical_writing": (
+            "Write a technical blog post explaining how attention head pruning with "
+            "experiential plasticity can make large language models smaller AND better. "
+            "Target audience: ML engineers who know transformers but not pruning. "
+            "Include analogies to biological neural development."
+        ),
+        "nuanced_opinion": (
+            "Make a balanced argument for and against open-sourcing frontier AI models. "
+            "Address safety concerns, innovation velocity, competitive dynamics between "
+            "nations, and the specific case of models capable of autonomous code execution. "
+            "Don't hedge — take clear positions on each sub-question."
+        ),
+    },
+    "science": {
+        "hypothesis": (
+            "Given recent observations of anomalous galaxy rotation curves that deviate "
+            "from both MOND and standard dark matter predictions, propose a testable "
+            "hypothesis that could explain the discrepancy. Include the mathematical "
+            "framework and specific observational tests."
+        ),
+        "methodology": (
+            "Design an experiment to determine whether transformer attention heads "
+            "develop specialized functions analogous to cortical columns in the brain. "
+            "Define your metrics, controls, and statistical tests. Address the challenge "
+            "of polysemantic neurons."
+        ),
+    },
+    "chat": {
+        "complex_request": (
+            "I'm building a home automation system and my Zigbee mesh keeps dropping "
+            "devices when more than 20 are connected. I've tried 3 different coordinators. "
+            "The network map shows some devices routing through others that are unreliable. "
+            "How do I fix this without replacing all my devices?"
+        ),
+        "emotional_intelligence": (
+            "My team lead just told me my code review style is 'too aggressive' and "
+            "it's making junior developers afraid to submit PRs. I genuinely believe "
+            "I'm maintaining quality standards. How do I adjust without lowering the bar?"
+        ),
+    },
+}
+
+
+def make_dataloaders(tokenizer, cfg: ForgeConfig, domain: str, max_samples=2000):
+    """Load domain-appropriate dataset."""
     from datasets import load_dataset
     from torch.utils.data import DataLoader
 
-    train = load_dataset("wikitext", "wikitext-2-raw-v1", split=f"train[:{max_samples}]")
-    val = load_dataset("wikitext", "wikitext-2-raw-v1", split="validation[:200]")
+    if domain not in DOMAIN_DATASETS:
+        raise ValueError(f"Unknown domain '{domain}'. Available: {list(DOMAIN_DATASETS.keys())}")
+
+    ds_cfg = DOMAIN_DATASETS[domain]
+    dataset_id = ds_cfg["dataset"]
+    config = ds_cfg["config"]
+    text_col = ds_cfg["text_col"]
+
+    print(f"  Dataset: {dataset_id}" + (f" ({config})" if config else ""))
+
+    load_kwargs = {"split": ds_cfg["train_split"]}
+    val_kwargs = {"split": ds_cfg["val_split"]}
+    if config:
+        load_kwargs["name"] = config
+        val_kwargs["name"] = config
+
+    try:
+        train = load_dataset(dataset_id, **load_kwargs)
+        val = load_dataset(dataset_id, **val_kwargs)
+    except Exception as e:
+        print(f"  Failed to load {dataset_id}: {e}")
+        print(f"  Falling back to wikitext-2 (NOT IDEAL — fix the dataset config)")
+        train = load_dataset("wikitext", "wikitext-2-raw-v1", split=f"train[:{max_samples}]")
+        val = load_dataset("wikitext", "wikitext-2-raw-v1", split="validation[:200]")
+        text_col = "text"
+
+    # Handle special cases
+    answer_col = ds_cfg.get("answer_col")
 
     def tok_fn(examples):
-        return tokenizer(examples["text"], truncation=True,
+        texts = examples[text_col]
+        # For Q&A datasets, concatenate question + answer
+        if answer_col and answer_col in examples:
+            texts = [f"{q}\n{a}" for q, a in zip(texts, examples[answer_col])]
+        # For chat datasets with turn lists
+        if isinstance(texts[0], list):
+            texts = ["\n".join(str(t) for t in turns) for turns in texts]
+        return tokenizer(texts, truncation=True,
                         max_length=cfg.seq_len, padding="max_length",
                         return_tensors="pt")
 
-    train = train.filter(lambda x: len(x["text"].strip()) > 20)
-    val = val.filter(lambda x: len(x["text"].strip()) > 20)
-    train = train.map(tok_fn, batched=True, remove_columns=["text"])
-    val = val.map(tok_fn, batched=True, remove_columns=["text"])
+    cols_to_remove = [c for c in train.column_names if c != "input_ids" and c != "attention_mask"]
+    train = train.filter(lambda x: len(str(x[text_col]).strip()) > 20)
+    val = val.filter(lambda x: len(str(x[text_col]).strip()) > 20)
+    train = train.map(tok_fn, batched=True, remove_columns=cols_to_remove)
+    val = val.map(tok_fn, batched=True, remove_columns=cols_to_remove)
     train.set_format("torch")
     val.set_format("torch")
+
+    print(f"  Train: {len(train)} samples, Val: {len(val)} samples")
 
     return (DataLoader(train, batch_size=cfg.batch_size, shuffle=True),
             DataLoader(val, batch_size=cfg.batch_size))
@@ -440,35 +620,10 @@ def train_lora(model, train_loader, cfg: ForgeConfig, steps=1000, lr=2e-4):
 # Generation samples
 # ---------------------------------------------------------------------------
 
-def generate_samples(model, tokenizer):
-    """Proof-of-quality output samples — prompts that actually challenge the model."""
+def generate_samples(model, tokenizer, domain: str):
+    """Domain-appropriate output samples that actually challenge the model."""
     model.eval()
-    prompts = {
-        "reasoning": (
-            "A farmer has 3 fields. Field A produces 40% more wheat than Field B. "
-            "Field C produces half of what A and B produce combined. "
-            "If Field B produces 500kg, how much total wheat is produced? "
-            "Show your reasoning step by step."
-        ),
-        "code": (
-            "Write a Python function that implements a thread-safe LRU cache with TTL "
-            "(time-to-live) expiration. It should handle concurrent reads and writes, "
-            "evict expired entries lazily, and support a max_size parameter. "
-            "Include type hints and docstring."
-        ),
-        "analysis": (
-            "Compare the architectural trade-offs between transformer-based and "
-            "state-space models (like Mamba) for long-context inference. Consider "
-            "memory complexity, training efficiency, and real-world deployment "
-            "on consumer hardware with 32GB VRAM."
-        ),
-        "agentic": (
-            "You are an AI assistant with access to a file system and a web browser. "
-            "A user asks: 'Find all Python files in my project that import requests "
-            "but don't handle connection timeouts, then suggest fixes.' "
-            "Describe your step-by-step approach and what tools you'd use."
-        ),
-    }
+    prompts = DOMAIN_PROMPTS.get(domain, DOMAIN_PROMPTS["general"])
     samples = {}
     for name, prompt in prompts.items():
         inputs = tokenizer(prompt, return_tensors="pt").to(model.device)
@@ -528,7 +683,7 @@ def main():
     # --- 1. Load ---
     print("[1] Loading model...")
     model, tokenizer = load_model(args.model, cfg.load_4bit)
-    train_loader, eval_loader = make_dataloaders(tokenizer, cfg, args.max_samples)
+    train_loader, eval_loader = make_dataloaders(tokenizer, cfg, args.domain, args.max_samples)
 
     # --- 2. Baseline ---
     print("[2] Evaluating baseline...")
@@ -590,7 +745,7 @@ def main():
 
     # --- 5. Generate samples ---
     print("\n[4] Generating output samples...")
-    samples = generate_samples(model, tokenizer)
+    samples = generate_samples(model, tokenizer, args.domain)
     for name, text in samples.items():
         (out / "benchmark" / f"{name}.txt").write_text(text)
 
@@ -617,6 +772,7 @@ def main():
         "device": torch.cuda.get_device_name(0),
         "tier": cfg.tier,
         "load_4bit": cfg.load_4bit,
+        "training_data": DOMAIN_DATASETS.get(args.domain, {}).get("dataset", "unknown"),
         "training_method": f"LoRA (r={cfg.lora_r}, alpha={cfg.lora_alpha})",
         "batch_size": cfg.batch_size,
         "grad_accum_steps": cfg.grad_accum_steps,
