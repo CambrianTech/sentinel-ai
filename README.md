@@ -113,6 +113,35 @@ PRUNE → MEASURE → GROW → LEARN
 
 **Why it works**: Transformers have significant redundancy in their attention heads. Pruning forces remaining heads to specialize. The result is fewer parameters attending more efficiently — mirroring biological synaptic pruning during brain development.
 
+
+### Scaling Law
+
+Improvement from plasticity scales with model size. Smaller models have little redundancy to exploit; larger models benefit dramatically.
+
+| Model Size | Improvement |
+|-----------|-------------|
+| 0.5B | -3.2% (too small) |
+| 1.5B | +3.0% |
+| 3B | +0.4% |
+| **7B** | **+14.6%** |
+
+### Transfer Function
+
+Recovery from iterative pruning follows `1.45*exp(-0.18*cycle) - 0.03` -- a measurable system response that connects transformer architecture optimization to classical control theory. This enables a self-directed controller that decides pruning ratio, strategy, training budget, and stopping criteria from model state alone.
+
+### Self-Directed Controller
+
+The `AdaptivePlasticityController` observes the model and makes all decisions:
+- **How much to prune**: derived from measured head redundancy
+- **Which strategy**: selected from past cycle recovery performance
+- **When to stop training**: loss plateau detection
+- **When to stop cycling**: quality-aware stopping (recovery ratio + consecutive PPL tracking)
+
+```bash
+# No hyperparameters -- the controller decides everything
+python experiments/experiment_self_directed.py --model_name gpt2-medium
+```
+
 ## Papers
 
 - **[Neural Plasticity in Transformers](https://github.com/CambrianTech/continuum/blob/main/docs/papers/SENTINEL-AI-NEURAL-PLASTICITY.md)** — Full paper with theory, cross-architecture results, self-directed controller design, and hypothetical training cost analysis (~4x reduction via plasticity from inception)
