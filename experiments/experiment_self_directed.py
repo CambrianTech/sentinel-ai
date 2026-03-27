@@ -223,9 +223,10 @@ def main():
         grad_norms = calculate_head_gradients(model, eval_loader)
 
         pruning_mask = generate_pruning_mask(
-            entropy_values, grad_norms,
-            pruning_level=action.pruning_ratio,
+            grad_norms,
+            prune_percent=action.pruning_ratio,
             strategy=action.strategy,
+            entropy_values=entropy_values,
         )
 
         # Measure pre-train post-prune quality
