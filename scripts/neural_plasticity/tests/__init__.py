@@ -1,3 +1,0 @@
-"""
-Neural plasticity tests package.
-"""
