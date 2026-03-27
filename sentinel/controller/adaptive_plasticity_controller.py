@@ -177,6 +177,13 @@ class AdaptivePlasticityController:
     def decide(self, state: PlasticityState) -> PlasticityAction:
         """
         Main decision function. Observes model state, returns action.
+
+        Uses three stopping criteria:
+        1. Max cycles reached
+        2. Redundancy too low (model is efficient)
+        3. Recovery ratio declining (model is being damaged faster than it heals)
+
+        Adapts pruning ratio based on recent recovery performance.
         """
         self.cycle_count += 1
 
@@ -188,6 +195,34 @@ class AdaptivePlasticityController:
                 max_training_steps=0,
                 reason=f"Maximum cycle count ({self.max_cycles}) reached. Stopping."
             )
+
+        # Quality-aware stopping: check if recent cycles are degrading
+        if len(self.history) >= 2:
+            recent = self.history[-2:]
+            avg_recovery = np.mean([r.recovery_ratio for r in recent])
+
+            if avg_recovery < 0.3:
+                return PlasticityAction(
+                    should_prune=False,
+                    pruning_ratio=0.0,
+                    strategy="none",
+                    max_training_steps=0,
+                    reason=f"Recovery ratio declining ({avg_recovery:.1%} avg over last 2 cycles). "
+                           f"Model is at structural limit. Stopping."
+                )
+
+            # Also stop if post-train PPL is getting worse cycle over cycle
+            if len(self.history) >= 3:
+                ppl_trend = [r.post_train_ppl for r in self.history[-3:]]
+                if all(ppl_trend[i] > ppl_trend[i-1] for i in range(1, len(ppl_trend))):
+                    return PlasticityAction(
+                        should_prune=False,
+                        pruning_ratio=0.0,
+                        strategy="none",
+                        max_training_steps=0,
+                        reason=f"Perplexity degrading for 3 consecutive cycles "
+                               f"({ppl_trend[0]:.2f} → {ppl_trend[1]:.2f} → {ppl_trend[2]:.2f}). Stopping."
+                    )
 
         # 1. Assess redundancy
         redundancy = self.assess_redundancy(state)
@@ -201,8 +236,20 @@ class AdaptivePlasticityController:
                 reason=f"Redundancy too low ({redundancy:.3f}). Model is already efficient."
             )
 
-        # 2. Determine pruning ratio from redundancy
-        pruning_ratio = self.select_pruning_ratio(redundancy)
+        # 2. Determine pruning ratio — adapt based on recent recovery
+        base_ratio = self.select_pruning_ratio(redundancy)
+
+        if self.history:
+            last_recovery = self.history[-1].recovery_ratio
+            if last_recovery < 0.5:
+                # Recovery is weak — back off on pruning
+                base_ratio = max(self.min_pruning_ratio, base_ratio * 0.5)
+            elif last_recovery < 0.75:
+                # Recovery is moderate — slight reduction
+                base_ratio = max(self.min_pruning_ratio, base_ratio * 0.75)
+            # Recovery > 0.75 — keep current ratio (model is handling it)
+
+        pruning_ratio = round(base_ratio, 2)
 
         # 3. Select best strategy from history
         strategy = self.select_strategy()
@@ -216,6 +263,8 @@ class AdaptivePlasticityController:
             f"using {strategy} strategy, "
             f"up to {max_steps} training steps"
         )
+        if self.history:
+            reason += f" (last recovery: {self.history[-1].recovery_ratio:.1%})"
 
         return PlasticityAction(
             should_prune=True,
