@@ -546,9 +546,8 @@ def prune_by_zeroing(model, heads_to_prune, info):
 
 
 def prune_by_hooks(model, heads_to_prune, info):
-    """Install forward hooks that mask pruned head outputs — for 4-bit models (Tier C)."""
+    """Install forward hooks that mask pruned head outputs."""
     layers = get_layers(model)
-    head_dim = info["head_dim"]
     hooks = []
 
     for li, head_list in heads_to_prune.items():
@@ -559,19 +558,19 @@ def prune_by_hooks(model, heads_to_prune, info):
         if o_proj is None:
             continue
 
+        # Get actual head dim from o_proj shape (not config)
+        o_dim_per_head = o_proj.weight.shape[1] // info["num_heads"]
+
         def make_hook(pruned_heads, hd):
-            def hook_fn(module, inp, output):
+            def hook_fn(module, input, output):
                 for hi in pruned_heads:
                     s, e = hi * hd, (hi + 1) * hd
-                    if isinstance(inp, tuple):
-                        # o_proj input is the concatenated head outputs
-                        # Zero the input to o_proj for pruned heads
-                        x = inp[0]
-                        x[:, :, s:e] = 0
+                    if e <= output.shape[-1]:
+                        output[:, :, s:e] = 0
                 return output
             return hook_fn
 
-        h = o_proj.register_forward_pre_hook(make_hook(head_list, head_dim))
+        h = o_proj.register_forward_hook(make_hook(head_list, o_dim_per_head))
         hooks.append(h)
 
     return hooks
