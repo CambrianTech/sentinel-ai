@@ -465,13 +465,12 @@ def compute_head_importance(model, info: dict):
     layers = get_layers(model)
     n_layers = info["num_layers"]
     n_heads = info["num_heads"]
-    head_dim = info["head_dim"]
-    importance = torch.full((n_layers, n_heads), float('inf'))  # inf = never prune non-attn layers
+    importance = torch.full((n_layers, n_heads), float('inf'))
 
     for li in range(n_layers):
         attn = getattr(layers[li], "self_attn", getattr(layers[li], "attn", None))
         if attn is None:
-            continue  # Layer has no self_attn — importance stays inf, won't be pruned
+            continue
         q = getattr(attn, "q_proj", None)
         if q is None:
             continue
@@ -479,11 +478,13 @@ def compute_head_importance(model, info: dict):
         try:
             w = q.weight.data.float()
         except Exception:
-            # bitsandbytes may need special handling
             import bitsandbytes as bnb
             w = bnb.functional.dequantize_4bit(q.weight.data, q.weight.quant_state).float()
-        for hi in range(n_heads):
-            s, e = hi * head_dim, (hi + 1) * head_dim
+        # Compute head_dim from actual tensor (may change after defrag)
+        actual_heads = min(n_heads, w.shape[0] // max(w.shape[0] // n_heads, 1)) if w.shape[0] >= n_heads else w.shape[0]
+        actual_head_dim = w.shape[0] // actual_heads if actual_heads > 0 else 1
+        for hi in range(actual_heads):
+            s, e = hi * actual_head_dim, (hi + 1) * actual_head_dim
             if e <= w.shape[0]:
                 importance[li, hi] = w[s:e].norm().item()
 
@@ -839,8 +840,29 @@ def main():
                 write_status(out, "defrag_done", f"Freed {freed_mb:.0f}MB",
                             cycle=cycle, freed_mb=round(freed_mb))
                 check_vram("post-defrag")
+
+                # Update model info — dimensions changed after defrag
+                info = get_model_info.__wrapped__(model) if hasattr(get_model_info, '__wrapped__') else info
+                # Recount heads from actual tensor shapes
+                try:
+                    sample_layer = None
+                    for layer in get_layers(model):
+                        if hasattr(layer, "self_attn") and layer.self_attn is not None:
+                            sample_layer = layer
+                            break
+                    if sample_layer and hasattr(sample_layer.self_attn, "q_proj"):
+                        q_shape = sample_layer.self_attn.q_proj.weight.shape
+                        tc = nested_config(model.config)
+                        old_heads = info["num_heads"]
+                        # head_dim stays the same, num_heads changes
+                        new_num_heads = q_shape[0] // info["head_dim"] if info["head_dim"] > 0 else old_heads
+                        if new_num_heads != old_heads:
+                            info["num_heads"] = new_num_heads
+                            print(f"  Updated num_heads: {old_heads} → {new_num_heads}")
+                except Exception as e:
+                    print(f"  Warning: couldn't update info after defrag: {e}")
             else:
-                print(f"  Defrag: no heads to remove (hooks may not have zeroed weights)")
+                print(f"  Defrag: no heads to remove")
         except Exception as e:
             print(f"  Defrag skipped: {e}")
 
