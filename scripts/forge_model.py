@@ -466,12 +466,12 @@ def compute_head_importance(model, info: dict):
     n_layers = info["num_layers"]
     n_heads = info["num_heads"]
     head_dim = info["head_dim"]
-    importance = torch.zeros(n_layers, n_heads)
+    importance = torch.full((n_layers, n_heads), float('inf'))  # inf = never prune non-attn layers
 
     for li in range(n_layers):
         attn = getattr(layers[li], "self_attn", getattr(layers[li], "attn", None))
         if attn is None:
-            continue
+            continue  # Layer has no self_attn — importance stays inf, won't be pruned
         q = getattr(attn, "q_proj", None)
         if q is None:
             continue
