@@ -104,11 +104,47 @@ pip install torch transformers datasets peft bitsandbytes safetensors accelerate
 pip install huggingface_hub   # for publishing
 ```
 
-### Run on MacBook (after forging on GPU)
+## Run on MacBook M1/M2/M3 (No GPU Required)
+
+Don't have an NVIDIA GPU? Use our pre-forged models. Two commands:
 
 ```bash
 pip install mlx-lm
-python -c "from mlx_lm import load, generate; m,t = load('continuum-ai/qwen3.5-27b-code-forged-mlx-4bit'); print(generate(m,t,prompt='def merge_sort(arr):',max_tokens=200))"
+```
+
+```python
+from mlx_lm import load, generate
+
+# Load Sonnet 4.6-level model (15GB, runs on 32GB MacBook)
+model, tokenizer = load("continuum-ai/qwen3.5-27b-code-forged-mlx-4bit")
+
+# Generate code
+print(generate(model, tokenizer, prompt="def merge_sort(arr):", max_tokens=200))
+```
+
+**That's it.** 15GB download, ~9 tok/s on M1 32GB. The model writes working code with chain-of-thought reasoning.
+
+### End-to-End: Forge on GPU → Run on Mac
+
+If you DO have an NVIDIA GPU and want to forge your own:
+
+```bash
+# On your GPU machine (RTX 3090, 4090, 5090, etc.)
+git clone https://github.com/CambrianTech/sentinel-ai.git
+cd sentinel-ai && ./setup.sh && source .venv/bin/activate
+
+# Forge (auto-detects GPU, picks memory tier)
+python scripts/forge_model.py Qwen/Qwen3.5-4B --domain code
+
+# Publish to HuggingFace (creates your own model)
+python publish_forged.py output/forged/qwen3.5-4b/ --domain code
+
+# On your MacBook — convert to MLX 4-bit
+pip install mlx-lm
+python -c "from mlx_lm import convert; convert('YOUR_HF_USERNAME/qwen3.5-4b-code-forged', 'mlx-model', quantize=True, q_bits=4)"
+
+# Run locally
+python -c "from mlx_lm import load, generate; m,t = load('mlx-model'); print(generate(m,t,prompt='Write a web server:',max_tokens=300))"
 ```
 
 ### Classic Experiments
