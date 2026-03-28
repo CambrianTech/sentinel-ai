@@ -830,7 +830,7 @@ def main():
                 h.remove()
             all_hooks.clear()
 
-            freed = defrag_live_model(model)
+            freed = defrag_live_model(model, dead_heads=heads)
             freed_mb = freed / 1e6
             if freed_mb > 0:
                 new_params = sum(p.numel() for p in model.parameters()) / 1e9
