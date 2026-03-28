@@ -75,43 +75,50 @@ def _make_linear(weight_data, bias_data=None):
 
 
 def defrag_attention_layer(attn, surviving_q_heads, surviving_kv_heads,
-                           head_dim, orig_num_heads, orig_num_kv_heads):
+                           q_head_dim, kv_head_dim, o_head_dim,
+                           orig_num_heads, orig_num_kv_heads):
     """
     Structurally remove dead heads from one attention layer.
-    Updates both the projection weights AND the cached config attributes.
+    Uses actual tensor dimensions (not config estimates).
 
     Returns: bytes freed
     """
     bytes_before = sum(p.numel() * p.element_size() for p in attn.parameters())
 
-    # Build index arrays for surviving dimensions
+    # Q indices
     q_indices = []
     for h in surviving_q_heads:
-        q_indices.extend(range(h * head_dim, (h + 1) * head_dim))
+        q_indices.extend(range(h * q_head_dim, (h + 1) * q_head_dim))
 
+    # KV indices
     kv_indices = []
     for h in surviving_kv_heads:
-        kv_indices.extend(range(h * head_dim, (h + 1) * head_dim))
+        kv_indices.extend(range(h * kv_head_dim, (h + 1) * kv_head_dim))
 
-    # Slice Q projection: [num_heads*head_dim, hidden] → [surviving*head_dim, hidden]
+    # O indices (may differ from Q)
+    o_indices = []
+    for h in surviving_q_heads:
+        o_indices.extend(range(h * o_head_dim, (h + 1) * o_head_dim))
+
+    # Slice Q projection
     q = getattr(attn, "q_proj", None)
-    if q and hasattr(q, "weight"):
+    if q and hasattr(q, "weight") and max(q_indices, default=0) < q.weight.shape[0]:
         new_q_weight = q.weight.data[q_indices, :].contiguous()
         new_q_bias = q.bias.data[q_indices].contiguous() if q.bias is not None else None
         attn.q_proj = _make_linear(new_q_weight, new_q_bias)
 
-    # Slice K, V projections: [num_kv*head_dim, hidden] → [surviving_kv*head_dim, hidden]
+    # Slice K, V projections
     for name in ["k_proj", "v_proj"]:
         proj = getattr(attn, name, None)
-        if proj and hasattr(proj, "weight"):
+        if proj and hasattr(proj, "weight") and max(kv_indices, default=0) < proj.weight.shape[0]:
             new_weight = proj.weight.data[kv_indices, :].contiguous()
             new_bias = proj.bias.data[kv_indices].contiguous() if proj.bias is not None else None
             setattr(attn, name, _make_linear(new_weight, new_bias))
 
-    # Slice O projection: [hidden, num_heads*head_dim] → [hidden, surviving*head_dim]
+    # Slice O projection (columns, not rows)
     o = getattr(attn, "o_proj", None)
-    if o and hasattr(o, "weight"):
-        new_o_weight = o.weight.data[:, q_indices].contiguous()
+    if o and hasattr(o, "weight") and max(o_indices, default=0) < o.weight.shape[1]:
+        new_o_weight = o.weight.data[:, o_indices].contiguous()
         attn.o_proj = _make_linear(new_o_weight)
 
     # Update cached attributes that HF forward() uses for view() reshaping
@@ -156,12 +163,29 @@ def defrag_live_model(model, dead_heads=None, threshold=1e-6):
     tc = nested_config(model.config)
     num_heads = getattr(tc, "num_attention_heads", 12)
     num_kv_heads = getattr(tc, "num_key_value_heads", num_heads)
-    head_dim = getattr(tc, "hidden_size", 768) // num_heads
-    group_size = num_heads // num_kv_heads
+    group_size = num_heads // max(num_kv_heads, 1)
 
     layers = get_layers(model)
     total_freed = 0
     defragged_layers = 0
+
+    # Get actual head dims from tensor shapes (not config — config lies for hybrid models)
+    sample_attn = None
+    for layer in layers:
+        sample_attn = getattr(layer, "self_attn", getattr(layer, "attn", None))
+        if sample_attn and hasattr(sample_attn, "q_proj"):
+            break
+
+    if sample_attn is None:
+        return 0
+
+    q_proj = getattr(sample_attn, "q_proj", None)
+    k_proj = getattr(sample_attn, "k_proj", None)
+    o_proj = getattr(sample_attn, "o_proj", None)
+
+    q_head_dim = q_proj.weight.shape[0] // num_heads if q_proj else 0
+    kv_head_dim = k_proj.weight.shape[0] // num_kv_heads if k_proj else 0
+    o_head_dim = o_proj.weight.shape[1] // num_heads if o_proj else 0
 
     for li, dead_list in dead_heads.items():
         if li >= len(layers):
@@ -181,7 +205,8 @@ def defrag_live_model(model, dead_heads=None, threshold=1e-6):
 
         freed = defrag_attention_layer(
             attn, surviving_q, surviving_kv,
-            head_dim, num_heads, num_kv_heads
+            q_head_dim, kv_head_dim, o_head_dim,
+            num_heads, num_kv_heads
         )
         total_freed += freed
         defragged_layers += 1
