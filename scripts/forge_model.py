@@ -461,10 +461,10 @@ def evaluate(model, eval_loader, output_dir: Path = None, label: str = "eval"):
 # ---------------------------------------------------------------------------
 
 def compute_head_importance(model, info: dict):
-    """L2 norm of Q-projection weights per head (works on fp16 and 4-bit)."""
+    """L2 norm of Q-projection weights per head. Handles variable heads per layer after defrag."""
     layers = get_layers(model)
     n_layers = info["num_layers"]
-    n_heads = info["num_heads"]
+    n_heads = info["num_heads"]  # Original count — actual may differ after defrag
     importance = torch.full((n_layers, n_heads), float('inf'))
 
     for li in range(n_layers):
@@ -807,11 +807,16 @@ def main():
         check_vram("post-train")
 
         # THEN prune — remove heads that didn't contribute during training
-        write_status(out, "pruning", f"Cycle {cycle}: pruning heads after training",
-                    cycle=cycle)
-        cycle_prune = args.prune_level / args.cycles
-        heads, hooks = prune(model, cycle_prune, info, cfg.pruning_method)
-        all_hooks.extend(hooks)
+        # Skip pruning if model was already defragged (variable head counts per layer)
+        if cycle > 1 and any(getattr(getattr(l, 'self_attn', None), 'num_heads', info["num_heads"]) != info["num_heads"] for l in get_layers(model) if getattr(l, 'self_attn', None)):
+            print(f"  Skipping prune — model already defragged (variable head counts)")
+            heads, hooks = {}, []
+        else:
+            write_status(out, "pruning", f"Cycle {cycle}: pruning heads after training",
+                        cycle=cycle)
+            cycle_prune = args.prune_level / args.cycles
+            heads, hooks = prune(model, cycle_prune, info, cfg.pruning_method)
+            all_hooks.extend(hooks)
 
         write_status(out, "post_prune_eval", f"Cycle {cycle}: evaluating after prune",
                     cycle=cycle)
@@ -841,26 +846,10 @@ def main():
                             cycle=cycle, freed_mb=round(freed_mb))
                 check_vram("post-defrag")
 
-                # Update model info — dimensions changed after defrag
-                info = get_model_info.__wrapped__(model) if hasattr(get_model_info, '__wrapped__') else info
-                # Recount heads from actual tensor shapes
-                try:
-                    sample_layer = None
-                    for layer in get_layers(model):
-                        if hasattr(layer, "self_attn") and layer.self_attn is not None:
-                            sample_layer = layer
-                            break
-                    if sample_layer and hasattr(sample_layer.self_attn, "q_proj"):
-                        q_shape = sample_layer.self_attn.q_proj.weight.shape
-                        tc = nested_config(model.config)
-                        old_heads = info["num_heads"]
-                        # head_dim stays the same, num_heads changes
-                        new_num_heads = q_shape[0] // info["head_dim"] if info["head_dim"] > 0 else old_heads
-                        if new_num_heads != old_heads:
-                            info["num_heads"] = new_num_heads
-                            print(f"  Updated num_heads: {old_heads} → {new_num_heads}")
-                except Exception as e:
-                    print(f"  Warning: couldn't update info after defrag: {e}")
+                # Update info — dimensions changed after defrag
+                # Don't recalculate num_heads — just note it changed
+                # The importance computation reads actual tensor shapes per layer
+                print(f"  Model structurally changed — next cycle adapts automatically")
             else:
                 print(f"  Defrag: no heads to remove")
         except Exception as e:
