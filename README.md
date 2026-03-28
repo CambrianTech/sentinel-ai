@@ -62,25 +62,53 @@ Recovery from iterative pruning follows a measurable [transfer function](https:/
 
 ![Recovery Decay](paper/figures/recovery_decay_fit.png)
 
-## Quick Start
+## Quick Start: Forge Your Own Model
+
+Three commands. Any NVIDIA GPU with 8GB+ VRAM.
 
 ```bash
+# 1. Clone and setup
 git clone https://github.com/CambrianTech/sentinel-ai.git
 cd sentinel-ai
-./setup.sh              # Auto-detects CUDA/MPS/CPU, creates venv, installs deps
+./setup.sh                    # Creates venv, installs PyTorch + deps, detects CUDA/MPS
 source .venv/bin/activate
+
+# 2. Forge (pick your model + domain)
+python scripts/forge_model.py Qwen/Qwen3.5-4B --domain code     # 8GB VRAM, ~30 min
+python scripts/forge_model.py Qwen/Qwen3.5-9B --domain code     # 18GB VRAM, ~45 min
+python scripts/forge_model.py Qwen/Qwen3.5-27B --domain code    # 32GB VRAM (4-bit auto), ~2 hr
+
+# 3. Publish to HuggingFace
+python publish_forged.py output/forged/qwen3.5-4b/ --domain code
 ```
 
-### Forge a Model
+**That's it.** The script auto-detects your GPU, picks the right memory tier, trains with LoRA + AMP, prunes attention heads, defrags, saves, and generates proof-of-quality code samples.
+
+### What Happens During Forging
+
+```
+Load model → Baseline eval → [Train on domain data → Prune low-importance heads →
+Defrag (structurally remove) → Eval] × N cycles → Generate samples → Save
+```
+
+- **Memory tiers**: Tier A (≤40% VRAM, fp16), Tier B (≤70%, fp16+accum), Tier C (>70%, 4-bit)
+- **Observable**: `status.json` updates every 10 steps + inference sample every 200 steps
+- **Early stopping**: `--early-stop 0.5` stops when improvement plateaus
+
+### Manual Setup (if setup.sh doesn't work)
 
 ```bash
-# Domain-specific forging (recommended)
-python scripts/forge_model.py Qwen/Qwen3.5-4B --domain code
+python3 -m venv .venv
+source .venv/bin/activate
+pip install torch transformers datasets peft bitsandbytes safetensors accelerate
+pip install huggingface_hub   # for publishing
+```
 
-# Memory tiers auto-detected:
-#   Tier A (≤40% VRAM): fp16, batch=4
-#   Tier B (≤70% VRAM): fp16, batch=2, gradient accumulation
-#   Tier C (>70% VRAM): 4-bit NF4, batch=1, 8-bit optimizer
+### Run on MacBook (after forging on GPU)
+
+```bash
+pip install mlx-lm
+python -c "from mlx_lm import load, generate; m,t = load('continuum-ai/qwen3.5-27b-code-forged-mlx-4bit'); print(generate(m,t,prompt='def merge_sort(arr):',max_tokens=200))"
 ```
 
 ### Classic Experiments
