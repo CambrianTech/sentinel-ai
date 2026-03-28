@@ -19,7 +19,7 @@ Domain-specific training amplifies the plasticity effect. Using [`forge_model.py
 | **[Qwen3.5-4B](https://huggingface.co/continuum-ai/qwen3.5-4b-code-forged)** | 3.4B | Code | [CodeFeedback](https://huggingface.co/datasets/m-a-p/CodeFeedback-Filtered-Instruction) (156K) | 3.04 | **2.31** | **+24.0%** | RTX 5090 |
 | **[Qwen3.5-27B](https://huggingface.co/continuum-ai/qwen3.5-27b-code-forged)** | 23.6B | Code | CodeFeedback (156K) | 3.07 | **2.96** | **+3.5%** | RTX 5090 |
 
-**+24% on 4B, +3.5% on 27B** — both better than baseline, both smaller. The 27B runs in 17GB (4-bit) instead of 28GB (fp16) while producing better code. "Claude Sonnet 4.6 quality at home" — now forged and improved.
+**+24% on 4B, +3.5% on 27B** — both better than baseline, both smaller. The 27B runs in 17GB (4-bit) instead of 28GB (fp16) while producing better code. Qwen3.5-27B benchmarks at Claude Sonnet 4.6 level ([source](https://x.com/TheAhmadOsman)) — now forged and improved, running on a MacBook Pro.
 
 ```bash
 # Forge any model on any domain — memory tier auto-detected
