@@ -491,22 +491,31 @@ def compute_head_importance(model, info: dict):
     return importance
 
 
-def select_heads_to_prune(importance, prune_percent):
-    """Select lowest-importance heads."""
+def select_heads_to_prune(importance, prune_percent, min_surviving_per_layer=4):
+    """Select lowest-importance heads. Never prune a layer below min_surviving_per_layer."""
     n_layers, n_heads = importance.shape
-    total = n_layers * n_heads
-    n_prune = int(total * prune_percent)
 
     flat = importance.flatten()
     _, indices = flat.sort()
-    prune_indices = indices[:n_prune]
 
     heads = {}
-    for idx in prune_indices:
+    n_pruned = 0
+    for idx in indices:
+        if importance[idx // n_heads, idx % n_heads] == float('inf'):
+            continue  # Skip non-attention layers
         li = idx.item() // n_heads
         hi = idx.item() % n_heads
+        # Check this layer hasn't hit minimum
+        current_pruned = len(heads.get(li, []))
+        finite_heads = (importance[li] < float('inf')).sum().item()
+        if finite_heads - current_pruned <= min_surviving_per_layer:
+            continue  # Would leave too few heads in this layer
         heads.setdefault(li, []).append(hi)
-    return heads, n_prune
+        n_pruned += 1
+        if n_pruned >= int(importance.numel() * prune_percent):
+            break
+
+    return heads, n_pruned
 
 
 def prune_by_zeroing(model, heads_to_prune, info):
