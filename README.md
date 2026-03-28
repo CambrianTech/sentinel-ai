@@ -17,9 +17,9 @@ Domain-specific training amplifies the plasticity effect. Using [`forge_model.py
 | Model | Params | Domain | Training Data | Baseline PPL | Final PPL | Change | Device |
 |-------|--------|--------|--------------|-------------|-----------|--------|--------|
 | **[Qwen3.5-4B](https://huggingface.co/continuum-ai/qwen3.5-4b-code-forged)** | 3.4B | Code | [CodeFeedback](https://huggingface.co/datasets/m-a-p/CodeFeedback-Filtered-Instruction) (156K) | 3.04 | **2.31** | **+24.0%** | RTX 5090 |
-| Qwen3.5-27B | 23.6B | Code | CodeFeedback | — | — | forging now | RTX 5090 |
+| **[Qwen3.5-27B](https://huggingface.co/continuum-ai/qwen3.5-27b-code-forged)** | 23.6B | Code | CodeFeedback (156K) | 3.07 | **2.96** | **+3.5%** | RTX 5090 |
 
-**+24% improvement** on code — the largest gain yet. Domain data drives far more head specialization than generic text. The heads that survive pruning are optimized for code generation.
+**+24% on 4B, +3.5% on 27B** — both better than baseline, both smaller. The 27B runs in 17GB (4-bit) instead of 28GB (fp16) while producing better code. "Claude Sonnet 4.6 quality at home" — now forged and improved.
 
 ```bash
 # Forge any model on any domain — memory tier auto-detected
@@ -38,6 +38,7 @@ Improvement from [experiential plasticity](https://github.com/CambrianTech/conti
 | Qwen2.5-3B | 3.1B | 2.30 | 2.28 | +0.9% |
 | **Qwen2.5-7B** | **7.6B** | **2.46** | **2.17** | **+11.8%** |
 | **Qwen3.5-4B** | **3.4B** | **3.04** | **2.31** | **+24.0%** (code domain) |
+| **Qwen3.5-27B** | **23.6B** | **3.07** | **2.96** | **+3.5%** (code, 4-bit, 17GB) |
 
 Domain-specific training (Qwen3.5-4B on code) exceeds generic-text results (Qwen2.5-7B on wikitext) despite being a smaller model.
 
