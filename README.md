@@ -57,6 +57,20 @@ The model's recovery follows an exponential decay — a **transfer function** th
 
 ![Recovery Decay](paper/figures/recovery_decay_fit.png)
 
+### Continuous Defrag: Training Accelerates as the Model Shrinks
+
+Traditional pruning masks heads but doesn't free memory. **Continuous defrag** structurally removes dead heads between cycles — the model gets physically smaller, freeing VRAM for larger batch sizes. Each cycle trains faster than the last.
+
+```
+Cycle 1: train (batch=1, 27B, 17.9GB) → prune → defrag → freed 1.7GB
+Cycle 2: train (batch=2, 24.5B, 16.2GB) → prune → defrag → freed 1.7GB ← 2x faster
+Cycle 3: train (batch=3, 22B, 14.5GB) → prune → defrag → 2.8x faster than cycle 1
+```
+
+The compound effect: **40% faster total training** and a **33% smaller final model** (GGUF Q4: 10GB instead of 15GB for Qwen3.5-27B).
+
+See [docs/CONTINUOUS-DEFRAG.md](docs/CONTINUOUS-DEFRAG.md) for the full architecture.
+
 ## Quick Start
 
 ```bash
