@@ -824,9 +824,8 @@ def main():
         write_status(out, "defrag", f"Cycle {cycle}: defragging pruned heads",
                     cycle=cycle)
         try:
-            import sys
-            from pathlib import Path
-            sys.path.insert(0, str(Path(__file__).parent))
+            import sys, os
+            sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
             from defrag_inline import defrag_live_model
             # Remove hooks first — defrag makes them unnecessary
             for h in all_hooks:
