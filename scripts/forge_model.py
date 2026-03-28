@@ -155,7 +155,7 @@ def check_vram(label: str):
 # Loading
 # ---------------------------------------------------------------------------
 
-def load_model(model_name: str, load_4bit: bool):
+def load_model(model_name: str, load_4bit: bool, free_cache_after_load: bool = False):
     """Load model with explicit memory strategy."""
     from transformers import AutoModelForCausalLM, AutoTokenizer
 
@@ -181,6 +181,17 @@ def load_model(model_name: str, load_4bit: bool):
         tokenizer.pad_token = tokenizer.eos_token
 
     check_vram("after load")
+
+    # For large models: delete HF cache after loading to free disk for saving later
+    if free_cache_after_load:
+        import shutil
+        cache_dir = Path.home() / ".cache" / "huggingface" / "hub"
+        model_cache = model_name.replace("/", "--")
+        for d in cache_dir.glob(f"models--{model_cache}*"):
+            size_gb = sum(f.stat().st_size for f in d.rglob("*") if f.is_file()) / 1e9
+            shutil.rmtree(d)
+            print(f"  Freed {size_gb:.1f}GB from HF cache ({d.name})")
+
     return model, tokenizer
 
 
@@ -421,14 +432,20 @@ def evaluate(model, eval_loader, output_dir: Path = None, label: str = "eval"):
     model.eval()
     total_loss, total_tokens = 0.0, 0
     n_batches = len(eval_loader)
+    # For 4-bit models with device_map="auto", get the actual device
+    device = next(model.parameters()).device
     for bi, batch in enumerate(eval_loader):
-        ids = batch["input_ids"].to(model.device)
-        mask = batch["attention_mask"].to(model.device)
+        ids = batch["input_ids"].to(device)
+        mask = batch["attention_mask"].to(device)
         for i in range(ids.shape[0]):
             out = model(input_ids=ids[i:i+1], attention_mask=mask[i:i+1], labels=ids[i:i+1])
+            loss_val = out.loss.float().item()  # force fp32 for accuracy
             n = (mask[i:i+1] > 0).sum().item()
-            total_loss += out.loss.item() * n
+            total_loss += loss_val * n
             total_tokens += n
+            # Debug first batch
+            if bi == 0 and i == 0:
+                print(f"  [eval debug] loss={loss_val:.4f}, tokens={n}, device={device}")
         if (bi + 1) % 10 == 0 or bi == n_batches - 1:
             ppl_so_far = torch.exp(torch.tensor(total_loss / max(total_tokens, 1))).item()
             print(f"  [{label}] {bi+1}/{n_batches} batches, ppl={ppl_so_far:.2f}")
@@ -755,7 +772,8 @@ def main():
     # --- 1. Load ---
     write_status(out, "loading", f"Loading {args.model}")
     print("[1] Loading model...")
-    model, tokenizer = load_model(args.model, cfg.load_4bit)
+    model, tokenizer = load_model(args.model, cfg.load_4bit,
+                                    free_cache_after_load=(cfg.tier == "C"))
     write_status(out, "loading_data", f"Loading {args.domain} dataset")
     train_loader, eval_loader = make_dataloaders(tokenizer, cfg, args.domain, args.max_samples)
 
