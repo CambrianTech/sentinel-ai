@@ -818,10 +818,34 @@ def main():
         post_prune = evaluate(model, eval_loader, out, f"post-prune-c{cycle}")
         imp = (baseline["perplexity"] - post_prune["perplexity"]) / baseline["perplexity"] * 100
         print(f"  After prune: perplexity={post_prune['perplexity']:.2f} ({imp:+.1f}% vs baseline)")
+        check_vram("post-prune")
+
+        # DEFRAG — structurally remove pruned heads, free VRAM
+        write_status(out, "defrag", f"Cycle {cycle}: defragging pruned heads",
+                    cycle=cycle)
+        try:
+            from defrag_inline import defrag_live_model
+            # Remove hooks first — defrag makes them unnecessary
+            for h in all_hooks:
+                h.remove()
+            all_hooks.clear()
+
+            freed = defrag_live_model(model)
+            freed_mb = freed / 1e6
+            if freed_mb > 0:
+                new_params = sum(p.numel() for p in model.parameters()) / 1e9
+                print(f"  Defragged: freed {freed_mb:.0f}MB, model now {new_params:.1f}B params")
+                write_status(out, "defrag_done", f"Freed {freed_mb:.0f}MB",
+                            cycle=cycle, freed_mb=round(freed_mb))
+                check_vram("post-defrag")
+            else:
+                print(f"  Defrag: no heads to remove (hooks may not have zeroed weights)")
+        except Exception as e:
+            print(f"  Defrag skipped: {e}")
+
         write_status(out, "cycle_done", f"Cycle {cycle}: {imp:+.1f}% vs baseline",
                     cycle=cycle, perplexity=round(post_prune['perplexity'], 2),
                     improvement_pct=round(imp, 2))
-        check_vram("post-prune")
 
         cycle_results.append({
             "cycle": cycle,
@@ -839,7 +863,7 @@ def main():
                 print(f"  Converged ({delta_pct:.3f}% < {args.early_stop}%). Stopping.")
                 break
 
-    # Remove any pruning hooks
+    # Remove any remaining pruning hooks
     for h in all_hooks:
         h.remove()
 
