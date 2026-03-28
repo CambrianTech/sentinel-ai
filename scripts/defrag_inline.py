@@ -191,13 +191,23 @@ def defrag_live_model(model, dead_heads=None, threshold=1e-6):
         if li >= len(layers):
             continue
 
-        # Compute surviving heads
-        surviving_q = [h for h in range(num_heads) if h not in dead_list]
+        # Compute surviving heads — only remove COMPLETE GQA groups
+        # GQA constraint: num_q_heads % num_kv_heads == 0 must hold after defrag
         surviving_kv = []
+        surviving_q = []
         for kv_h in range(num_kv_heads):
-            group = range(kv_h * group_size, (kv_h + 1) * group_size)
-            if not all(h in dead_list for h in group):
+            group_start = kv_h * group_size
+            group_heads = list(range(group_start, group_start + group_size))
+            if all(h in dead_list for h in group_heads):
+                # Entire group is dead — remove both Q heads and KV head
+                pass
+            else:
+                # Any head in group survives — keep ALL heads in group + KV head
                 surviving_kv.append(kv_h)
+                surviving_q.extend(group_heads)
+
+        if len(surviving_q) == num_heads:
+            continue  # Nothing to remove in this layer (no complete groups dead)
 
         attn = getattr(layers[li], "self_attn", getattr(layers[li], "attn", None))
         if attn is None:
