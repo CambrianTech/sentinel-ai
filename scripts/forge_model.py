@@ -807,16 +807,11 @@ def main():
         check_vram("post-train")
 
         # THEN prune — remove heads that didn't contribute during training
-        # Skip pruning if model was already defragged (variable head counts per layer)
-        if cycle > 1 and any(getattr(getattr(l, 'self_attn', None), 'num_heads', info["num_heads"]) != info["num_heads"] for l in get_layers(model) if getattr(l, 'self_attn', None)):
-            print(f"  Skipping prune — model already defragged (variable head counts)")
-            heads, hooks = {}, []
-        else:
-            write_status(out, "pruning", f"Cycle {cycle}: pruning heads after training",
-                        cycle=cycle)
-            cycle_prune = args.prune_level / args.cycles
-            heads, hooks = prune(model, cycle_prune, info, cfg.pruning_method)
-            all_hooks.extend(hooks)
+        write_status(out, "pruning", f"Cycle {cycle}: pruning heads after training",
+                    cycle=cycle)
+        cycle_prune = args.prune_level / args.cycles
+        heads, hooks = prune(model, cycle_prune, info, cfg.pruning_method)
+        all_hooks.extend(hooks)
 
         write_status(out, "post_prune_eval", f"Cycle {cycle}: evaluating after prune",
                     cycle=cycle)
@@ -825,35 +820,38 @@ def main():
         print(f"  After prune: perplexity={post_prune['perplexity']:.2f} ({imp:+.1f}% vs baseline)")
         check_vram("post-prune")
 
-        # DEFRAG — structurally remove pruned heads, free VRAM
-        write_status(out, "defrag", f"Cycle {cycle}: defragging pruned heads",
-                    cycle=cycle)
-        try:
-            import sys, os
-            sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-            from defrag_inline import defrag_live_model
-            # Remove hooks first — defrag makes them unnecessary
-            for h in all_hooks:
-                h.remove()
-            all_hooks.clear()
+        # DEFRAG — structurally remove pruned heads on LAST cycle only
+        # Defrag changes tensor dimensions which breaks subsequent cycles.
+        # Future: proper per-cycle recalibration (issue #101)
+        is_last_cycle = (cycle == args.cycles) or (args.early_stop and cycle >= 2 and
+            abs(cycle_results[-2]["post_train_ppl"] - post_train["perplexity"]) / cycle_results[-2]["post_train_ppl"] * 100 < args.early_stop if len(cycle_results) >= 2 else False)
 
-            freed = defrag_live_model(model, dead_heads=heads)
-            freed_mb = freed / 1e6
-            if freed_mb > 0:
-                new_params = sum(p.numel() for p in model.parameters()) / 1e9
-                print(f"  Defragged: freed {freed_mb:.0f}MB, model now {new_params:.1f}B params")
-                write_status(out, "defrag_done", f"Freed {freed_mb:.0f}MB",
-                            cycle=cycle, freed_mb=round(freed_mb))
-                check_vram("post-defrag")
+        if is_last_cycle and heads:
+            write_status(out, "defrag", f"Cycle {cycle}: defragging pruned heads (final cycle)",
+                        cycle=cycle)
+            try:
+                import sys as _sys
+                _sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+                from defrag_inline import defrag_live_model
+                # Remove hooks — defrag makes them unnecessary
+                for h in all_hooks:
+                    h.remove()
+                all_hooks.clear()
 
-                # Update info — dimensions changed after defrag
-                # Don't recalculate num_heads — just note it changed
-                # The importance computation reads actual tensor shapes per layer
-                print(f"  Model structurally changed — next cycle adapts automatically")
-            else:
-                print(f"  Defrag: no heads to remove")
-        except Exception as e:
-            print(f"  Defrag skipped: {e}")
+                freed = defrag_live_model(model, dead_heads=heads)
+                freed_mb = freed / 1e6
+                if freed_mb > 0:
+                    new_params = sum(p.numel() for p in model.parameters()) / 1e9
+                    print(f"  Defragged: freed {freed_mb:.0f}MB, model now {new_params:.1f}B params")
+                    write_status(out, "defrag_done", f"Freed {freed_mb:.0f}MB",
+                                cycle=cycle, freed_mb=round(freed_mb))
+                    check_vram("post-defrag")
+                else:
+                    print(f"  Defrag: no heads to remove")
+            except Exception as e:
+                print(f"  Defrag skipped: {e}")
+        elif heads:
+            print(f"  Defrag deferred to final cycle (structural changes break mid-training)")
 
         write_status(out, "cycle_done", f"Cycle {cycle}: {imp:+.1f}% vs baseline",
                     cycle=cycle, perplexity=round(post_prune['perplexity'], 2),
