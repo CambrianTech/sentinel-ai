@@ -7,6 +7,7 @@ The architecture co-evolves with training: heads that contribute to the domain s
 **Published models:** [huggingface.co/continuum-ai](https://huggingface.co/continuum-ai)
 **Paper:** [Experiential Plasticity: Transformers That Grow Their Own Architecture From Experience](https://github.com/CambrianTech/continuum/blob/main/docs/papers/EXPERIENTIAL-PLASTICITY.md)
 **Part of:** [continuum](https://github.com/CambrianTech/continuum) — distributed AI on consumer hardware
+**Forge format:** [ForgeAlloy](https://github.com/CambrianTech/forge-alloy) — trustless AI compute contract (cryptographically verified pipelines)
 
 ## Results
 
@@ -25,6 +26,9 @@ Domain-specific training amplifies the plasticity effect. Using [`forge_model.py
 # Forge any model on any domain — memory tier auto-detected
 python scripts/forge_model.py Qwen/Qwen3.5-4B --domain code
 python scripts/forge_model.py Qwen/Qwen3.5-27B --domain code   # auto 4-bit on 32GB VRAM
+
+# Or use a ForgeAlloy recipe — typed, portable, cryptographically attestable
+python scripts/forge_model.py --alloy recipe.alloy.json
 ```
 
 ### Scaling Law
