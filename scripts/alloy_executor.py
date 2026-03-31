@@ -243,6 +243,19 @@ def _write_executed_alloy(ctx: ForgeContext, results: dict, out: Path):
     alloy_path.write_text(json.dumps(alloy, indent=2))
     print(f"  Alloy: {alloy_path}")
 
+    # Generate QR code linking to verification URL
+    alloy_hash = hashlib.sha256(alloy_path.read_bytes()).hexdigest()
+    # URL carries the hash — verifier checks alloy file matches the hash in the QR
+    verify_url = f"https://huggingface.co/continuum-ai/{alloy.get('name', 'model')}/blob/main/{alloy_path.name}#sha256:{alloy_hash[:16]}"
+    try:
+        import qrcode
+        qr = qrcode.make(verify_url)
+        qr_path = out / "alloy-qr.png"
+        qr.save(str(qr_path))
+        print(f"  QR: {qr_path} → {verify_url}")
+    except ImportError:
+        print(f"  QR: skipped (pip install qrcode[pil])")
+
 
 def main():
     parser = argparse.ArgumentParser(description="Execute a ForgeAlloy pipeline")
