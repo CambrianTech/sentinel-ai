@@ -13,6 +13,13 @@ Usage:
 
 import argparse
 import hashlib
+
+# Use forge-alloy SDK for type-safe alloy handling
+try:
+    from forge_alloy import ForgeAlloy
+    HAS_SDK = True
+except ImportError:
+    HAS_SDK = False
 import json
 import os
 import sys
@@ -34,7 +41,14 @@ OUTPUT_TYPES = {"quant", "package", "eval", "publish", "deploy"}
 
 def execute_alloy(alloy_path: str, output_dir: str = None, dry_run: bool = False):
     """Execute a complete ForgeAlloy pipeline."""
-    alloy = json.loads(Path(alloy_path).read_text())
+    # Load via SDK if available (validates types), fall back to raw JSON
+    if HAS_SDK:
+        alloy_obj = ForgeAlloy.from_file(alloy_path)
+        alloy = json.loads(alloy_obj.model_dump_json(by_alias=True))
+        print(f"  Loaded via forge-alloy SDK v{__import__('forge_alloy').__version__}")
+    else:
+        alloy = json.loads(Path(alloy_path).read_text())
+        print(f"  Loaded raw JSON (install forge-alloy SDK for validation)")
     stages = alloy.get("stages", [])
     cycles = alloy.get("cycles", 1)
     model_name = alloy["source"]["baseModel"]
