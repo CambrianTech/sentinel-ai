@@ -130,7 +130,10 @@ def derive_alloy(model_id: str, target: dict, capabilities: dict = None) -> dict
     If capabilities not provided, introspects the model first.
     """
     if capabilities is None:
-        from .introspect import introspect_model
+        import sys
+        from pathlib import Path
+        sys.path.insert(0, str(Path(__file__).parent))
+        from introspect import introspect_model
         result = introspect_model(model_id)
         capabilities = result["currentCapabilities"]
         source = result["source"]
