@@ -78,6 +78,7 @@ def build_model_card(results: dict, domain: str, hardware_targets: list, generat
         "continuum",
         "experiential-plasticity",
         "forged",
+        "forge-alloy",
         "text-generation",
     ]
     if domain and domain != "general":
@@ -282,6 +283,16 @@ def publish_model(forged_dir: Path, org: str, domain: str, dry_run: bool = False
                 path_in_repo=f"benchmark/{txt.name}",
                 repo_id=repo_id,
             )
+
+    # Upload alloy file (if present)
+    alloy_files = list(forged_dir.glob("*.alloy.json"))
+    for alloy_file in alloy_files:
+        api.upload_file(
+            path_or_fileobj=str(alloy_file),
+            path_in_repo=alloy_file.name,
+            repo_id=repo_id,
+        )
+        print(f"  Uploaded alloy: {alloy_file.name}")
 
     # Upload model weights if present
     model_dir = forged_dir / "model"

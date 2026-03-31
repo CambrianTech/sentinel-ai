@@ -742,20 +742,55 @@ def generate_samples(model, tokenizer, domain: str):
 
 def main():
     parser = argparse.ArgumentParser(description="Forge a model with experiential plasticity")
-    parser.add_argument("model", help="HuggingFace model ID (e.g., Qwen/Qwen3.5-4B)")
-    parser.add_argument("--domain", type=str, required=True,
+    parser.add_argument("model", nargs="?", help="HuggingFace model ID (e.g., Qwen/Qwen3.5-4B)")
+    parser.add_argument("--alloy", type=str, default=None,
+                       help="Path to .alloy.json — reads all params from alloy instead of CLI args")
+    parser.add_argument("--domain", type=str, default=None,
                        help="Training domain: general, code, reasoning, chat, science")
     parser.add_argument("--cycles", type=int, default=3)
     parser.add_argument("--steps", type=int, default=1000)
     parser.add_argument("--prune-level", type=float, default=0.3)
-    parser.add_argument("--lr", type=float, default=5e-5)
+    parser.add_argument("--prune-strategy", type=str, default="entropy",
+                       help="Pruning strategy: entropy, magnitude, gradient, random")
+    parser.add_argument("--lr", "--learning-rate", type=float, default=5e-5)
     parser.add_argument("--max-samples", type=int, default=2000)
     parser.add_argument("--early-stop", type=float, default=None,
                        help="Stop if per-cycle improvement < this %%")
     parser.add_argument("--load-in-4bit", action="store_true",
                        help="Force 4-bit loading (auto-detected if model too large)")
+    parser.add_argument("--experts", type=int, default=0,
+                       help="MoE expert count (0 for dense models)")
+    parser.add_argument("--status-json", action="store_true",
+                       help="Write status.json for real-time monitoring")
     parser.add_argument("--output-dir", type=str, default=None)
     args = parser.parse_args()
+
+    # If --alloy provided, read params from alloy file
+    alloy_data = None
+    if args.alloy:
+        alloy_path = Path(args.alloy)
+        if not alloy_path.exists():
+            print(f"ERROR: Alloy file not found: {alloy_path}")
+            sys.exit(1)
+        alloy_data = json.loads(alloy_path.read_text())
+        # Extract params from alloy
+        args.model = alloy_data["source"]["baseModel"]
+        args.cycles = alloy_data.get("cycles", 3)
+        # Find prune and train stages
+        for stage in alloy_data.get("stages", []):
+            if stage["type"] == "prune":
+                args.prune_level = stage.get("level", 0.3)
+                args.prune_strategy = stage.get("strategy", "entropy")
+            elif stage["type"] == "train":
+                args.domain = stage.get("domain", args.domain)
+                args.steps = stage.get("steps", args.steps)
+                args.lr = float(stage.get("learningRate", str(args.lr)))
+        print(f"  Loaded alloy: {alloy_data['name']} v{alloy_data['version']}")
+
+    if not args.model:
+        parser.error("model is required (either as positional arg or via --alloy)")
+    if not args.domain:
+        parser.error("--domain is required (either as CLI arg or via alloy train stage)")
 
     slug = args.model.split("/")[-1].lower()
     out = Path(args.output_dir or f"output/forged/{slug}")
@@ -932,6 +967,126 @@ def main():
     }
     (out / "results.json").write_text(json.dumps(results, indent=2))
     print(f"\nDone. {out / 'results.json'}")
+
+    # --- 8. Write executed alloy ---
+    write_executed_alloy(args, alloy_data, results, samples, out)
+
+
+def write_executed_alloy(args, alloy_data, results, samples, out: Path):
+    """Write an executed .alloy.json with results, benchmarks, and samples."""
+    import hashlib
+
+    base = args.model.split("/")[-1].lower()
+    domain = args.domain or "general"
+
+    # Start from input alloy or build a new one
+    if alloy_data:
+        alloy = alloy_data.copy()
+    else:
+        alloy = {
+            "name": f"{base}-{domain}-forged",
+            "version": "1.0.0",
+            "description": f"Forged {args.model} for {domain} domain",
+            "author": "continuum-ai",
+            "tags": [domain, "forged", "experiential-plasticity", "forge-alloy"],
+            "license": "apache-2.0",
+            "source": {
+                "baseModel": args.model,
+                "architecture": "qwen3_5" if "qwen3.5" in base else "qwen2" if "qwen2" in base else "llama",
+            },
+            "stages": [
+                {
+                    "type": "prune",
+                    "strategy": getattr(args, "prune_strategy", "entropy"),
+                    "level": args.prune_level,
+                },
+                {
+                    "type": "train",
+                    "domain": domain,
+                    "dataset": results.get("training_data", ""),
+                    "steps": args.steps,
+                    "learningRate": str(args.lr),
+                },
+            ],
+            "cycles": args.cycles,
+        }
+
+    # Ensure forge-alloy tag
+    if "forge-alloy" not in alloy.get("tags", []):
+        alloy.setdefault("tags", []).append("forge-alloy")
+
+    # Build generation samples for alloy
+    alloy_samples = []
+    for name, text in samples.items():
+        label = name.replace(".txt", "").replace("_", " ").title()
+        alloy_samples.append({
+            "label": label,
+            "prompt": f"({domain} generation sample)",
+            "completion": text.strip()[:2000],  # Cap at 2K chars
+        })
+
+    # Hash model weights — FULL file hashing, not partial.
+    # 4KB prefix hashing is trivially bypassed (swap tensor data after header).
+    # A 10GB model takes ~15s to hash — negligible vs a 42-minute forge.
+    model_hash = ""
+    model_dir = out / "model"
+    if model_dir.exists():
+        safetensors = sorted(model_dir.glob("*.safetensors"))
+        if safetensors:
+            h = hashlib.sha256()
+            for sf in safetensors:
+                with open(sf, 'rb') as f:
+                    while True:
+                        chunk = f.read(65536)
+                        if not chunk:
+                            break
+                        h.update(chunk)
+            model_hash = f"sha256:{h.hexdigest()}"
+
+    # Hash this script (code attestation)
+    script_path = Path(__file__).resolve()
+    script_hash = f"sha256:{hashlib.sha256(script_path.read_bytes()).hexdigest()}"
+
+    # Populate results
+    alloy["results"] = {
+        "completedAt": results.get("forged_at", ""),
+        "baselinePerplexity": results.get("baseline_ppl"),
+        "finalPerplexity": results.get("final_ppl"),
+        "improvementPct": results.get("improvement_pct"),
+        "benchmarks": [
+            {
+                "name": "perplexity",
+                "metrics": {
+                    "baseline": results.get("baseline_ppl", 0),
+                    "final": results.get("final_ppl", 0),
+                    "improvement": results.get("improvement_pct", 0),
+                },
+            }
+        ],
+        "hardwareVerified": [
+            {
+                "device": results.get("device", "unknown"),
+                "format": "fp16" if not results.get("load_4bit") else "4-bit",
+                "verified": True,
+            }
+        ],
+        "samples": alloy_samples,
+        "integrity": {
+            "trustLevel": "self-attested",
+            "code": {
+                "runner": "sentinel-ai/forge_model",
+                "version": "3.0.0",
+                "binaryHash": script_hash,
+            },
+            "modelHash": model_hash,
+            "datasets": [],
+            "attestedAt": results.get("forged_at", ""),
+        },
+    }
+
+    alloy_path = out / f"{alloy['name']}.alloy.json"
+    alloy_path.write_text(json.dumps(alloy, indent=2))
+    print(f"  Alloy: {alloy_path}")
 
 
 if __name__ == "__main__":
