@@ -222,6 +222,20 @@ def _write_executed_alloy(ctx: ForgeContext, results: dict, out: Path):
 
     script_hash = f"sha256:{hashlib.sha256(Path(__file__).resolve().read_bytes()).hexdigest()}"
 
+    # Capture git commit of the runner repo
+    import subprocess
+    try:
+        repo_dir = str(Path(__file__).resolve().parent.parent)
+        git_commit = subprocess.check_output(
+            ['git', 'rev-parse', 'HEAD'], cwd=repo_dir, text=True
+        ).strip()
+        git_remote = subprocess.check_output(
+            ['git', 'remote', 'get-url', 'origin'], cwd=repo_dir, text=True
+        ).strip()
+    except Exception:
+        git_commit = None
+        git_remote = None
+
     alloy["results"] = {
         "completedAt": results.get("forged_at", ""),
         "baselinePerplexity": results.get("baseline_ppl"),
@@ -246,6 +260,8 @@ def _write_executed_alloy(ctx: ForgeContext, results: dict, out: Path):
                 "runner": "sentinel-ai/alloy_executor",
                 "version": "1.0.0",
                 "binaryHash": script_hash,
+                **({"commit": git_commit} if git_commit else {}),
+                **({"sourceRepo": git_remote} if git_remote else {}),
             },
             "modelHash": model_hash,
             "datasets": [],
