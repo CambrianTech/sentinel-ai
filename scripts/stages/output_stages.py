@@ -8,6 +8,11 @@ These produce deliverables:
 - Deploy: push to grid node
 """
 
+import hashlib
+import json
+import subprocess
+import sys
+from datetime import datetime, timezone
 from pathlib import Path
 from .base import StageExecutor, ForgeContext
 
@@ -30,7 +35,6 @@ class QuantExecutor(StageExecutor):
             return ctx
 
         if fmt == "gguf":
-            # llama.cpp convert + quantize
             for qt in quant_types:
                 out_path = ctx.output_dir / f"{ctx.alloy.get('name', 'model')}-{qt}.gguf"
                 self.log(f"  {qt} → {out_path.name}")
@@ -51,7 +55,6 @@ class QuantExecutor(StageExecutor):
 class PackageExecutor(StageExecutor):
     """Package for device-specific runtimes beyond basic quantization."""
 
-    # Known packaging tools per format
     PACKAGE_TOOLS = {
         "coreml": "coremltools (pip install coremltools)",
         "tensorrt": "tensorrt-llm (pip install tensorrt-llm)",
@@ -69,73 +72,420 @@ class PackageExecutor(StageExecutor):
 
         tool = self.PACKAGE_TOOLS.get(fmt, f"Unknown tool for {fmt}")
         self.log(f"  Requires: {tool}")
-        self.log(f"  Issue: CambrianTech/sentinel-ai#121")
 
         return ctx
 
 
 class EvalExecutor(StageExecutor):
-    """Run benchmark evaluations."""
+    """Run benchmark evaluations.
 
-    # Known benchmarks and their tools
-    BENCHMARK_TOOLS = {
-        "humaneval": "evalplus (pip install evalplus)",
-        "humaneval+": "evalplus (pip install evalplus)",
-        "mmlu": "lm-eval-harness (pip install lm-eval)",
-        "gsm8k": "lm-eval-harness",
-        "arc": "lm-eval-harness",
-        "hellaswag": "lm-eval-harness",
-        "winogrande": "lm-eval-harness",
-        "truthfulqa": "lm-eval-harness",
-    }
+    Supports:
+    - humaneval/humaneval+: via evalplus (pip install evalplus)
+    - mmlu, gsm8k, arc, hellaswag, winogrande, truthfulqa: via lm-eval-harness
+    """
+
+    # Benchmark → harness mapping
+    EVALPLUS_BENCHMARKS = {"humaneval", "humaneval+"}
+    LM_EVAL_BENCHMARKS = {"mmlu", "gsm8k", "arc", "arc_challenge", "hellaswag",
+                          "winogrande", "truthfulqa"}
 
     def execute(self, ctx: ForgeContext) -> ForgeContext:
         benchmarks = self.config.get("benchmarks", [])
-        threshold = self.config.get("passingThreshold")
         compare = self.config.get("compareToBase", True)
 
-        bench_names = [b["name"] for b in benchmarks]
-        self.log(f"Evaluating: {', '.join(bench_names)}")
+        if not benchmarks:
+            self.log("No benchmarks specified — skipping")
+            return ctx
+
+        model_dir = ctx.output_dir / "model"
+        if not model_dir.exists():
+            self.log("WARNING: No model directory — eval deferred")
+            for bench in benchmarks:
+                ctx.eval_results.append({
+                    "name": bench["name"],
+                    "metrics": {"status": "deferred", "reason": "no model directory"},
+                })
+            return ctx
 
         for bench in benchmarks:
             name = bench["name"]
-            tool = self.BENCHMARK_TOOLS.get(name, "unknown")
-            self.log(f"  {name}: requires {tool}")
+            self.log(f"Running {name}...")
 
-            # TODO: Wire to actual eval harnesses
-            ctx.eval_results.append({
-                "name": name,
-                "subset": bench.get("subset"),
-                "metrics": {"status": "pending"},
-                "submittedToLeaderboard": bench.get("submitToLeaderboard", False),
-            })
+            if name in self.EVALPLUS_BENCHMARKS:
+                result = self._run_evalplus(ctx, name, model_dir)
+            elif name in self.LM_EVAL_BENCHMARKS:
+                result = self._run_lm_eval(ctx, name, model_dir)
+            else:
+                self.log(f"  Unknown benchmark: {name} — recording as pending")
+                result = {"name": name, "metrics": {"status": "pending"}}
 
-        if threshold:
-            self.log(f"  Passing threshold: {threshold}%")
-        if compare:
-            self.log(f"  Will compare to base model")
+            ctx.eval_results.append(result)
 
         return ctx
+
+    def _run_evalplus(self, ctx: ForgeContext, name: str, model_dir: Path) -> dict:
+        """Run HumanEval/HumanEval+ via evalplus."""
+        try:
+            import evalplus
+        except ImportError:
+            self.log(f"  evalplus not installed — installing...")
+            subprocess.check_call([sys.executable, "-m", "pip", "install",
+                                   "evalplus", "--quiet"])
+
+        result_dir = ctx.output_dir / "eval" / name
+        result_dir.mkdir(parents=True, exist_ok=True)
+
+        try:
+            # Generate completions
+            self.log(f"  Generating completions for {name}...")
+            subprocess.check_call([
+                sys.executable, "-m", "evalplus.codegen",
+                "--model", str(model_dir),
+                "--dataset", "humaneval",
+                "--backend", "hf",
+                "--output-path", str(result_dir),
+            ], timeout=7200)  # 2 hour timeout
+
+            # Evaluate
+            self.log(f"  Evaluating completions...")
+            eval_result = subprocess.run([
+                sys.executable, "-m", "evalplus.evaluate",
+                "--dataset", "humaneval",
+                "--samples", str(result_dir),
+            ], capture_output=True, text=True, timeout=3600)
+
+            # Parse evalplus output
+            metrics = self._parse_evalplus_output(eval_result.stdout, name)
+            result_hash = self._hash_directory(result_dir)
+
+            self.log(f"  {name}: {metrics.get('passing', '?')}/{metrics.get('total', '?')} "
+                     f"({metrics.get('score', '?')}%)")
+
+            return {
+                "name": name,
+                "metrics": metrics,
+                "resultHash": result_hash,
+                "submittedToLeaderboard": False,
+            }
+
+        except subprocess.TimeoutExpired:
+            self.log(f"  {name} timed out")
+            return {"name": name, "metrics": {"status": "timeout"}}
+        except Exception as e:
+            self.log(f"  {name} failed: {e}")
+            return {"name": name, "metrics": {"status": "failed", "error": str(e)}}
+
+    def _run_lm_eval(self, ctx: ForgeContext, name: str, model_dir: Path) -> dict:
+        """Run benchmark via lm-eval-harness."""
+        try:
+            import lm_eval
+        except ImportError:
+            self.log(f"  lm-eval not installed — installing...")
+            subprocess.check_call([sys.executable, "-m", "pip", "install",
+                                   "lm-eval", "--quiet"])
+
+        result_dir = ctx.output_dir / "eval" / name
+        result_dir.mkdir(parents=True, exist_ok=True)
+
+        # Map our names to lm-eval task names
+        task_map = {
+            "mmlu": "mmlu",
+            "gsm8k": "gsm8k",
+            "arc": "arc_challenge",
+            "arc_challenge": "arc_challenge",
+            "hellaswag": "hellaswag",
+            "winogrande": "winogrande",
+            "truthfulqa": "truthfulqa_mc2",
+        }
+        task = task_map.get(name, name)
+
+        try:
+            self.log(f"  Running lm-eval task: {task}")
+            eval_result = subprocess.run([
+                sys.executable, "-m", "lm_eval",
+                "--model", "hf",
+                "--model_args", f"pretrained={model_dir}",
+                "--tasks", task,
+                "--batch_size", "auto",
+                "--output_path", str(result_dir),
+            ], capture_output=True, text=True, timeout=7200)
+
+            # Parse lm-eval results
+            metrics = self._parse_lm_eval_output(result_dir, task)
+            result_hash = self._hash_directory(result_dir)
+
+            self.log(f"  {name}: {metrics}")
+
+            return {
+                "name": name,
+                "metrics": metrics,
+                "resultHash": result_hash,
+                "submittedToLeaderboard": False,
+            }
+
+        except subprocess.TimeoutExpired:
+            self.log(f"  {name} timed out")
+            return {"name": name, "metrics": {"status": "timeout"}}
+        except Exception as e:
+            self.log(f"  {name} failed: {e}")
+            return {"name": name, "metrics": {"status": "failed", "error": str(e)}}
+
+    def _parse_evalplus_output(self, output: str, name: str) -> dict:
+        """Parse evalplus stdout for pass@1 results."""
+        metrics = {}
+        for line in output.splitlines():
+            line = line.strip()
+            # evalplus prints: "pass@1: 0.741"  or  "humaneval (pass@1): 63/85"
+            if "pass@1" in line.lower():
+                parts = line.split(":")
+                if len(parts) >= 2:
+                    val = parts[-1].strip()
+                    if "/" in val:
+                        passing, total = val.split("/")
+                        metrics["passing"] = int(passing.strip())
+                        metrics["total"] = int(total.strip())
+                        metrics["score"] = round(metrics["passing"] / metrics["total"] * 100, 1)
+                    else:
+                        try:
+                            score = float(val)
+                            metrics["score"] = round(score * 100, 1) if score <= 1.0 else round(score, 1)
+                        except ValueError:
+                            pass
+        if not metrics:
+            metrics["status"] = "completed_no_parse"
+            metrics["raw_output"] = output[-500:]  # Last 500 chars for debugging
+        return metrics
+
+    def _parse_lm_eval_output(self, result_dir: Path, task: str) -> dict:
+        """Parse lm-eval JSON results."""
+        # lm-eval writes results to a JSON file in the output directory
+        for json_file in result_dir.rglob("*.json"):
+            try:
+                data = json.loads(json_file.read_text())
+                results = data.get("results", {})
+                if task in results:
+                    task_results = results[task]
+                    # Extract the primary metric
+                    acc = task_results.get("acc,none") or task_results.get("acc_norm,none")
+                    if acc is not None:
+                        return {
+                            "accuracy": round(acc * 100, 1),
+                            "nShot": data.get("config", {}).get("num_fewshot", 0),
+                        }
+                    # Return whatever metrics exist
+                    return {k: v for k, v in task_results.items()
+                            if not k.startswith("_") and v is not None}
+            except (json.JSONDecodeError, KeyError):
+                continue
+        return {"status": "completed_no_results"}
+
+    def _hash_directory(self, directory: Path) -> str:
+        """SHA-256 hash of all files in a directory (deterministic)."""
+        h = hashlib.sha256()
+        for f in sorted(directory.rglob("*")):
+            if f.is_file():
+                h.update(f.read_bytes())
+        return f"sha256:{h.hexdigest()}"
 
 
 class PublishExecutor(StageExecutor):
-    """Publish to HuggingFace with model card + alloy."""
+    """Publish to HuggingFace with model card + alloy + attestation.
+
+    Uses the forge-alloy schema for the card and alloy_to_card.py for generation.
+    Verifies alloy integrity before publishing.
+    """
 
     def execute(self, ctx: ForgeContext) -> ForgeContext:
         org = self.config.get("org", "continuum-ai")
-        template = self.config.get("repoNameTemplate", "{base}-{domain}-forged")
         include_alloy = self.config.get("includeAlloy", True)
-        card_from_benchmarks = self.config.get("cardFromBenchmarks", True)
         tags = self.config.get("tags", [])
         private = self.config.get("private", False)
 
-        self.log(f"Publishing to {org}")
-        self.log(f"  Repo template: {template}")
-        self.log(f"  Tags: {tags + (['forge-alloy'] if include_alloy else [])}")
-        self.log(f"  Private: {private}")
-        self.log(f"  Use: python publish_forged.py {ctx.output_dir} --org {org}")
+        model_dir = ctx.output_dir / "model"
+        if not model_dir.exists():
+            self.log("WARNING: No model directory — publish deferred")
+            return ctx
+
+        # Build repo name from alloy
+        alloy = ctx.alloy
+        name = alloy.get("name", ctx.model_name.split("/")[-1])
+        repo_id = f"{org}/{name}"
+
+        self.log(f"Publishing to {repo_id}")
+
+        # Generate card using alloy_to_card
+        card = self._generate_card(ctx)
+        card_path = ctx.output_dir / "README.md"
+        card_path.write_text(card)
+        self.log(f"  Card generated ({len(card)} chars)")
+
+        # Hash the card for integrity tracking
+        card_hash = f"sha256:{hashlib.sha256(card.encode()).hexdigest()}"
+
+        # Verify alloy integrity before publishing
+        errors = self._verify_integrity(ctx)
+        if errors:
+            for err in errors:
+                self.log(f"  INTEGRITY ERROR: {err}")
+            self.log("  ABORTING PUBLISH — integrity verification failed")
+            return ctx
+
+        # Generate QR code
+        qr_path = self._generate_qr(ctx, repo_id)
+
+        try:
+            from huggingface_hub import HfApi, create_repo
+        except ImportError:
+            self.log("  huggingface_hub not installed — install with: pip install huggingface_hub")
+            self.log(f"  Manual: huggingface-cli upload {repo_id} {ctx.output_dir}")
+            return ctx
+
+        api = HfApi()
+
+        # Create repo
+        try:
+            create_repo(repo_id, repo_type="model", exist_ok=True, private=private)
+            self.log(f"  Repo ready: {repo_id}")
+        except Exception as e:
+            self.log(f"  ERROR creating repo: {e}")
+            return ctx
+
+        # Upload model weights
+        safetensors = list(model_dir.glob("*.safetensors"))
+        if safetensors:
+            self.log(f"  Uploading {len(safetensors)} weight files...")
+            for sf in safetensors:
+                api.upload_file(path_or_fileobj=str(sf), path_in_repo=sf.name, repo_id=repo_id)
+
+            # Config files
+            for cfg in ["config.json", "tokenizer.json", "tokenizer_config.json",
+                        "generation_config.json", "special_tokens_map.json"]:
+                cfg_path = model_dir / cfg
+                if cfg_path.exists():
+                    api.upload_file(path_or_fileobj=str(cfg_path), path_in_repo=cfg, repo_id=repo_id)
+
+        # Upload card
+        api.upload_file(path_or_fileobj=str(card_path), path_in_repo="README.md", repo_id=repo_id)
+
+        # Upload alloy
+        if include_alloy:
+            alloy_files = list(ctx.output_dir.glob("*.alloy.json"))
+            for af in alloy_files:
+                api.upload_file(path_or_fileobj=str(af), path_in_repo=af.name, repo_id=repo_id)
+                self.log(f"  Uploaded alloy: {af.name}")
+
+        # Upload QR
+        if qr_path and qr_path.exists():
+            api.upload_file(path_or_fileobj=str(qr_path), path_in_repo="alloy-qr.png", repo_id=repo_id)
+
+        # Upload benchmark samples
+        bench_dir = ctx.output_dir / "benchmark"
+        if bench_dir.exists():
+            for txt in bench_dir.glob("*.txt"):
+                api.upload_file(path_or_fileobj=str(txt),
+                                path_in_repo=f"benchmark/{txt.name}", repo_id=repo_id)
+
+        # Upload eval results
+        eval_dir = ctx.output_dir / "eval"
+        if eval_dir.exists():
+            for f in eval_dir.rglob("*"):
+                if f.is_file():
+                    rel = f.relative_to(ctx.output_dir)
+                    api.upload_file(path_or_fileobj=str(f), path_in_repo=str(rel), repo_id=repo_id)
+
+        pub_url = f"https://huggingface.co/{repo_id}"
+        pub_time = datetime.now(timezone.utc).isoformat()
+        self.log(f"  PUBLISHED: {pub_url}")
+
+        # Write receipt into alloy
+        alloy_files = list(ctx.output_dir.glob("*.alloy.json"))
+        if alloy_files:
+            alloy_data = json.loads(alloy_files[0].read_text())
+            alloy_data["receipt"] = {
+                "publications": [{
+                    "target": "huggingface",
+                    "url": pub_url,
+                    "publishedAt": pub_time,
+                }],
+                "verifyUrl": f"https://cambriantech.github.io/forge-alloy/verify/#{hashlib.sha256(alloy_files[0].read_bytes()).hexdigest()[:16]}",
+                "alloyHash": f"sha256:{hashlib.sha256(alloy_files[0].read_bytes()).hexdigest()}",
+                "cardHash": card_hash,
+                "issuedAt": pub_time,
+            }
+            alloy_files[0].write_text(json.dumps(alloy_data, indent=2))
+
+            # Re-upload alloy with receipt
+            api.upload_file(path_or_fileobj=str(alloy_files[0]),
+                            path_in_repo=alloy_files[0].name, repo_id=repo_id)
+            self.log(f"  Alloy updated with receipt")
 
         return ctx
+
+    def _generate_card(self, ctx: ForgeContext) -> str:
+        """Generate model card from alloy using alloy_to_card."""
+        scripts_dir = Path(__file__).resolve().parent.parent
+        sys.path.insert(0, str(scripts_dir))
+        try:
+            from alloy_to_card import alloy_to_card
+            alloy_path = list(ctx.output_dir.glob("*.alloy.json"))
+            alloy_hash = ""
+            if alloy_path:
+                alloy_hash = hashlib.sha256(alloy_path[0].read_bytes()).hexdigest()
+            return alloy_to_card(ctx.alloy, alloy_hash)
+        except ImportError:
+            self.log("  WARNING: alloy_to_card.py not found — using basic card")
+            return f"# {ctx.alloy.get('name', 'Model')}\n\nForged with ForgeAlloy.\n"
+
+    def _verify_integrity(self, ctx: ForgeContext) -> list:
+        """Verify alloy hashes match actual files."""
+        errors = []
+        integrity = ctx.alloy.get("results", {}).get("integrity", {})
+        if not integrity:
+            return []
+
+        claimed_hash = integrity.get("modelHash", "")
+        if claimed_hash:
+            model_dir = ctx.output_dir / "model"
+            safetensors = sorted(model_dir.glob("*.safetensors"))
+            if safetensors:
+                h = hashlib.sha256()
+                for sf in safetensors:
+                    with open(sf, 'rb') as f:
+                        while True:
+                            chunk = f.read(65536)
+                            if not chunk:
+                                break
+                            h.update(chunk)
+                actual = f"sha256:{h.hexdigest()}"
+                if actual != claimed_hash:
+                    errors.append(f"Model hash mismatch: claimed {claimed_hash[:24]}... actual {actual[:24]}...")
+        return errors
+
+    def _generate_qr(self, ctx: ForgeContext, repo_id: str) -> Path:
+        """Generate QR code linking to verify page."""
+        try:
+            import qrcode
+        except ImportError:
+            try:
+                subprocess.check_call([sys.executable, "-m", "pip", "install",
+                                       "qrcode[pil]", "--quiet"])
+                import qrcode
+            except Exception:
+                self.log("  QR generation skipped (install qrcode)")
+                return None
+
+        alloy_files = list(ctx.output_dir.glob("*.alloy.json"))
+        if not alloy_files:
+            return None
+
+        alloy_hash = hashlib.sha256(alloy_files[0].read_bytes()).hexdigest()[:16]
+        verify_url = f"https://cambriantech.github.io/forge-alloy/verify/#{alloy_hash}"
+
+        qr = qrcode.make(verify_url)
+        qr_path = ctx.output_dir / "alloy-qr.png"
+        qr.save(str(qr_path))
+        self.log(f"  QR → {verify_url}")
+        return qr_path
 
 
 class DeployExecutor(StageExecutor):
@@ -156,7 +506,6 @@ class DeployExecutor(StageExecutor):
             self.log(f"  Model available at: {ctx.output_dir / 'model'}")
         elif target in ("bigmama", "grid"):
             self.log(f"  Grid deploy requires SSH/reticulum transport")
-            self.log(f"  Issue: CambrianTech/sentinel-ai#122")
         else:
             self.log(f"  Custom target: {target}")
 
