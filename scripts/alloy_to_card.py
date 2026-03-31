@@ -20,9 +20,9 @@ def alloy_to_card(alloy: dict, alloy_hash: str = "") -> str:
     """Generate a model card from an executed alloy. Every claim is proof."""
 
     name = alloy.get("name", "model")
+    author = alloy.get("author", "")
     source = alloy.get("source", {})
     base_model = source.get("baseModel", "unknown")
-    arch = source.get("architecture", "unknown")
     r = alloy.get("results", {})
     i = r.get("integrity", {})
     code = i.get("code", {})
@@ -30,12 +30,17 @@ def alloy_to_card(alloy: dict, alloy_hash: str = "") -> str:
     stages = alloy.get("stages", [])
     cycles = alloy.get("cycles", 1)
     tags = alloy.get("tags", [])
+    certs = i.get("certifications", [])
 
     # Derive key metrics
     baseline = r.get("baselinePerplexity", 0)
     final = r.get("finalPerplexity", 0)
     improvement = r.get("improvementPct", 0)
     domain = next((s.get("domain", "") for s in stages if s.get("type") == "train"), "general")
+    duration = r.get("durationMinutes")
+
+    # Model identifier for code examples
+    model_id = f"{author}/{name}" if author else name
 
     # Verify URL
     verify_url = receipt.get("verifyUrl", "")
@@ -45,9 +50,16 @@ def alloy_to_card(alloy: dict, alloy_hash: str = "") -> str:
     # Hardware
     hw = r.get("hardwareVerified", [])
     hw_device = hw[0].get("device", "GPU") if hw else "GPU"
+    duration_str = f" · {int(duration)} minutes" if duration else ""
 
     # Pipeline
     pipeline = " → ".join(s["type"] for s in stages)
+
+    # Trust level and summary
+    trust_level = i.get("trustLevel", "self-attested")
+    bench_count = len(r.get("benchmarks", []))
+    cert_count = len(certs)
+    hw_count = len(hw)
 
     card = f"""---
 tags:
@@ -61,11 +73,21 @@ license: {alloy.get('license', 'apache-2.0')}
 
 <p align="center">
 <b>{base_model.split('/')[-1]}</b> forged for {domain} through <a href="https://github.com/CambrianTech/continuum/blob/main/docs/papers/EXPERIENTIAL-PLASTICITY.md">Experiential Plasticity</a><br>
-{baseline:.2f} → {final:.2f} perplexity · {cycles} cycles · {hw_device}
+{baseline:.2f} → {final:.2f} perplexity · {cycles} cycles · {hw_device}{duration_str}
 </p>
 """
 
     if verify_url:
+        # Trust summary inline — the truthometer
+        trust_parts = []
+        if bench_count:
+            trust_parts.append(f"{bench_count} benchmark{'s' if bench_count > 1 else ''}")
+        if cert_count:
+            trust_parts.append(f"{cert_count} certification{'s' if cert_count > 1 else ''}")
+        if hw_count:
+            trust_parts.append(f"{hw_count} device{'s' if hw_count > 1 else ''} tested")
+        trust_summary = " · ".join(trust_parts) if trust_parts else ""
+
         card += f"""
 <p align="center">
 <a href="{verify_url}">
@@ -75,7 +97,8 @@ license: {alloy.get('license', 'apache-2.0')}
 
 <p align="center">
 <a href="{verify_url}"><b>Every claim on this card is verified</b></a><br>
-<a href="https://github.com/CambrianTech/forge-alloy">ForgeAlloy</a> chain of custody · <a href="{name}.alloy.json">Download alloy</a> · Merkle-chained · {i.get('trustLevel', 'self-attested')}
+<b>Trust: {trust_level}</b>{(' · ' + trust_summary) if trust_summary else ''}<br>
+<a href="https://github.com/CambrianTech/forge-alloy">ForgeAlloy</a> chain of custody · <a href="{name}.alloy.json">Download alloy</a> · Merkle-chained
 </p>
 
 ---
@@ -85,13 +108,25 @@ license: {alloy.get('license', 'apache-2.0')}
     benchmarks = r.get("benchmarks", [])
     if benchmarks:
         card += "\n## Benchmarks\n\n"
-        card += "| Benchmark | Result | Status |\n|-----------|--------|--------|\n"
+        card += "| Benchmark | Result | Verified |\n|-----------|--------|----------|\n"
         for b in benchmarks:
             bname = b.get("name", "?")
             metrics = b.get("metrics", {})
             score = metrics.get("score", metrics.get("accuracy", metrics.get("passing", "—")))
-            status = "✅ Verified" if isinstance(score, (int, float)) and score > 0 else "⏳ Pending"
-            card += f"| **{bname}** | **{score}** | {status} |\n"
+            has_hash = "✅ Result hash" if b.get("resultHash") else "Self-reported"
+            card += f"| **{bname}** | **{score}** | {has_hash} |\n"
+        card += "\n"
+
+    # Certifications (adapter attestations)
+    if certs:
+        card += "## Independent Certifications\n\n"
+        card += "| Certifier | Domain | Signed | Source |\n|-----------|--------|--------|--------|\n"
+        for c in certs:
+            adapter = c.get("adapter", "?")
+            cdomain = c.get("domain", "?")
+            signed = "✅ Signed" if c.get("signature") else "Unsigned"
+            source_link = f"[Open source]({c['sourceRepo']})" if c.get("sourceRepo") else "Closed"
+            card += f"| **{adapter}** | {cdomain} | {signed} | {source_link} |\n"
         card += "\n"
 
     # Results table
@@ -100,7 +135,6 @@ license: {alloy.get('license', 'apache-2.0')}
 | Metric | Baseline | Forged | Change |
 |--------|----------|--------|--------|
 | Perplexity ({domain}) | {baseline:.2f} | **{final:.2f}** | **+{improvement:.1f}%** |
-| Parameters | {source.get('architecture', '?')} | same | — |
 | Pipeline | — | {pipeline} | {cycles} cycles |
 
 """
@@ -111,7 +145,6 @@ license: {alloy.get('license', 'apache-2.0')}
 | Device | Format | Size | Status |
 |--------|--------|------|--------|
 """
-    # Standard device ladder
     devices = [
         ("iPhone / Android", "Q4_K_M", "~2.6GB", "Expected"),
         ("MacBook Air 8GB", "Q4_K_M", "~2.6GB", "Expected"),
@@ -120,7 +153,9 @@ license: {alloy.get('license', 'apache-2.0')}
         ("RTX 3090/4090", "fp16", "8.0GB", "Expected"),
     ]
     for h in hw:
-        devices.append((h["device"], h.get("format", "fp16"), "8.0GB", "**Forged here**"))
+        devices.append((h["device"], h.get("format", "fp16"),
+                        f"{h.get('sizeGb', '?')}GB" if h.get("sizeGb") else "—",
+                        "**Forged here**"))
     for d in devices:
         card += f"| {d[0]} | {d[1]} | {d[2]} | {d[3]} |\n"
 
@@ -131,9 +166,9 @@ license: {alloy.get('license', 'apache-2.0')}
 ```python
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
-model = AutoModelForCausalLM.from_pretrained("continuum-ai/{name}",
+model = AutoModelForCausalLM.from_pretrained("{model_id}",
     torch_dtype="auto", device_map="auto")
-tokenizer = AutoTokenizer.from_pretrained("continuum-ai/{name}")
+tokenizer = AutoTokenizer.from_pretrained("{model_id}")
 
 inputs = tokenizer("def merge_sort(arr):", return_tensors="pt").to(model.device)
 output = model.generate(**inputs, max_new_tokens=200)
@@ -143,9 +178,9 @@ print(tokenizer.decode(output[0], skip_special_tokens=True))
 ## Reproduce
 
 ```bash
-git clone https://github.com/CambrianTech/sentinel-ai && cd sentinel-ai && ./setup.sh
-source .venv/bin/activate
-python scripts/alloy_executor.py {name}.alloy.json
+pip install forge-alloy
+# Download the alloy and run it with any compatible forge runner
+python your_runner.py {name}.alloy.json
 ```
 """
 
@@ -159,18 +194,24 @@ python scripts/alloy_executor.py {name}.alloy.json
     if i.get("modelHash"):
         card += f"| Model weights | `{i['modelHash'][:40]}...` |\n"
     if code.get("binaryHash"):
-        runner_repo = "sentinel-ai" if "sentinel" in code.get("runner", "") else "forge-alloy"
-        script = "scripts/alloy_executor.py" if "alloy_executor" in code.get("runner", "") else "scripts/forge_model.py"
-        commit_ref = code.get("commit", "main")
-        card += f"| Code that ran | [`{code['binaryHash'][:24]}...`](https://github.com/CambrianTech/{runner_repo}/blob/{commit_ref}/{script}) |\n"
+        code_link = code["binaryHash"][:24] + "..."
+        if code.get("sourceRepo") and code.get("commit"):
+            code_link = f"[`{code_link}`]({code['sourceRepo']}/tree/{code['commit']})"
+        else:
+            code_link = f"`{code_link}`"
+        card += f"| Code that ran | {code_link} |\n"
     if code.get("commit"):
-        runner_repo = "sentinel-ai" if "sentinel" in code.get("runner", "") else "forge-alloy"
-        card += f"| Git commit | [`{code['commit'][:12]}`](https://github.com/CambrianTech/{runner_repo}/commit/{code['commit']}) |\n"
+        commit_link = code["commit"][:12]
+        if code.get("sourceRepo"):
+            commit_link = f"[`{commit_link}`]({code['sourceRepo']}/commit/{code['commit']})"
+        else:
+            commit_link = f"`{commit_link}`"
+        card += f"| Git commit | {commit_link} |\n"
     card += f"| Forged on | {hw_device}, {i.get('attestedAt', '?')} |\n"
     if receipt.get("publications"):
         for p in receipt["publications"]:
             card += f"| Published | [{p['target']}]({p['url']}) — {p.get('publishedAt', '?')} |\n"
-    card += f"| Trust level | [`{i.get('trustLevel', '?')}`](https://github.com/CambrianTech/forge-alloy/blob/main/docs/ATTESTATION.md) |\n"
+    card += f"| Trust level | [`{trust_level}`](https://github.com/CambrianTech/forge-alloy/blob/main/docs/ATTESTATION.md) |\n"
     card += f"| Spec | [ForgeAlloy](https://github.com/CambrianTech/forge-alloy) — Rust/Python/TypeScript |\n"
 
     # Science
@@ -192,8 +233,6 @@ python scripts/alloy_executor.py {name}.alloy.json
 - [Plasticity Compaction](https://github.com/CambrianTech/continuum/blob/main/docs/papers/PLASTICITY-COMPACTION-MOE.md) — MoE expert pruning
 
 ---
-
-[sentinel-ai](https://github.com/CambrianTech/sentinel-ai) · [continuum](https://github.com/CambrianTech/continuum) · [forge-alloy](https://github.com/CambrianTech/forge-alloy) · [all models](https://huggingface.co/continuum-ai)
 
 *Every claim verified by [ForgeAlloy](https://github.com/CambrianTech/forge-alloy) cryptographic chain of custody*
 """
