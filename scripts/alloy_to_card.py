@@ -61,6 +61,8 @@ def alloy_to_card(alloy: dict, alloy_hash: str = "") -> str:
     cert_count = len(certs)
     hw_count = len(hw)
 
+    factory_img = "https://raw.githubusercontent.com/CambrianTech/continuum/main/docs/images/factory.png"
+
     card = f"""---
 tags:
 {chr(10).join(f'- {t}' for t in tags)}
@@ -75,6 +77,14 @@ license: {alloy.get('license', 'apache-2.0')}
 <b>{base_model.split('/')[-1]}</b> forged for {domain} through <a href="https://github.com/CambrianTech/continuum/blob/main/docs/papers/EXPERIENTIAL-PLASTICITY.md">Experiential Plasticity</a><br>
 {baseline:.2f} → {final:.2f} perplexity · {cycles} cycles · {hw_device}{duration_str}
 </p>
+
+<details>
+<summary><b>Forged with Continuum — a distributed AI world that runs on your hardware</b></summary>
+<p align="center">
+<a href="https://github.com/CambrianTech/continuum"><img src="{factory_img}" alt="Continuum Model Factory" width="600"/></a><br>
+<em>The <a href="https://github.com/CambrianTech/continuum#the-grid">Grid</a> forges models on your GPU, the <a href="https://github.com/CambrianTech/forge-alloy">alloy</a> proves the work.</em>
+</p>
+</details>
 """
 
     if verify_url:
@@ -112,7 +122,12 @@ license: {alloy.get('license', 'apache-2.0')}
         for b in benchmarks:
             bname = b.get("name", "?")
             metrics = b.get("metrics", {})
-            score = metrics.get("score", metrics.get("accuracy", metrics.get("passing", "—")))
+            # Try common metric keys in priority order
+            score = (metrics.get("score") or metrics.get("accuracy") or
+                     metrics.get("passing") or metrics.get("improvement") or
+                     metrics.get("final") or metrics.get("status") or "—")
+            if isinstance(score, float):
+                score = f"{score:.1f}"
             has_hash = "✅ Result hash" if b.get("resultHash") else "Self-reported"
             card += f"| **{bname}** | **{score}** | {has_hash} |\n"
         card += "\n"
