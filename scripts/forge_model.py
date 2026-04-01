@@ -917,12 +917,15 @@ def main():
                 print(f"  Converged ({delta_pct:.3f}% < {args.early_stop}%). Stopping.")
                 break
 
-    # Remove any remaining pruning hooks
+    # --- 4. Final ---
+    # Evaluate WITH pruning hooks still active — removing hooks before eval
+    # causes pruned heads to output garbage (their weights were never zeroed,
+    # only masked by the hooks during forward pass).
+    final = evaluate(model, eval_loader)
+
+    # Now remove hooks after eval
     for h in all_hooks:
         h.remove()
-
-    # --- 4. Final ---
-    final = evaluate(model, eval_loader)
     total_imp = (baseline["perplexity"] - final["perplexity"]) / baseline["perplexity"] * 100
 
     print(f"\n{'='*60}")
