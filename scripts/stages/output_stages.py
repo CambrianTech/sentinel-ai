@@ -136,15 +136,18 @@ class EvalExecutor(StageExecutor):
         result_dir.mkdir(parents=True, exist_ok=True)
 
         try:
-            # Generate completions
-            self.log(f"  Generating completions for {name}...")
+            # Generate completions — GPU batch inference, greedy decoding
+            self.log(f"  Generating completions for {name} (GPU batch)...")
+            env = {**os.environ, "CUDA_VISIBLE_DEVICES": "0"}
             subprocess.check_call([
                 sys.executable, "-m", "evalplus.codegen",
                 "--model", str(model_dir),
                 "--dataset", "humaneval",
                 "--backend", "hf",
+                "--greedy",
+                "--bs", "8",
                 "--output-path", str(result_dir),
-            ], timeout=7200)  # 2 hour timeout
+            ], timeout=3600, env=env)  # 1 hour timeout (GPU is fast)
 
             # Evaluate
             self.log(f"  Evaluating completions...")
