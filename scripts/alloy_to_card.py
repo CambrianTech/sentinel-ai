@@ -63,9 +63,63 @@ def alloy_to_card(alloy: dict, alloy_hash: str = "") -> str:
 
     factory_img = "https://raw.githubusercontent.com/CambrianTech/continuum/main/docs/images/factory.png"
 
+    # Auto-generate comprehensive tags from alloy stages + metadata
+    auto_tags = set(tags)  # Start with alloy-declared tags
+    auto_tags.update(["text-generation", "continuum", "forged", "forge-alloy",
+                       "experiential-plasticity", "sentinel-ai"])
+
+    # Domain tags
+    if domain:
+        auto_tags.add(domain)
+        domain_expansion = {
+            "code": ["code-generation", "coding", "coder", "programming", "software-engineering"],
+            "reasoning": ["math", "logic", "problem-solving"],
+            "general": ["general-purpose", "versatile"],
+            "chat": ["conversational", "chat", "assistant"],
+        }
+        auto_tags.update(domain_expansion.get(domain, []))
+
+    # Architecture tags
+    base_lower = base_model.lower()
+    if "qwen" in base_lower:
+        auto_tags.add("qwen3.5" if "3.5" in base_lower else "qwen")
+    if "llama" in base_lower: auto_tags.add("llama")
+    if "mistral" in base_lower: auto_tags.add("mistral")
+
+    # Stage-derived tags
+    stage_types = {s.get("type") for s in stages}
+    if "prune" in stage_types: auto_tags.update(["pruned", "head-pruning", "neural-plasticity", "efficient", "optimized"])
+    if "context-extend" in stage_types:
+        ctx = next((s for s in stages if s.get("type") == "context-extend"), {})
+        method = ctx.get("method", "")
+        target = ctx.get("targetLength", 0)
+        if method: auto_tags.add(method)
+        if target: auto_tags.add(f"{target // 1024}k-context")
+        auto_tags.update(["long-context", "extended-context"])
+    if "lora" in stage_types: auto_tags.add("lora")
+    if "compact" in stage_types: auto_tags.update(["compacted", "mixed-precision"])
+    if "quant" in stage_types: auto_tags.update(["quantized"])
+    if "modality" in stage_types: auto_tags.update(["multimodal"])
+
+    # Deployment tags — always relevant
+    auto_tags.update(["local-inference", "on-device", "edge-inference",
+                       "apple-silicon", "macbook", "iphone", "android",
+                       "ollama", "lm-studio", "llama-cpp",
+                       "mobile", "embedded", "raspberry-pi"])
+
+    # Language tags
+    auto_tags.update(["English", "Chinese"])
+
+    # Size tag
+    for part in base_model.split("-"):
+        if part.lower().endswith("b") and part[:-1].replace(".", "").isdigit():
+            auto_tags.add(part.lower())
+
+    all_tags = sorted(auto_tags)
+
     card = f"""---
 tags:
-{chr(10).join(f'- {t}' for t in tags)}
+{chr(10).join(f'- {t}' for t in all_tags)}
 base_model: {base_model}
 pipeline_tag: text-generation
 license: {alloy.get('license', 'apache-2.0')}
