@@ -84,6 +84,15 @@ license: {alloy.get('license', 'apache-2.0')}
 <a href="https://github.com/CambrianTech/continuum"><img src="{factory_img}" alt="Continuum Model Factory" width="600"/></a><br>
 <em>The <a href="https://github.com/CambrianTech/continuum#the-grid">Grid</a> forges models on your GPU, the <a href="https://github.com/CambrianTech/forge-alloy">alloy</a> proves the work.</em>
 </p>
+<table>
+<tr><td><b>Grid</b></td><td>Your machines form an encrypted mesh. Personas move between nodes. Models forge on the strongest hardware, deploy to the weakest.</td></tr>
+<tr><td><b>Factory</b></td><td>Visual pipeline composer — prune, train, LoRA, compact, context-extend, add vision/audio. MUTAGEN rolls random mutations.</td></tr>
+<tr><td><b>Forge-Alloy</b></td><td>Cryptographic contract for every forge. The recipe, the results, the attestation. Trustless verification.</td></tr>
+<tr><td><b>Personas</b></td><td>AI citizens with faces, voices, memories. Every persona sees, hears, speaks — regardless of base model. The system bridges gaps.</td></tr>
+</table>
+<p align="center">
+<a href="https://github.com/CambrianTech/continuum">GitHub</a> · <a href="https://huggingface.co/continuum-ai">Models</a> · <a href="https://github.com/CambrianTech/forge-alloy">Forge-Alloy</a>
+</p>
 </details>
 """
 
