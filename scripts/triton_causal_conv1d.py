@@ -35,22 +35,62 @@ def _conv1d_fwd(
     tl.store(out_ptr + base + offs, acc, mask=mask)
 
 
-def triton_causal_conv1d(x, weight, bias=None):
+def triton_causal_conv1d(x, weight, bias=None, activation=None, **kwargs):
     batch, dim, seqlen = x.shape
     width = weight.shape[1]
     out = torch.empty_like(x)
     BN = min(512, triton.next_power_of_2(seqlen))
     grid = (batch, dim, triton.cdiv(seqlen, BN))
     _conv1d_fwd[grid](x, weight, bias, out, seqlen=seqlen, width=width, dim=dim, BLOCK_N=BN)
+    if activation == "silu":
+        out = torch.nn.functional.silu(out)
     return out
 
 
+def triton_causal_conv1d_update(x, conv_state, weight, bias=None, activation=None):
+    """Stateful update for autoregressive generation (single token step).
+    x: (batch, dim, 1) or (batch, dim)
+    conv_state: (batch, dim, width) — sliding window state
+    weight: (dim, width)
+    Returns: (output, new_conv_state)
+    """
+    if x.dim() == 2:
+        x = x.unsqueeze(-1)
+    batch, dim, _ = x.shape
+    width = weight.shape[1]
+
+    # Shift state left and append new input
+    new_state = torch.roll(conv_state, -1, dims=-1)
+    new_state[:, :, -1] = x[:, :, 0]
+
+    # Depthwise conv: sum(state * weight) per channel
+    out = (new_state * weight.unsqueeze(0)).sum(dim=-1)  # (batch, dim)
+    if bias is not None:
+        out = out + bias
+
+    if activation == "silu":
+        out = torch.nn.functional.silu(out)
+
+    return out.unsqueeze(-1), new_state
+
+
 def monkey_patch():
-    import types, sys
+    import types, sys, importlib
+    # Create proper module with __spec__ so importlib.util.find_spec works
     m = types.ModuleType("causal_conv1d")
+    m.__spec__ = importlib.machinery.ModuleSpec("causal_conv1d", None)
+    m.__path__ = []
+    m.__package__ = "causal_conv1d"
     m.causal_conv1d_fn = triton_causal_conv1d
+    m.causal_conv1d_update = triton_causal_conv1d_update
     sys.modules["causal_conv1d"] = m
-    sys.modules["causal_conv1d.causal_conv1d_interface"] = m
+
+    mi = types.ModuleType("causal_conv1d.causal_conv1d_interface")
+    mi.__spec__ = importlib.machinery.ModuleSpec("causal_conv1d.causal_conv1d_interface", None)
+    mi.__package__ = "causal_conv1d"
+    mi.causal_conv1d_fn = triton_causal_conv1d
+    mi.causal_conv1d_update = triton_causal_conv1d_update
+    sys.modules["causal_conv1d.causal_conv1d_interface"] = mi
     print("[triton_causal_conv1d] Patched — Triton kernel active")
 
 
