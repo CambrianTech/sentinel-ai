@@ -27,6 +27,7 @@ class ForgeContext:
     hooks: list = field(default_factory=list)
     eval_results: list = field(default_factory=list)
     source_config: dict = field(default_factory=dict)
+    layer_importance: list = field(default_factory=list)  # Per-layer importance from pruning → feeds quant
 
 
 class StageExecutor:

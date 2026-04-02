@@ -12,7 +12,11 @@ from .base import StageExecutor, ForgeContext
 
 
 class PruneExecutor(StageExecutor):
-    """Head pruning by entropy/magnitude/gradient."""
+    """Head pruning by entropy/magnitude/gradient.
+
+    Saves per-layer importance scores in ctx for downstream use
+    (e.g., variable quantization — important layers keep high precision).
+    """
 
     def execute(self, ctx: ForgeContext) -> ForgeContext:
         level = self.config.get("level", 0.3)
@@ -24,10 +28,52 @@ class PruneExecutor(StageExecutor):
             return ctx
 
         sys.path.insert(0, str(Path(__file__).parent.parent))
-        from forge_model import prune
+        from forge_model import prune, compute_head_importance
+        import torch
+
+        # Compute importance BEFORE pruning — this is the data quant needs
+        importance = compute_head_importance(ctx.model, ctx.info)
+
         heads, hooks = prune(ctx.model, level, ctx.info, "forward_hooks")
         ctx.hooks.extend(hooks)
         self.log(f"Pruned {len(heads)} head groups")
+
+        # Save per-layer importance profile for variable quantization
+        n_layers = importance.shape[0]
+        layer_importance = []
+        for li in range(n_layers):
+            finite = importance[li][importance[li] < float('inf')]
+            if len(finite) == 0:
+                layer_importance.append({"layer": li, "avgImportance": 0, "survivingHeads": 0, "totalHeads": 0})
+                continue
+            total_heads = len(finite)
+            pruned_heads = len(heads.get(li, []))
+            surviving = total_heads - pruned_heads
+            layer_importance.append({
+                "layer": li,
+                "avgImportance": round(finite.mean().item(), 4),
+                "minImportance": round(finite.min().item(), 4),
+                "maxImportance": round(finite.max().item(), 4),
+                "survivingHeads": surviving,
+                "totalHeads": total_heads,
+                "prunedHeads": pruned_heads,
+            })
+
+        # Store on context for quant stage to read
+        if not hasattr(ctx, 'layer_importance'):
+            ctx.layer_importance = []
+        ctx.layer_importance = layer_importance
+
+        # Also save to alloy results for the card and verification
+        if "results" not in ctx.alloy:
+            ctx.alloy["results"] = {}
+        ctx.alloy["results"]["layerImportance"] = layer_importance
+
+        self.log(f"  Layer importance saved ({n_layers} layers)")
+        # Show distribution
+        importances = [l["avgImportance"] for l in layer_importance if l["avgImportance"] > 0]
+        if importances:
+            self.log(f"  Importance range: {min(importances):.3f} — {max(importances):.3f}")
 
         return ctx
 
