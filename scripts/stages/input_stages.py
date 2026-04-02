@@ -71,11 +71,25 @@ class ContextExtendExecutor(StageExecutor):
             "linear": "linear",
         }.get(method, "yarn")
 
+        # Qwen3.5 uses rope_parameters with 'rope_type' key
+        # Other models use rope_scaling with 'type' key
+        # Set both to be safe
+        rope_cfg_new = {"type": scaling_type, "factor": factor,
+                        "original_max_position_embeddings": original_ctx}
+        if hasattr(config, "rope_parameters"):
+            # Qwen3.5 format: merge into existing rope_parameters
+            existing = getattr(config, "rope_parameters", {}) or {}
+            existing["rope_type"] = scaling_type
+            existing["factor"] = factor
+            existing["original_max_position_embeddings"] = original_ctx
+            config.rope_parameters = existing
+            self.log(f"Applied {method} via rope_parameters: {factor:.1f}x ({original_ctx} → {target})")
         if hasattr(config, "rope_scaling"):
-            config.rope_scaling = {"type": scaling_type, "factor": factor}
-            self.log(f"Applied {method} scaling: {factor:.1f}x ({original_ctx} → {target})")
-        else:
-            self.log(f"WARNING: model has no rope_scaling attribute — extension may not work")
+            config.rope_scaling = {**rope_cfg_new}
+            if not hasattr(config, "rope_parameters"):
+                self.log(f"Applied {method} via rope_scaling: {factor:.1f}x ({original_ctx} → {target})")
+        if not hasattr(config, "rope_scaling") and not hasattr(config, "rope_parameters"):
+            self.log(f"WARNING: model has no rope_scaling or rope_parameters — extension may not work")
 
         config.max_position_embeddings = target
         return ctx
