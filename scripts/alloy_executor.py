@@ -43,6 +43,7 @@ def _resolve_local_model(model_name: str) -> str:
     """Check if a HF model exists locally from a previous forge, avoiding re-download.
 
     Searches output/forged/*/model/ for a config.json that matches.
+    Prefers the most specific match (longest candidate name that matches slug).
     Returns local path if found, otherwise the original HF model name.
     """
     # Only try for org/name format (HF repos)
@@ -50,24 +51,43 @@ def _resolve_local_model(model_name: str) -> str:
         return model_name
 
     slug = model_name.split("/")[-1].lower()
-    # Search common local directories
     search_dirs = [
         Path("output/forged"),
         Path.home() / "sentinel-ai" / "output" / "forged",
     ]
+    best_match = None
+    best_score = -1
+
     for search_dir in search_dirs:
         if not search_dir.exists():
             continue
         for candidate in search_dir.iterdir():
             model_dir = candidate / "model"
             config = model_dir / "config.json"
-            if config.exists() and (model_dir / "model.safetensors").exists():
-                # Check if this looks like the right model
-                # Match by slug similarity (alloy name contains base model slug)
-                candidate_name = candidate.name.lower()
-                if slug in candidate_name or candidate_name in slug:
-                    return str(model_dir)
-    return model_name
+            if not (config.exists() and (model_dir / "model.safetensors").exists()):
+                continue
+            candidate_name = candidate.name.lower()
+            # Exact slug match is best
+            if candidate_name == slug:
+                return str(model_dir)
+            # Score by common prefix length (split on '-' to compare segments)
+            # e.g., "qwen3.5-4b-code-128k-final" vs "qwen3.5-4b-code-128k-forged"
+            #   → 4 matching segments = score 4 (very good)
+            # vs "qwen3.5-4b" → 2 matching segments = score 2 (less specific)
+            slug_parts = slug.split("-")
+            cand_parts = candidate_name.split("-")
+            common = 0
+            for s, c in zip(slug_parts, cand_parts):
+                if s == c:
+                    common += 1
+                else:
+                    break
+            # Require at least 2 matching segments to avoid false positives
+            if common >= 2 and common > best_score:
+                best_score = common
+                best_match = str(model_dir)
+
+    return best_match or model_name
 
 
 def execute_alloy(alloy_path: str, output_dir: str = None, dry_run: bool = False):
