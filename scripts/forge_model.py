@@ -172,10 +172,15 @@ def load_model(model_name: str, load_4bit: bool, free_cache_after_load: bool = F
         print(f"  Loading 4-bit NF4 (double quant)")
     else:
         kwargs["dtype"] = torch.float16
-        kwargs["device_map"] = "auto"
-        print(f"  Loading fp16")
+        # Load to CPU first, then move to CUDA. This avoids sm_120 kernel errors
+        # during _init_weights (Mamba-2 A_log init runs torch.uniform_ on CUDA
+        # which fails on RTX 5090 with older PyTorch). CPU init always works.
+        kwargs["device_map"] = "cpu"
+        print(f"  Loading fp16 (CPU → CUDA)")
 
     model = AutoModelForCausalLM.from_pretrained(model_name, **kwargs)
+    if not load_4bit and str(model.device) == "cpu":
+        model = model.to("cuda")
     tokenizer = AutoTokenizer.from_pretrained(model_name)
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
