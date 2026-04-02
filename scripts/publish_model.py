@@ -152,21 +152,25 @@ def publish(output_dir: Path, org: str = "continuum-ai",
     if not alloy.get("author"):
         alloy["author"] = org
 
-    alloy_path.write_text(json.dumps(alloy, indent=2))
-    alloy_hash = hashlib.sha256(alloy_path.read_bytes()).hexdigest()
+    alloy_json = json.dumps(alloy, indent=2)
+    alloy_hash = hashlib.sha256(alloy_json.encode()).hexdigest()
+    if not dry_run:
+        alloy_path.write_text(alloy_json)
     print(f"  Alloy hash: {alloy_hash[:16]}")
 
     # --- PHASE 2: GENERATE QR + CARD (from final hash) ---
     verify_url = f"https://cambriantech.github.io/forge-alloy/verify/#{alloy_hash[:16]}"
 
     qr_path = output_dir / "alloy-qr.png"
-    qr_ok = generate_qr(verify_url, qr_path)
-    if qr_ok:
-        print(f"  QR: {verify_url}")
+    qr_ok = False
+    if not dry_run:
+        qr_ok = generate_qr(verify_url, qr_path)
+    print(f"  QR: {verify_url}")
 
     card = generate_card(alloy, alloy_hash)
     card_path = output_dir / "README.md"
-    card_path.write_text(card)
+    if not dry_run:
+        card_path.write_text(card)
     print(f"  Card: {len(card)} chars")
 
     if dry_run:
