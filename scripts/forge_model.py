@@ -798,15 +798,37 @@ def main():
     (out / "figures").mkdir(exist_ok=True)
     (out / "benchmark").mkdir(exist_ok=True)
 
-    # --- Pre-flight ---
+    # --- Pre-flight checks ---
     info = get_model_info(args.model)
     vram_gb = torch.cuda.get_device_properties(0).total_memory / 1e9
     cfg = ForgeConfig.auto(info["fp16_gb"], vram_gb, args.load_in_4bit)
 
+    # Disk space check
+    import shutil
+    disk = shutil.disk_usage(out)
+    disk_free_gb = disk.free / 1e9
+    disk_pct = (disk.used / disk.total) * 100
+    if disk_free_gb < 20:
+        print(f"  ⚠️  WARNING: Only {disk_free_gb:.0f}GB disk free ({disk_pct:.0f}% used)")
+        print(f"  Forge may fail if output + checkpoints exceed available space.")
+    if disk_free_gb < 5:
+        print(f"  ❌ ABORTING: Less than 5GB free. Clean up before forging.")
+        sys.exit(1)
+
+    # GPU compute test
+    try:
+        test_t = torch.randn(100, 100, device="cuda")
+        _ = test_t @ test_t
+        gpu_ok = "CUDA compute verified"
+    except Exception as e:
+        gpu_ok = f"CUDA FAILED: {e}"
+        print(f"  ❌ {gpu_ok}")
+
     print(f"\n{'='*60}")
     print(f"  FORGING: {args.model}")
     print(f"  Params: {info['total_params']/1e9:.1f}B, fp16: {info['fp16_gb']:.1f}GB, 4-bit: {info['q4_gb']:.1f}GB")
-    print(f"  Hardware: {torch.cuda.get_device_name(0)}, {vram_gb:.0f}GB VRAM")
+    print(f"  Hardware: {torch.cuda.get_device_name(0)}, {vram_gb:.0f}GB VRAM, {gpu_ok}")
+    print(f"  Disk: {disk_free_gb:.0f}GB free ({disk_pct:.0f}% used)")
     print(f"  Tier {cfg.tier}: {'4-bit' if cfg.load_4bit else 'fp16'}, batch={cfg.batch_size}, "
           f"accum={cfg.grad_accum_steps}, seq={cfg.seq_len}")
     print(f"  LoRA r={cfg.lora_r}, prune={cfg.pruning_method}")
@@ -932,11 +954,38 @@ def main():
     print(f"  {args.model}: {baseline['perplexity']:.2f} → {final['perplexity']:.2f} ({total_imp:+.1f}%)")
     print(f"{'='*60}")
 
-    # --- 5. Generate samples ---
+    # --- 5. Generate samples + sanity check ---
     print("\n[4] Generating output samples...")
     samples = generate_samples(model, tokenizer, args.domain)
     for name, text in samples.items():
         (out / "benchmark" / f"{name}.txt").write_text(text)
+
+    # Inference sanity check — catch broken models before declaring success
+    print("\n[4b] Inference sanity check...")
+    sanity_prompts = [
+        ("fibonacci", "def fibonacci(n):\n    if n <= 1:\n        return n\n    return"),
+        ("hello", "def hello(name):\n    return"),
+    ]
+    sanity_passed = True
+    for name, prompt in sanity_prompts:
+        inputs = tokenizer(prompt, return_tensors="pt").to(model.device)
+        with torch.no_grad():
+            out_ids = model.generate(**inputs, max_new_tokens=30, do_sample=False,
+                                      pad_token_id=tokenizer.pad_token_id or tokenizer.eos_token_id)
+        completion = tokenizer.decode(out_ids[0][inputs["input_ids"].shape[1]:], skip_special_tokens=True)
+        # Check for degenerate output: repetition, empty, or just whitespace
+        is_repetitive = len(set(completion.split())) < 3 and len(completion) > 20
+        is_empty = len(completion.strip()) < 5
+        is_garbled = completion.count("\n    return\n") > 2  # bare return loop = broken
+        ok = not (is_repetitive or is_empty or is_garbled)
+        status = "PASS" if ok else "FAIL"
+        print(f"  [{status}] {name}: {completion[:80]!r}")
+        if not ok:
+            sanity_passed = False
+
+    if not sanity_passed:
+        print("\n  ⚠️  SANITY CHECK FAILED — model may generate garbage.")
+        print("  The model will still be saved but should NOT be published without review.")
 
     # --- 6. Save ---
     print("\n[5] Saving model...")

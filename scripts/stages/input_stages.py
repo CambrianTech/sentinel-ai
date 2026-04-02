@@ -57,6 +57,13 @@ class ContextExtendExecutor(StageExecutor):
             original_ctx = 32768
         factor = target / original_ctx
 
+        # Validate: factor must be >= 1.0 (extending, not compressing)
+        if factor < 1.0:
+            self.log(f"ERROR: factor {factor:.2f}x would COMPRESS context ({original_ctx} → {target}). Aborting.")
+            raise ValueError(f"Context extend factor {factor:.2f} < 1.0 — would compress, not extend")
+        if factor > 16.0:
+            self.log(f"WARNING: factor {factor:.1f}x is very aggressive (>16x). Quality may degrade.")
+
         scaling_type = {
             "yarn": "yarn",
             "ntk": "dynamic",
@@ -67,6 +74,8 @@ class ContextExtendExecutor(StageExecutor):
         if hasattr(config, "rope_scaling"):
             config.rope_scaling = {"type": scaling_type, "factor": factor}
             self.log(f"Applied {method} scaling: {factor:.1f}x ({original_ctx} → {target})")
+        else:
+            self.log(f"WARNING: model has no rope_scaling attribute — extension may not work")
 
         config.max_position_embeddings = target
         return ctx
