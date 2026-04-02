@@ -66,7 +66,7 @@ class ContextExtendExecutor(StageExecutor):
 
         if hasattr(config, "rope_scaling"):
             config.rope_scaling = {"type": scaling_type, "factor": factor}
-            self.log(f"Applied {method} scaling: {factor:.1f}x ({current_max} → {target})")
+            self.log(f"Applied {method} scaling: {factor:.1f}x ({original_ctx} → {target})")
 
         config.max_position_embeddings = target
         return ctx
