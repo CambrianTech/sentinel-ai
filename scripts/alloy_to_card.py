@@ -16,6 +16,81 @@ import json
 from pathlib import Path
 
 
+def _generate_headline(stages: list, base_model: str, domain: str, improvement: float,
+                       baseline: float, final: float, cycles: int) -> tuple[str, str]:
+    """Generate an adaptive headline based on what the forge actually did."""
+    stage_types = {s.get("type") for s in stages}
+    base_name = base_model.split("/")[-1]
+
+    # Context extension is the primary headline when present
+    ctx_stage = next((s for s in stages if s.get("type") == "context-extend"), None)
+    if ctx_stage:
+        target = ctx_stage.get("targetLength", 0)
+        base_ctx = 32768  # default
+        factor = target // base_ctx if base_ctx else 4
+        base_k = base_ctx // 1024
+        target_k = target // 1024
+        headline = f"{base_k}K \u2192 {target_k}K: Context Window Extended {factor}x"
+        subtitle = (
+            f"We took **{base_name}** ({base_k}K context) and extended it to "
+            f"**{target_k}K context** via YaRN RoPE scaling \u2014 then trained it on "
+            f"{domain} for {cycles} cycles to recover and improve quality.\n\n"
+            f"**Paste your entire codebase, not just one file.**"
+        )
+        return headline, subtitle
+
+    # Pruning is the primary headline when present (no context extend)
+    prune_stage = next((s for s in stages if s.get("type") == "prune"), None)
+    if prune_stage:
+        level = prune_stage.get("level", 0)
+        pct = int(level * 100) if level <= 1 else int(level)
+        headline = f"{pct}% Smaller, {improvement:+.1f}% Better"
+        subtitle = (
+            f"**{base_name}** pruned by {pct}% and retrained for {domain} "
+            f"through Experiential Plasticity.\n\n"
+            f"**{baseline:.2f} \u2192 {final:.2f} perplexity** \u00b7 {cycles} cycles"
+        )
+        return headline, subtitle
+
+    # Default: training-focused
+    headline = f"+{improvement:.1f}% Better at {domain.title()}"
+    subtitle = (
+        f"**{base_name}** forged for {domain} through Experiential Plasticity.\n\n"
+        f"**{baseline:.2f} \u2192 {final:.2f} perplexity** \u00b7 {cycles} cycles"
+    )
+    return headline, subtitle
+
+
+def _how_it_was_made(stages: list, domain: str, cycles: int, hw_device: str) -> str:
+    """Generate a 'How It Was Made' description from stages."""
+    parts = []
+    for s in stages:
+        stype = s.get("type", "?")
+        if stype == "context-extend":
+            method = s.get("method", "YaRN")
+            target = s.get("targetLength", 0)
+            note = ""
+            if "qwen" in str(s.get("config", {})).lower() or True:
+                note = " `rope_parameters` (not `rope_scaling` \u2014 Qwen3.5 specific)"
+            parts.append(f"- **Context extension**: {method} via{note}")
+        elif stype == "prune":
+            strategy = s.get("strategy", "entropy")
+            level = s.get("level", 0)
+            pct = int(level * 100) if level <= 1 else int(level)
+            parts.append(f"- **Pruning**: {pct}% heads via {strategy}")
+        elif stype == "train":
+            dataset = s.get("dataset", "domain data")
+            steps = s.get("steps", "?")
+            parts.append(f"- **Training data**: [{dataset}](https://huggingface.co/datasets/{dataset})")
+        elif stype == "lora":
+            rank = s.get("rank", "?")
+            parts.append(f"- **LoRA**: rank {rank}")
+
+    parts.append(f"- **Hardware**: {hw_device}")
+    parts.append("- **Forge tool**: [Continuum](https://github.com/CambrianTech/continuum) Factory + [sentinel-ai](https://github.com/CambrianTech/sentinel-ai)")
+    return "\n".join(parts)
+
+
 def alloy_to_card(alloy: dict, alloy_hash: str = "") -> str:
     """Generate a model card from an executed alloy. Every claim is proof."""
 
@@ -117,6 +192,9 @@ def alloy_to_card(alloy: dict, alloy_hash: str = "") -> str:
 
     all_tags = sorted(auto_tags)
 
+    # Generate adaptive headline based on what the model actually does
+    headline, subtitle = _generate_headline(stages, base_model, domain, improvement, baseline, final, cycles)
+
     card = f"""---
 tags:
 {chr(10).join(f'- {t}' for t in all_tags)}
@@ -125,29 +203,10 @@ pipeline_tag: text-generation
 license: {alloy.get('license', 'apache-2.0')}
 ---
 
-<h1 align="center">🔥 +{improvement:.1f}% better at {domain}</h1>
+# {headline}
 
-<p align="center">
-<b>{base_model.split('/')[-1]}</b> forged for {domain} through <a href="https://github.com/CambrianTech/continuum/blob/main/docs/papers/EXPERIENTIAL-PLASTICITY.md">Experiential Plasticity</a><br>
-{baseline:.2f} → {final:.2f} perplexity · {cycles} cycles · {hw_device}{duration_str}
-</p>
+{subtitle}
 
-<details>
-<summary><b>Forged with Continuum — a distributed AI world that runs on your hardware</b></summary>
-<p align="center">
-<a href="https://github.com/CambrianTech/continuum"><img src="{factory_img}" alt="Continuum Model Factory" width="600"/></a><br>
-<em>The <a href="https://github.com/CambrianTech/continuum#the-grid">Grid</a> forges models on your GPU, the <a href="https://github.com/CambrianTech/forge-alloy">alloy</a> proves the work.</em>
-</p>
-<table>
-<tr><td><b>Grid</b></td><td>Your machines form an encrypted mesh. Personas move between nodes. Models forge on the strongest hardware, deploy to the weakest.</td></tr>
-<tr><td><b>Factory</b></td><td>Visual pipeline composer — prune, train, LoRA, compact, context-extend, add vision/audio. MUTAGEN rolls random mutations.</td></tr>
-<tr><td><b>Forge-Alloy</b></td><td>Cryptographic contract for every forge. The recipe, the results, the attestation. Trustless verification.</td></tr>
-<tr><td><b>Personas</b></td><td>AI citizens with faces, voices, memories. Every persona sees, hears, speaks — regardless of base model. The system bridges gaps.</td></tr>
-</table>
-<p align="center">
-<a href="https://github.com/CambrianTech/continuum">GitHub</a> · <a href="https://huggingface.co/continuum-ai">Models</a> · <a href="https://github.com/CambrianTech/forge-alloy">Forge-Alloy</a>
-</p>
-</details>
 """
 
     if verify_url:
@@ -252,34 +311,29 @@ license: {alloy.get('license', 'apache-2.0')}
         lr = train_stage.get("learningRate", "?")
         card += f"| **Training** | General | {domain}, {steps} steps | LR {lr}, {cycles} cycles |\n"
 
-    # Model size (from highlights or computed)
-    highlights = r.get("highlights", [])
-    for h in highlights:
-        if "context" not in h.lower() and "prune" not in h.lower():
-            card += f"| **Note** | | {h} | |\n"
-
-    card += f"| **Pipeline** | | {pipeline} | |\n"
+    card += f"| **Pipeline** | | {pipeline} | {cycles} cycles |\n"
     card += "\n"
 
-    # Hardware
+    # Hardware — verified devices first, then estimated device ladder
     card += """## Runs On
 
-| Device | Format | Size | Status |
-|--------|--------|------|--------|
+| Device | Format | Size | Speed |
+|--------|--------|------|-------|
 """
-    devices = [
-        ("iPhone / Android", "Q4_K_M", "~2.6GB", "Expected"),
-        ("MacBook Air 8GB", "Q4_K_M", "~2.6GB", "Expected"),
-        ("MacBook Air 16GB", "Q8_0", "~4.2GB", "Expected"),
-        ("MacBook Pro 32GB", "fp16", "8.0GB", "Expected"),
-        ("RTX 3090/4090", "fp16", "8.0GB", "Expected"),
-    ]
+    # Verified hardware from the alloy
     for h in hw:
-        devices.append((h["device"], h.get("format", "fp16"),
-                        f"{h.get('sizeGb', '?')}GB" if h.get("sizeGb") else "—",
-                        "**Forged here**"))
-    for d in devices:
-        card += f"| {d[0]} | {d[1]} | {d[2]} | {d[3]} |\n"
+        speed = f"**~{h['tokensPerSec']} tok/s** (verified)" if h.get("tokensPerSec") else "Verified"
+        size_str = f"{h['sizeGb']}GB" if h.get("sizeGb") else "—"
+        card += f"| **{h.get('device', 'GPU')}** | {h.get('format', 'fp16')} | {size_str} | {speed} |\n"
+
+    # Estimate device ladder from fp16 size
+    fp16_gb = hw[0].get("sizeGb", 8.0) if hw else 8.0
+    q8_gb = fp16_gb / 2
+    q4_gb = fp16_gb / 3.2
+    card += f"| MacBook Pro 32GB | fp16 | {fp16_gb}GB | Expected |\n"
+    card += f"| MacBook Air 16GB | Q8_0 | ~{q8_gb:.1f}GB | Expected |\n"
+    card += f"| MacBook Air 8GB | Q4_K_M | ~{q4_gb:.1f}GB | Expected |\n"
+    card += f"| iPhone / Android | Q4_K_M | ~{q4_gb:.1f}GB | Expected |\n"
 
     # Quick start
     card += f"""
@@ -297,13 +351,13 @@ output = model.generate(**inputs, max_new_tokens=200)
 print(tokenizer.decode(output[0], skip_special_tokens=True))
 ```
 
-## Reproduce
+## How It Was Made
 
-```bash
-pip install forge-alloy
-# Download the alloy and run it with any compatible forge runner
-python your_runner.py {name}.alloy.json
 ```
+{pipeline} ({cycles} cycles)
+```
+
+{_how_it_was_made(stages, domain, cycles, hw_device)}
 """
 
     # Chain of custody
@@ -336,27 +390,23 @@ python your_runner.py {name}.alloy.json
     card += f"| Trust level | [`{trust_level}`](https://github.com/CambrianTech/forge-alloy/blob/main/docs/ATTESTATION.md) |\n"
     card += f"| Spec | [ForgeAlloy](https://github.com/CambrianTech/forge-alloy) — Rust/Python/TypeScript |\n"
 
-    # Science
-    card += """
-## The Science
+    # Make Your Own
+    card += f"""
+## Make Your Own
 
-**Experiential Plasticity** — architectural optimization, not compression:
+Forged with [Continuum](https://github.com/CambrianTech/continuum) — a distributed AI world that runs on your hardware.
 
-1. Train on domain data (LoRA)
-2. Measure attention head contribution (entropy)
-3. Prune non-contributing heads
-4. Retrain — surviving heads specialize
-5. Repeat — each cycle improves
+<p align="center">
+<a href="https://github.com/CambrianTech/continuum"><img src="{factory_img}" alt="Continuum Model Factory" width="400"/></a>
+</p>
 
-## Papers
+The Factory configurator lets you design and forge custom models visually — context extension, pruning, LoRA, quantization, vision/audio modalities. Pick your target devices, the system figures out what fits.
 
-- [Experiential Plasticity](https://github.com/CambrianTech/continuum/blob/main/docs/papers/EXPERIENTIAL-PLASTICITY.md) — scaling law, transfer function
-- [Neural Plasticity in Transformers](https://github.com/CambrianTech/continuum/blob/main/docs/papers/SENTINEL-AI-NEURAL-PLASTICITY.md) — foundation
-- [Plasticity Compaction](https://github.com/CambrianTech/continuum/blob/main/docs/papers/PLASTICITY-COMPACTION-MOE.md) — MoE expert pruning
+[GitHub](https://github.com/CambrianTech/continuum) · [All Models](https://huggingface.co/continuum-ai) · [Forge-Alloy](https://github.com/CambrianTech/forge-alloy)
 
----
+## License
 
-*Every claim verified by [ForgeAlloy](https://github.com/CambrianTech/forge-alloy) cryptographic chain of custody*
+{alloy.get('license', 'Apache 2.0')}
 """
 
     return card

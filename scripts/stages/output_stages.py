@@ -313,17 +313,10 @@ class PublishExecutor(StageExecutor):
         alloy = ctx.alloy
         name = alloy.get("name", ctx.model_name.split("/")[-1])
         repo_id = f"{org}/{name}"
+        pub_url = f"https://huggingface.co/{repo_id}"
+        pub_time = datetime.now(timezone.utc).isoformat()
 
         self.log(f"Publishing to {repo_id}")
-
-        # Generate card using alloy_to_card
-        card = self._generate_card(ctx)
-        card_path = ctx.output_dir / "README.md"
-        card_path.write_text(card)
-        self.log(f"  Card generated ({len(card)} chars)")
-
-        # Hash the card for integrity tracking
-        card_hash = f"sha256:{hashlib.sha256(card.encode()).hexdigest()}"
 
         # Verify alloy integrity before publishing
         errors = self._verify_integrity(ctx)
@@ -332,9 +325,6 @@ class PublishExecutor(StageExecutor):
                 self.log(f"  INTEGRITY ERROR: {err}")
             self.log("  ABORTING PUBLISH — integrity verification failed")
             return ctx
-
-        # Generate QR code
-        qr_path = self._generate_qr(ctx, repo_id)
 
         try:
             from huggingface_hub import HfApi, create_repo
@@ -353,33 +343,18 @@ class PublishExecutor(StageExecutor):
             self.log(f"  ERROR creating repo: {e}")
             return ctx
 
-        # Upload model weights
+        # --- PHASE 1: Upload model weights (these don't affect hashes) ---
         safetensors = list(model_dir.glob("*.safetensors"))
         if safetensors:
             self.log(f"  Uploading {len(safetensors)} weight files...")
             for sf in safetensors:
                 api.upload_file(path_or_fileobj=str(sf), path_in_repo=sf.name, repo_id=repo_id)
 
-            # Config files
             for cfg in ["config.json", "tokenizer.json", "tokenizer_config.json",
                         "generation_config.json", "special_tokens_map.json"]:
                 cfg_path = model_dir / cfg
                 if cfg_path.exists():
                     api.upload_file(path_or_fileobj=str(cfg_path), path_in_repo=cfg, repo_id=repo_id)
-
-        # Upload card
-        api.upload_file(path_or_fileobj=str(card_path), path_in_repo="README.md", repo_id=repo_id)
-
-        # Upload alloy
-        if include_alloy:
-            alloy_files = list(ctx.output_dir.glob("*.alloy.json"))
-            for af in alloy_files:
-                api.upload_file(path_or_fileobj=str(af), path_in_repo=af.name, repo_id=repo_id)
-                self.log(f"  Uploaded alloy: {af.name}")
-
-        # Upload QR
-        if qr_path and qr_path.exists():
-            api.upload_file(path_or_fileobj=str(qr_path), path_in_repo="alloy-qr.png", repo_id=repo_id)
 
         # Upload benchmark samples
         bench_dir = ctx.output_dir / "benchmark"
@@ -396,13 +371,9 @@ class PublishExecutor(StageExecutor):
                     rel = f.relative_to(ctx.output_dir)
                     api.upload_file(path_or_fileobj=str(f), path_in_repo=str(rel), repo_id=repo_id)
 
-        pub_url = f"https://huggingface.co/{repo_id}"
-        pub_time = datetime.now(timezone.utc).isoformat()
-        self.log(f"  PUBLISHED: {pub_url}")
-
-        # Write receipt into alloy
+        # --- PHASE 2: Finalize alloy (write receipt FIRST, then hash) ---
         alloy_files = list(ctx.output_dir.glob("*.alloy.json"))
-        if alloy_files:
+        if alloy_files and include_alloy:
             alloy_data = json.loads(alloy_files[0].read_text())
             alloy_data["receipt"] = {
                 "publications": [{
@@ -410,17 +381,40 @@ class PublishExecutor(StageExecutor):
                     "url": pub_url,
                     "publishedAt": pub_time,
                 }],
-                "verifyUrl": f"https://cambriantech.github.io/forge-alloy/verify/#{hashlib.sha256(alloy_files[0].read_bytes()).hexdigest()[:16]}",
-                "alloyHash": f"sha256:{hashlib.sha256(alloy_files[0].read_bytes()).hexdigest()}",
-                "cardHash": card_hash,
                 "issuedAt": pub_time,
             }
+            # Save finalized alloy — this is the version that gets hashed
             alloy_files[0].write_text(json.dumps(alloy_data, indent=2))
+            ctx.alloy = alloy_data  # Update context for card generation
 
-            # Re-upload alloy with receipt
+        # --- PHASE 3: Hash the FINAL alloy, generate QR and card from it ---
+        # This is the critical ordering: alloy is finalized before anything
+        # references its hash. Card and QR are derived FROM the final hash.
+        alloy_hash = ""
+        if alloy_files:
+            alloy_hash = hashlib.sha256(alloy_files[0].read_bytes()).hexdigest()
+            self.log(f"  Alloy hash: {alloy_hash[:16]}")
+
+        qr_path = self._generate_qr(ctx, repo_id)
+
+        card = self._generate_card(ctx)
+        card_path = ctx.output_dir / "README.md"
+        card_path.write_text(card)
+        self.log(f"  Card generated ({len(card)} chars)")
+
+        # --- PHASE 4: Upload alloy, QR, card (all consistent) ---
+        if alloy_files and include_alloy:
             api.upload_file(path_or_fileobj=str(alloy_files[0]),
                             path_in_repo=alloy_files[0].name, repo_id=repo_id)
-            self.log(f"  Alloy updated with receipt")
+            self.log(f"  Uploaded alloy: {alloy_files[0].name}")
+
+        if qr_path and qr_path.exists():
+            api.upload_file(path_or_fileobj=str(qr_path), path_in_repo="alloy-qr.png", repo_id=repo_id)
+
+        api.upload_file(path_or_fileobj=str(card_path), path_in_repo="README.md", repo_id=repo_id)
+
+        self.log(f"  PUBLISHED: {pub_url}")
+        self.log(f"  Verify: https://cambriantech.github.io/forge-alloy/verify/#{alloy_hash[:16]}")
 
         return ctx
 
