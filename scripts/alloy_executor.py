@@ -36,7 +36,7 @@ from stages import ForgeContext, create_executor, STAGE_EXECUTORS
 
 # Stage position classification
 INPUT_TYPES = {"source-config", "context-extend", "modality"}
-OUTPUT_TYPES = {"quant", "package", "eval", "publish", "deploy"}
+OUTPUT_TYPES = {"quant", "package", "eval", "deliver", "publish", "deploy"}
 
 
 def execute_alloy(alloy_path: str, output_dir: str = None, dry_run: bool = False):

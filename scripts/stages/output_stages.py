@@ -291,14 +291,68 @@ class EvalExecutor(StageExecutor):
         return f"sha256:{h.hexdigest()}"
 
 
-class PublishExecutor(StageExecutor):
-    """Publish to HuggingFace with model card + alloy + attestation.
+class DeliverExecutor(StageExecutor):
+    """Deliver forge results — write delivery manifest, do NOT auto-publish.
 
-    Uses the forge-alloy schema for the card and alloy_to_card.py for generation.
-    Verifies alloy integrity before publishing.
+    Writes delivery.json with results summary so the owner can review
+    before publishing. Use publish_model.py to actually upload to HF.
     """
 
     def execute(self, ctx: ForgeContext) -> ForgeContext:
+        r = ctx.alloy.get("results", {})
+        benchmarks = r.get("benchmarks", [])
+
+        # Compute model size
+        model_dir = ctx.output_dir / "model"
+        model_size_gb = 0
+        if model_dir.exists():
+            model_size_gb = round(sum(
+                f.stat().st_size for f in model_dir.glob("*.safetensors")
+            ) / (1024 ** 3), 2)
+
+        delivery = {
+            "completedAt": datetime.now(timezone.utc).isoformat(),
+            "alloyName": ctx.alloy.get("name", "unknown"),
+            "outputDir": str(ctx.output_dir),
+            "summary": {
+                "baselinePerplexity": r.get("baselinePerplexity"),
+                "finalPerplexity": r.get("finalPerplexity"),
+                "improvementPct": r.get("improvementPct"),
+                "benchmarks": [
+                    {"name": b.get("name"), "score": b.get("metrics", {}).get("score")}
+                    for b in benchmarks
+                ],
+                "modelSizeGb": model_size_gb,
+            },
+            "publishReady": True,
+        }
+
+        delivery_path = ctx.output_dir / "delivery.json"
+        delivery_path.write_text(json.dumps(delivery, indent=2))
+        self.log(f"Delivery manifest: {delivery_path}")
+        self.log(f"  Perplexity: {r.get('baselinePerplexity')} → {r.get('finalPerplexity')}")
+        self.log(f"  Model size: {model_size_gb}GB")
+        self.log(f"")
+        self.log(f"  To publish: python scripts/publish_model.py {ctx.output_dir}")
+        return ctx
+
+
+class PublishExecutor(StageExecutor):
+    """DEPRECATED: Use DeliverExecutor + publish_model.py instead.
+
+    Kept for backward compatibility. Now delegates to DeliverExecutor
+    and logs a deprecation warning.
+    """
+
+    def execute(self, ctx: ForgeContext) -> ForgeContext:
+        self.log("WARNING: 'publish' stage is deprecated. Use 'deliver' + publish_model.py")
+        self.log("  Writing delivery manifest (publish_model.py does the actual upload)")
+
+        # Write delivery manifest first
+        deliver = DeliverExecutor(self.config)
+        ctx = deliver.execute(ctx)
+
+        # Then do the actual publish for backward compat
         org = self.config.get("org", "continuum-ai")
         include_alloy = self.config.get("includeAlloy", True)
         tags = self.config.get("tags", [])

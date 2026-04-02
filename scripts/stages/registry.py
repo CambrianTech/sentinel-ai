@@ -7,7 +7,7 @@ The alloy_executor discovers stages from this registry.
 from .base import StageExecutor
 from .input_stages import SourceConfigExecutor, ContextExtendExecutor, ModalityExecutor
 from .transform_stages import PruneExecutor, TrainExecutor, ExpertPruneExecutor
-from .output_stages import QuantExecutor, PackageExecutor, EvalExecutor, PublishExecutor, DeployExecutor
+from .output_stages import QuantExecutor, PackageExecutor, EvalExecutor, DeliverExecutor, PublishExecutor, DeployExecutor
 
 STAGE_EXECUTORS: dict[str, type[StageExecutor]] = {
     # Input stages (front of pipeline)
@@ -25,6 +25,7 @@ STAGE_EXECUTORS: dict[str, type[StageExecutor]] = {
     "quant": QuantExecutor,
     "package": PackageExecutor,
     "eval": EvalExecutor,
-    "publish": PublishExecutor,
+    "deliver": DeliverExecutor,
+    "publish": PublishExecutor,  # deprecated — delegates to DeliverExecutor + still uploads
     "deploy": DeployExecutor,
 }
