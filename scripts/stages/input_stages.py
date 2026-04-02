@@ -40,8 +40,22 @@ class ContextExtendExecutor(StageExecutor):
             return ctx
 
         config = ctx.model.config
-        current_max = getattr(config, 'max_position_embeddings', 4096)
-        factor = target / current_max
+        # Use original_max_position_embeddings if available (the actual training context),
+        # NOT max_position_embeddings (which can be the theoretical maximum, e.g., 262K).
+        # Qwen3.5-4B has max_position_embeddings=262144 but was trained on ~32K.
+        # Using 262K gives factor=0.5 which COMPRESSES positions and breaks the model.
+        rope_cfg = getattr(config, 'rope_scaling', None) or {}
+        original_ctx = (
+            rope_cfg.get('original_max_position_embeddings') or
+            getattr(config, 'original_max_position_embeddings', None) or
+            getattr(config, 'max_position_embeddings', 4096)
+        )
+        # Sanity: if original_ctx is suspiciously large (>64K), it's probably the theoretical
+        # max, not training context. Default to 32K for Qwen models.
+        if original_ctx > 65536:
+            self.log(f"WARNING: original context {original_ctx} seems too large, using 32768")
+            original_ctx = 32768
+        factor = target / original_ctx
 
         scaling_type = {
             "yarn": "yarn",
