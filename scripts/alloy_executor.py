@@ -39,6 +39,37 @@ INPUT_TYPES = {"source-config", "context-extend", "modality"}
 OUTPUT_TYPES = {"quant", "package", "eval", "deliver", "publish", "deploy"}
 
 
+def _resolve_local_model(model_name: str) -> str:
+    """Check if a HF model exists locally from a previous forge, avoiding re-download.
+
+    Searches output/forged/*/model/ for a config.json that matches.
+    Returns local path if found, otherwise the original HF model name.
+    """
+    # Only try for org/name format (HF repos)
+    if "/" not in model_name:
+        return model_name
+
+    slug = model_name.split("/")[-1].lower()
+    # Search common local directories
+    search_dirs = [
+        Path("output/forged"),
+        Path.home() / "sentinel-ai" / "output" / "forged",
+    ]
+    for search_dir in search_dirs:
+        if not search_dir.exists():
+            continue
+        for candidate in search_dir.iterdir():
+            model_dir = candidate / "model"
+            config = model_dir / "config.json"
+            if config.exists() and (model_dir / "model.safetensors").exists():
+                # Check if this looks like the right model
+                # Match by slug similarity (alloy name contains base model slug)
+                candidate_name = candidate.name.lower()
+                if slug in candidate_name or candidate_name in slug:
+                    return str(model_dir)
+    return model_name
+
+
 def execute_alloy(alloy_path: str, output_dir: str = None, dry_run: bool = False):
     """Execute a complete ForgeAlloy pipeline."""
     # Load via SDK if available (validates types), fall back to raw JSON
@@ -79,18 +110,21 @@ def execute_alloy(alloy_path: str, output_dir: str = None, dry_run: bool = False
 
     ctx = ForgeContext(model_name=model_name, output_dir=out, alloy=alloy)
 
-    # Load model
+    # Load model — check local output dirs before downloading from HF
     print("[1] Loading model...")
     import torch
     from forge_model import load_model, get_model_info, evaluate, make_dataloaders, ForgeConfig, generate_samples
 
-    ctx.info = get_model_info(model_name)
+    load_path = _resolve_local_model(model_name)
+    if load_path != model_name:
+        print(f"  Using local: {load_path}")
+    ctx.info = get_model_info(load_path)
     vram_gb = torch.cuda.get_device_properties(0).total_memory / 1e9
     cfg = ForgeConfig.auto(ctx.info["fp16_gb"], vram_gb)
     ctx.tier = cfg.tier
     ctx.load_4bit = cfg.load_4bit
     ctx.device = torch.cuda.get_device_name(0)
-    ctx.model, ctx.tokenizer = load_model(model_name, cfg.load_4bit)
+    ctx.model, ctx.tokenizer = load_model(load_path, cfg.load_4bit)
 
     # Input stages
     print("\n[2] Input stages...")
