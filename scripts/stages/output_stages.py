@@ -128,9 +128,7 @@ class EvalExecutor(StageExecutor):
         try:
             import evalplus
         except ImportError:
-            self.log(f"  evalplus not installed — installing...")
-            subprocess.check_call([sys.executable, "-m", "pip", "install",
-                                   "evalplus", "--quiet"])
+            raise RuntimeError("evalplus not installed. Run: .venv/bin/pip install evalplus")
 
         result_dir = ctx.output_dir / "eval" / name
         result_dir.mkdir(parents=True, exist_ok=True)
@@ -183,9 +181,7 @@ class EvalExecutor(StageExecutor):
         try:
             import lm_eval
         except ImportError:
-            self.log(f"  lm-eval not installed — installing...")
-            subprocess.check_call([sys.executable, "-m", "pip", "install",
-                                   "lm-eval", "--quiet"])
+            raise RuntimeError("lm-eval not installed. Run: .venv/bin/pip install lm-eval")
 
         result_dir = ctx.output_dir / "eval" / name
         result_dir.mkdir(parents=True, exist_ok=True)
