@@ -65,8 +65,10 @@ class PruneExecutor(StageExecutor):
         ctx.layer_importance = layer_importance
 
         # Also save to alloy results for the card and verification
-        if ctx.alloy is None: ctx.alloy = {}
-        if "results" not in ctx.alloy:
+        # Safe assignment — ctx.alloy or results may be None
+        if not hasattr(ctx, "alloy") or ctx.alloy is None:
+            ctx.alloy = {}
+        if not isinstance(ctx.alloy.get("results"), dict):
             ctx.alloy["results"] = {}
         ctx.alloy["results"]["layerImportance"] = layer_importance
 
