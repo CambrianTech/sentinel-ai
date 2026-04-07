@@ -1,0 +1,28 @@
+{
+  "status": "complete",
+  "anchor": {
+    "model": "Qwen/Qwen2.5-Coder-7B",
+    "published": {
+      "humaneval_pass1": 61.6,
+      "humanevalplus_pass1": 53.0,
+      "source": "Qwen2.5-Coder Technical Report Table 5, arXiv:2409.12186"
+    },
+    "measured": {
+      "humaneval_pass1": 62.2,
+      "humanevalplus_pass1": 53.7
+    },
+    "delta": {
+      "humaneval": 0.6,
+      "humanevalplus": 0.7
+    }
+  },
+  "model_under_test": {
+    "path": "/home/joel/forge_v2_qwen7b/forged/model",
+    "measured": {
+      "humaneval_pass1": 50.0,
+      "humanevalplus_pass1": 44.5
+    }
+  },
+  "tolerance": 3.0,
+  "calibration_passed": true
+}

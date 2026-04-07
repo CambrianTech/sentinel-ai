@@ -36,14 +36,27 @@ def nested_config(config):
 
 
 def detect_dead_heads_live(model, threshold=1e-6):
-    """Detect zeroed-out heads in a live model. Returns {layer_idx: [head_indices]}."""
+    """Detect zeroed-out heads in a live model. Returns {layer_idx: [head_indices]}.
+
+    Strategy A (sentinel-ai#163): for hybrid architectures with a layer_types
+    list (e.g. Qwen3.5), only inspect full_attention layers. Linear-attention
+    (Gated DeltaNet) layers do not have a q_proj in the standard shape and
+    must not be touched by the head-detection or defrag code paths.
+    """
     tc = nested_config(model.config)
     num_heads = getattr(tc, "num_attention_heads", 12)
-    head_dim = getattr(tc, "hidden_size", 768) // num_heads
+    head_dim = getattr(tc, "head_dim", None)
+    if head_dim is None:
+        head_dim = getattr(tc, "hidden_size", 768) // num_heads
     layers = get_layers(model)
+    layer_types = getattr(tc, "layer_types", None)
 
     dead = {}
     for li, layer in enumerate(layers):
+        # Strategy A: skip non-full_attention layers entirely
+        if layer_types is not None and li < len(layer_types):
+            if layer_types[li] != "full_attention":
+                continue
         attn = getattr(layer, "self_attn", getattr(layer, "attn", None))
         if attn is None:
             continue
@@ -288,9 +301,32 @@ def defrag_live_model(model, dead_heads=None, threshold=1e-6, mode="slice"):
     kv_head_dim = k_proj.weight.shape[0] // num_kv_heads if k_proj else 0
     o_head_dim = o_proj.weight.shape[1] // num_heads if o_proj else 0
 
+    # Strategy A: identify hybrid-architecture layer types so we can skip
+    # non-full_attention layers entirely. The compute_activation_importance
+    # path already marks those layers' importance rows as inf, so dead_heads
+    # SHOULD never contain entries for them — but defensively filter here too,
+    # because direct callers (e.g. test code) may pass dead_heads built from
+    # other sources. Better to halt loud than to corrupt linear-attention layers.
+    layer_types = getattr(tc, "layer_types", None)
+    def _is_full_attn_layer(li: int) -> bool:
+        if layer_types is None:
+            return True
+        if li >= len(layer_types):
+            return True
+        return layer_types[li] == "full_attention"
+
     for li, dead_list in dead_heads.items():
         if li >= len(layers):
             continue
+        if not _is_full_attn_layer(li):
+            raise RuntimeError(
+                f"defrag_live_model: dead_heads contains entries for layer {li} "
+                f"which is type {layer_types[li]!r}, not full_attention. "
+                f"Strategy A requires non-full_attention layers to be skipped "
+                f"by the importance computation. Refusing to defrag a non-attention "
+                f"layer because the tensor shapes are different and slicing them "
+                f"would corrupt model state. See sentinel-ai#163."
+            )
 
         # Compute surviving heads — only remove COMPLETE GQA groups
         # GQA constraint: num_q_heads % num_kv_heads == 0 must hold after defrag
