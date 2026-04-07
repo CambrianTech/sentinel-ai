@@ -731,9 +731,36 @@ def prune_by_hooks(model, heads_to_prune, info):
     return hooks
 
 
-def prune(model, prune_percent, info, method="zero_weights"):
-    """Dispatch to the right pruning strategy."""
-    importance = compute_head_importance(model, info)
+def prune(model, prune_percent, info, method="zero_weights",
+          metric="auto", tokenizer=None, calibration_texts=None):
+    """Dispatch to the right pruning strategy.
+
+    Args:
+        model: live PyTorch model
+        prune_percent: fraction of total heads to remove
+        info: model info dict
+        method: 'zero_weights' or 'forward_hooks'
+        metric: importance metric to use:
+            - 'auto'        — activation if tokenizer is provided, else l2_weight
+            - 'activation'  — compute_activation_importance (recommended; sentinel-ai #155)
+            - 'l2_weight'   — compute_head_importance (DEPRECATED, kept for v1 reproduction)
+        tokenizer: required for 'activation' metric
+        calibration_texts: optional calibration set for 'activation' metric
+    """
+    if metric == "auto":
+        metric = "activation" if tokenizer is not None else "l2_weight"
+
+    if metric == "activation":
+        if tokenizer is None:
+            raise ValueError("metric='activation' requires a tokenizer")
+        importance = compute_activation_importance(
+            model, tokenizer, info, calibration_texts=calibration_texts,
+        )
+    elif metric == "l2_weight":
+        importance = compute_head_importance(model, info)
+    else:
+        raise ValueError(f"Unknown importance metric: {metric}")
+
     heads, n_pruned = select_heads_to_prune(importance, prune_percent)
     total = info["num_layers"] * info["num_heads"]
 
@@ -743,7 +770,7 @@ def prune(model, prune_percent, info, method="zero_weights"):
     else:
         prune_by_zeroing(model, heads, info)
 
-    print(f"  Pruned {n_pruned}/{total} heads ({method})")
+    print(f"  Pruned {n_pruned}/{total} heads ({method}, metric={metric})")
     return heads, hooks
 
 
@@ -897,6 +924,17 @@ def main():
     parser.add_argument("--prune-level", type=float, default=0.3)
     parser.add_argument("--prune-strategy", type=str, default="entropy",
                        help="Pruning strategy: entropy, magnitude, gradient, random")
+    parser.add_argument("--prune-metric", type=str, default="auto",
+                       choices=["auto", "activation", "l2_weight"],
+                       help="Importance metric for head selection. 'activation' is "
+                            "recommended (sentinel-ai #155); 'l2_weight' is deprecated "
+                            "but kept for v1 reproduction.")
+    parser.add_argument("--defrag-mode", type=str, default="slice",
+                       choices=["slice", "pad", "none"],
+                       help="Defrag behavior. 'slice' = physical removal (v1, breaks "
+                            "llama.cpp on most modern transformers). 'pad' = physical "
+                            "removal in compute, zero-pad q_proj/o_proj back to "
+                            "hidden_size on save (Finding 6 fix). 'none' = skip defrag.")
     parser.add_argument("--lr", "--learning-rate", type=float, default=5e-5)
     parser.add_argument("--max-samples", type=int, default=2000)
     parser.add_argument("--early-stop", type=float, default=None,
@@ -1021,7 +1059,11 @@ def main():
         write_status(out, "pruning", f"Cycle {cycle}: pruning heads after training",
                     cycle=cycle)
         cycle_prune = args.prune_level / args.cycles
-        heads, hooks = prune(model, cycle_prune, info, cfg.pruning_method)
+        heads, hooks = prune(
+            model, cycle_prune, info, cfg.pruning_method,
+            metric=args.prune_metric,
+            tokenizer=tokenizer,
+        )
         all_hooks.extend(hooks)
 
         write_status(out, "post_prune_eval", f"Cycle {cycle}: evaluating after prune",
@@ -1037,8 +1079,8 @@ def main():
         is_last_cycle = (cycle == args.cycles) or (args.early_stop and cycle >= 2 and
             abs(cycle_results[-2]["post_train_ppl"] - post_train["perplexity"]) / cycle_results[-2]["post_train_ppl"] * 100 < args.early_stop if len(cycle_results) >= 2 else False)
 
-        if is_last_cycle and heads:
-            write_status(out, "defrag", f"Cycle {cycle}: defragging pruned heads (final cycle)",
+        if is_last_cycle and heads and args.defrag_mode != "none":
+            write_status(out, "defrag", f"Cycle {cycle}: defragging pruned heads (final cycle, mode={args.defrag_mode})",
                         cycle=cycle)
             try:
                 import sys as _sys
@@ -1049,7 +1091,7 @@ def main():
                     h.remove()
                 all_hooks.clear()
 
-                freed = defrag_live_model(model, dead_heads=heads)
+                freed = defrag_live_model(model, dead_heads=heads, mode=args.defrag_mode)
                 freed_mb = freed / 1e6
                 if freed_mb > 0:
                     new_params = sum(p.numel() for p in model.parameters()) / 1e9

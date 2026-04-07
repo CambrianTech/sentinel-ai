@@ -74,12 +74,106 @@ def _make_linear(weight_data, bias_data=None):
     return linear
 
 
+def defrag_attention_layer_pad(attn, surviving_q_heads, surviving_kv_heads,
+                               q_head_dim, kv_head_dim, o_head_dim,
+                               orig_num_heads, orig_num_kv_heads):
+    """Pad-mode defrag: zero dead Q/O head positions but preserve original wire shape.
+
+    This is the Finding 6 fix from VALIDATED-TENSOR-SURGERY: defrag in slice-mode
+    produces a model where q_proj.shape[0] == surviving_heads * head_dim, which
+    violates llama.cpp's hardcoded assumption q_proj.shape[0] == hidden_size for
+    any model where surviving_heads * head_dim != hidden_size — i.e. essentially
+    every modern transformer once any heads are removed.
+
+    In pad mode we:
+      - Zero the rows of q_proj.weight (and bias) for dead head positions
+      - Zero the columns of o_proj.weight for dead head positions
+      - Physically slice k_proj and v_proj (KV pruning, llama.cpp does not check
+        these against hidden_size)
+      - Leave num_heads unchanged in the attn module so forward() still reshapes
+        the unchanged-shape q_proj output correctly
+
+    The dead-head positions are computed (uniform attention output, since q is
+    zero so all softmax inputs are zero), but their contribution to the residual
+    stream is killed by o_proj's zero columns. Memory-wise the savings come
+    entirely from KV reduction and from quantization compressing zero blocks;
+    fp16 size of q_proj/o_proj is unchanged. q5_K_S compresses zero blocks to
+    ~5 bytes per 256-element block instead of ~80, so the on-disk savings are
+    real even though the in-memory savings are not.
+
+    Returns: bytes freed (counts only the KV physical reduction)
+    """
+    bytes_before = sum(p.numel() * p.element_size() for p in attn.parameters())
+
+    # Q projection: zero rows belonging to dead heads
+    q = getattr(attn, "q_proj", None)
+    if q is not None and hasattr(q, "weight"):
+        keep_q_rows = torch.zeros(q.weight.shape[0], dtype=torch.bool, device=q.weight.device)
+        for h in surviving_q_heads:
+            s, e = h * q_head_dim, (h + 1) * q_head_dim
+            if e <= q.weight.shape[0]:
+                keep_q_rows[s:e] = True
+        with torch.no_grad():
+            q.weight.data[~keep_q_rows] = 0
+            if q.bias is not None:
+                q.bias.data[~keep_q_rows] = 0
+
+    # O projection: zero columns belonging to dead heads
+    o = getattr(attn, "o_proj", None)
+    if o is not None and hasattr(o, "weight"):
+        keep_o_cols = torch.zeros(o.weight.shape[1], dtype=torch.bool, device=o.weight.device)
+        for h in surviving_q_heads:
+            s, e = h * o_head_dim, (h + 1) * o_head_dim
+            if e <= o.weight.shape[1]:
+                keep_o_cols[s:e] = True
+        with torch.no_grad():
+            o.weight.data[:, ~keep_o_cols] = 0
+
+    # K, V projections: physical slice (KV pruning is safe in llama.cpp)
+    kv_indices = []
+    for h in surviving_kv_heads:
+        kv_indices.extend(range(h * kv_head_dim, (h + 1) * kv_head_dim))
+
+    for name in ["k_proj", "v_proj"]:
+        proj = getattr(attn, name, None)
+        if proj and hasattr(proj, "weight") and 0 < len(kv_indices) < proj.weight.shape[0]:
+            new_weight = proj.weight.data[kv_indices, :].contiguous()
+            new_bias = proj.bias.data[kv_indices].contiguous() if proj.bias is not None else None
+            setattr(attn, name, _make_linear(new_weight, new_bias))
+
+    # Cached attributes:
+    # - num_heads STAYS at orig_num_heads (q_proj/o_proj shapes are unchanged)
+    # - num_key_value_heads goes to new count (KV physically removed)
+    # - num_key_value_groups = orig_num_heads // new_num_kv_heads
+    new_num_kv_heads = len(surviving_kv_heads)
+    new_num_kv_groups = orig_num_heads // max(new_num_kv_heads, 1)
+
+    for attr, val in [
+        ("num_heads", orig_num_heads),  # unchanged in pad mode
+        ("num_key_value_heads", new_num_kv_heads),
+        ("num_key_value_groups", new_num_kv_groups),
+        ("n_head", orig_num_heads),
+        ("n_kv_head", new_num_kv_heads),
+    ]:
+        if hasattr(attn, attr):
+            setattr(attn, attr, val)
+
+    bytes_after = sum(p.numel() * p.element_size() for p in attn.parameters())
+    return bytes_before - bytes_after
+
+
 def defrag_attention_layer(attn, surviving_q_heads, surviving_kv_heads,
                            q_head_dim, kv_head_dim, o_head_dim,
                            orig_num_heads, orig_num_kv_heads):
     """
-    Structurally remove dead heads from one attention layer.
+    Structurally remove dead heads from one attention layer (slice mode).
     Uses actual tensor dimensions (not config estimates).
+
+    NOTE: slice mode physically reduces q_proj/o_proj dimensions. This produces
+    a model that loads in transformers/vLLM but FAILS in llama.cpp's GGUF loader
+    for any model where surviving_heads * head_dim != hidden_size. Use
+    defrag_attention_layer_pad() (mode='pad') for runtime-portable artifacts.
+    See VALIDATED-TENSOR-SURGERY Finding 6.
 
     Returns: bytes freed
     """
@@ -141,19 +235,26 @@ def defrag_attention_layer(attn, surviving_q_heads, surviving_kv_heads,
     return bytes_before - bytes_after
 
 
-def defrag_live_model(model, dead_heads=None, threshold=1e-6):
+def defrag_live_model(model, dead_heads=None, threshold=1e-6, mode="slice"):
     """
     Defrag a live model in-place. Detects dead heads (or uses provided mask),
-    slices attention tensors, updates cached config.
+    slices/zeros attention tensors, updates cached config.
 
     Args:
         model: live PyTorch model (on GPU is fine)
         dead_heads: optional pre-computed {layer_idx: [head_indices]}
         threshold: weight norm threshold for dead head detection
+        mode: 'slice' (v1, physically removes q_proj/o_proj rows/cols — breaks
+              llama.cpp on any model where surviving_heads * head_dim !=
+              hidden_size; see VALIDATED-TENSOR-SURGERY Finding 6) or 'pad'
+              (Finding 6 fix: zero dead Q/O positions but preserve original
+              wire shape; KV is still physically reduced).
 
     Returns:
         total bytes freed
     """
+    if mode not in ("slice", "pad"):
+        raise ValueError(f"defrag mode must be 'slice' or 'pad', got {mode!r}")
     if dead_heads is None:
         dead_heads = detect_dead_heads_live(model, threshold)
 
@@ -213,11 +314,18 @@ def defrag_live_model(model, dead_heads=None, threshold=1e-6):
         if attn is None:
             continue
 
-        freed = defrag_attention_layer(
-            attn, surviving_q, surviving_kv,
-            q_head_dim, kv_head_dim, o_head_dim,
-            num_heads, num_kv_heads
-        )
+        if mode == "pad":
+            freed = defrag_attention_layer_pad(
+                attn, surviving_q, surviving_kv,
+                q_head_dim, kv_head_dim, o_head_dim,
+                num_heads, num_kv_heads
+            )
+        else:
+            freed = defrag_attention_layer(
+                attn, surviving_q, surviving_kv,
+                q_head_dim, kv_head_dim, o_head_dim,
+                num_heads, num_kv_heads
+            )
         total_freed += freed
         defragged_layers += 1
 
@@ -237,7 +345,15 @@ def defrag_live_model(model, dead_heads=None, threshold=1e-6):
             # Read actual current dims from tensors (post-defrag)
             actual_q_out = first_attn.q_proj.weight.shape[0]
             actual_kv_out = first_attn.k_proj.weight.shape[0]
-            new_num_heads = actual_q_out // q_head_dim
+
+            if mode == "pad":
+                # Pad mode preserves q_proj wire shape, so num_attention_heads
+                # stays at the original count (the dead-head positions are
+                # zeroed but still present in the tensor).
+                new_num_heads = num_heads  # unchanged
+            else:
+                new_num_heads = actual_q_out // q_head_dim
+
             new_num_kv_heads = actual_kv_out // kv_head_dim
 
             # Update top-level config
