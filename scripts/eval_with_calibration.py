@@ -60,37 +60,36 @@ from pathlib import Path
 # leaderboards without confirming against the model authors' own paper or
 # model card.
 
+_QWEN_TECH_REPORT_T5 = "Qwen2.5-Coder Technical Report Table 5, arXiv:2409.12186"
+
 PUBLISHED_ANCHORS = {
-    "Qwen/Qwen2.5-Coder-0.5B": {
-        "humaneval_pass1": 28.0,
-        "humanevalplus_pass1": 23.8,
-        "source": "Qwen2.5-Coder Technical Report Table 5, arXiv:2409.12186",
-    },
-    "Qwen/Qwen2.5-Coder-1.5B": {
-        "humaneval_pass1": 43.9,
-        "humanevalplus_pass1": 36.6,
-        "source": "Qwen2.5-Coder Technical Report Table 5, arXiv:2409.12186",
-    },
-    "Qwen/Qwen2.5-Coder-3B": {
-        "humaneval_pass1": 52.4,
-        "humanevalplus_pass1": 42.7,
-        "source": "Qwen2.5-Coder Technical Report Table 5, arXiv:2409.12186",
-    },
-    "Qwen/Qwen2.5-Coder-7B": {
-        "humaneval_pass1": 61.6,
-        "humanevalplus_pass1": 53.0,
-        "source": "Qwen2.5-Coder Technical Report Table 5, arXiv:2409.12186",
-    },
-    "Qwen/Qwen2.5-Coder-14B": {
-        "humaneval_pass1": 64.0,
-        "humanevalplus_pass1": 57.9,
-        "source": "Qwen2.5-Coder Technical Report Table 5, arXiv:2409.12186",
-    },
-    "Qwen/Qwen2.5-Coder-32B": {
-        "humaneval_pass1": 65.9,
-        "humanevalplus_pass1": 60.4,
-        "source": "Qwen2.5-Coder Technical Report Table 5, arXiv:2409.12186",
-    },
+    # Qwen2.5-Coder base series — primary forge targets
+    "Qwen/Qwen2.5-Coder-0.5B":     {"humaneval_pass1": 28.0, "humanevalplus_pass1": 23.8, "source": _QWEN_TECH_REPORT_T5},
+    "Qwen/Qwen2.5-Coder-1.5B":     {"humaneval_pass1": 43.9, "humanevalplus_pass1": 36.6, "source": _QWEN_TECH_REPORT_T5},
+    "Qwen/Qwen2.5-Coder-3B":       {"humaneval_pass1": 52.4, "humanevalplus_pass1": 42.7, "source": _QWEN_TECH_REPORT_T5},
+    "Qwen/Qwen2.5-Coder-7B":       {"humaneval_pass1": 61.6, "humanevalplus_pass1": 53.0, "source": _QWEN_TECH_REPORT_T5},
+    "Qwen/Qwen2.5-Coder-14B":      {"humaneval_pass1": 64.0, "humanevalplus_pass1": 57.9, "source": _QWEN_TECH_REPORT_T5},
+    "Qwen/Qwen2.5-Coder-32B":      {"humaneval_pass1": 65.9, "humanevalplus_pass1": 60.4, "source": _QWEN_TECH_REPORT_T5},
+
+    # DeepSeek-Coder series — comparison targets
+    "deepseek-ai/deepseek-coder-1.3b-base": {"humaneval_pass1": 34.8, "humanevalplus_pass1": 26.8, "source": _QWEN_TECH_REPORT_T5},
+    "deepseek-ai/deepseek-coder-6.7b-base": {"humaneval_pass1": 47.6, "humanevalplus_pass1": 39.6, "source": _QWEN_TECH_REPORT_T5},
+    "deepseek-ai/deepseek-coder-33b-base":  {"humaneval_pass1": 54.9, "humanevalplus_pass1": 47.6, "source": _QWEN_TECH_REPORT_T5},
+    "deepseek-ai/DeepSeek-Coder-V2-Lite-Base": {"humaneval_pass1": 40.9, "humanevalplus_pass1": 34.1, "source": _QWEN_TECH_REPORT_T5},
+    "deepseek-ai/DeepSeek-Coder-V2-Base":   {"humaneval_pass1": 50.0, "humanevalplus_pass1": 43.3, "source": _QWEN_TECH_REPORT_T5},
+
+    # StarCoder2 series — comparison targets
+    "bigcode/starcoder2-3b":  {"humaneval_pass1": 31.7, "humanevalplus_pass1": 27.4, "source": _QWEN_TECH_REPORT_T5},
+    "bigcode/starcoder2-7b":  {"humaneval_pass1": 35.4, "humanevalplus_pass1": 29.9, "source": _QWEN_TECH_REPORT_T5},
+    "bigcode/starcoder2-15b": {"humaneval_pass1": 46.3, "humanevalplus_pass1": 37.8, "source": _QWEN_TECH_REPORT_T5},
+
+    # CodeQwen1.5 — comparison target
+    "Qwen/CodeQwen1.5-7B": {"humaneval_pass1": 51.8, "humanevalplus_pass1": 45.7, "source": _QWEN_TECH_REPORT_T5},
+
+    # NOTE: Llama-3 and Mistral are NOT in this table. Their HumanEval numbers
+    # require separate sourcing from the Llama 3 / Mistral papers respectively.
+    # Add them here only with explicit citation to the Meta / Mistral source —
+    # do not eyeball numbers from blog posts or third-party leaderboards.
 }
 
 

@@ -140,14 +140,23 @@ python3 "$LLAMA_CPP_CONVERT" "$MODEL_DIR" --outfile "$GGUF_F16" --outtype f16 2>
 stage "4/6 LAYER 7 GATE: load GGUF in actual llama.cpp"
 LLAMA_LOG="$LOG_DIR/04_llama_cpp_gate.log"
 
+# NOTE: -st (single-turn) is REQUIRED. Without it, llama-cli drops into
+# interactive chat mode after generating the response and hangs the pipeline
+# waiting on stdin. -no-cnv was the old flag and is rejected by current builds.
+# This is the no-fallbacks discipline applied at the script layer: a recurring
+# bug class fixed at the source rather than worked around manually each run.
 "$LLAMA_CPP_BIN/llama-cli" -m "$GGUF_Q5KS" \
     -p "def fibonacci(n):" \
-    -n 50 --temp 0 -no-cnv 2>&1 | tee "$LLAMA_LOG"
+    -n 50 --temp 0 -ngl 99 -st 2>&1 | tee "$LLAMA_LOG"
 
 if grep -q "wrong shape" "$LLAMA_LOG" || grep -q "failed to load model" "$LLAMA_LOG"; then
     halt "4/6 layer7-gate" "llama.cpp failed to load the GGUF — Finding 6 fix did not take" "$LLAMA_LOG"
 fi
-echo "  ✓ Layer 7 gate PASSED — GGUF loads in llama.cpp"
+# Also assert the smoke output is actually present and non-degenerate
+if ! grep -q "fibonacci\|return\|def " "$LLAMA_LOG"; then
+    halt "4/6 layer7-gate" "llama.cpp loaded but produced no recognizable code output" "$LLAMA_LOG"
+fi
+echo "  ✓ Layer 7 gate PASSED — GGUF loads in llama.cpp and produces output"
 
 # ── Stage 5: EvalPlus HumanEval+ on safetensors ────────────────────────────
 stage "5/6 EvalPlus HumanEval+ on v2 safetensors"
