@@ -38,6 +38,25 @@ class PruneExecutor(StageExecutor):
         ctx.hooks.extend(hooks)
         self.log(f"Pruned {len(heads)} head groups")
 
+        # CRITICAL: defrag IMMEDIATELY after prune, BEFORE training.
+        # If we don't, LoRA trains on the full original projections with
+        # hooks zeroing pruned outputs. The LoRA updates on pruned heads
+        # become noise that destroys the model when hooks are removed.
+        # Defragging now means the surviving smaller model is what trains.
+        try:
+            from defrag_inline import defrag_live_model
+            self.log(f"  Defragging pruned heads into surviving structure...")
+            freed = defrag_live_model(ctx.model, dead_heads=heads)
+            freed_mb = freed / 1e6
+            self.log(f"  Freed {freed_mb:.0f}MB — model now operates on surviving heads only")
+            # Hooks no longer needed — pruned heads are physically gone
+            for h in ctx.hooks:
+                h.remove()
+            ctx.hooks.clear()
+            ctx.dead_heads = heads
+        except Exception as e:
+            self.log(f"  WARNING: defrag failed ({e}) — falling back to hooks (LoRA may corrupt model)")
+
         # Save per-layer importance profile for variable quantization
         n_layers = importance.shape[0]
         layer_importance = []
