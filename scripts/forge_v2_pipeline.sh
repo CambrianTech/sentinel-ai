@@ -158,49 +158,67 @@ if ! grep -q "fibonacci\|return\|def " "$LLAMA_LOG"; then
 fi
 echo "  ✓ Layer 7 gate PASSED — GGUF loads in llama.cpp and produces output"
 
-# ── Stage 5: EvalPlus HumanEval+ on safetensors ────────────────────────────
-stage "5/6 EvalPlus HumanEval+ on v2 safetensors"
+# ── Stage 5: Calibrated EvalPlus via eval_with_calibration.py ──────────────
+# CRITICAL: this stage uses the calibrated runner, NOT raw evalplus.codegen.
+# The calibrated runner runs the anchor model first and refuses to ship a
+# number from an uncalibrated pipeline. Per the no-fallbacks discipline,
+# the raw codegen path is no longer acceptable here — every reported
+# number must be anchored to a known-good third-party measurement.
+stage "5/6 Calibrated EvalPlus (anchor first, then model under test)"
 EVALPLUS_LOG="$LOG_DIR/05_evalplus.log"
-EVALPLUS_RESULTS="$OUT_DIR/evalplus_results"
+CALIBRATED_OUT="$OUT_DIR/calibrated_eval"
 
-python3 -m evalplus.codegen --model "$MODEL_DIR" \
-    --dataset humaneval --backend hf --greedy \
-    --root "$EVALPLUS_RESULTS" --dtype float16 --trust_remote_code \
+# Anchor model defaults to Qwen/Qwen2.5-Coder-7B (the one that reproduced
+# 62.2/53.7 vs Qwen's published 61.6/53.0). Override via the
+# FORGE_V2_ANCHOR_MODEL and FORGE_V2_ANCHOR_DIR env vars when forging
+# from a different base family.
+ANCHOR_MODEL="${FORGE_V2_ANCHOR_MODEL:-Qwen/Qwen2.5-Coder-7B}"
+ANCHOR_DIR="${FORGE_V2_ANCHOR_DIR:-$HOME/qwen2.5-coder-7b-base}"
+
+python3 "$SCRIPTS_DIR/eval_with_calibration.py" "$MODEL_DIR" \
+    --anchor-model "$ANCHOR_MODEL" \
+    --anchor-dir "$ANCHOR_DIR" \
+    --out "$CALIBRATED_OUT" \
+    --tolerance 3.0 \
     2>&1 | tee "$EVALPLUS_LOG"
 
-# Sanitize + evaluate
-python3 -m evalplus.sanitize --samples "$EVALPLUS_RESULTS/humaneval/"*.jsonl 2>&1 | tee -a "$EVALPLUS_LOG" || true
-python3 -m evalplus.evaluate --dataset humaneval \
-    --samples "$EVALPLUS_RESULTS/humaneval/"*sanitized*.jsonl 2>&1 | tee -a "$EVALPLUS_LOG"
+# eval_with_calibration.py exits 2 on calibration failure; halt the pipeline
+# loudly in that case rather than continuing.
+if [[ ${PIPESTATUS[0]} -ne 0 ]]; then
+    halt "5/6 calibrated-eval" "anchor calibration failed or model under test failed" "$EVALPLUS_LOG"
+fi
 
-# ── Stage 6: Write results JSON ────────────────────────────────────────────
-stage "6/6 Write results JSON"
+# ── Stage 6: Write combined results JSON ───────────────────────────────────
+stage "6/6 Write combined results JSON"
 python3 - <<PYEOF
-import json, os, glob, re
+import json
 from pathlib import Path
 
-results = {"status": "complete", "out_dir": "$OUT_DIR"}
+# Read the calibrated_eval_results.json that eval_with_calibration.py
+# wrote in stage 5. That's the source of truth for the eval numbers.
+calibrated = Path("$CALIBRATED_OUT") / "calibrated_eval_results.json"
+if not calibrated.exists():
+    raise FileNotFoundError(f"calibrated results JSON not found at {calibrated}")
+calibrated_data = json.loads(calibrated.read_text())
 
-# Try to extract pass@1 from evalplus log
-log = Path("$EVALPLUS_LOG").read_text()
-for label in ("base", "plus"):
-    m = re.search(rf"{label}\s*[:=]\s*(\d+\.\d+)", log, re.IGNORECASE)
-    if m:
-        results[f"humaneval_{label}_pass1"] = float(m.group(1))
+results = {
+    "status": "complete",
+    "out_dir": "$OUT_DIR",
+    "calibrated_eval": calibrated_data,
+    "forge_config": {
+        "base_model": "$BASE_MODEL",
+        "steps": $STEPS,
+        "prune_metric": "activation",
+        "defrag_mode": "pad",
+        "prune_level": 0.3,
+        "prune_distribution": "per_layer",
+    },
+}
 
 # GGUF size
 gguf = Path("$GGUF_Q5KS")
 if gguf.exists():
     results["gguf_q5ks_bytes"] = gguf.stat().st_size
-
-# Forge config
-results["forge_config"] = {
-    "base_model": "$BASE_MODEL",
-    "steps": $STEPS,
-    "prune_metric": "activation",
-    "defrag_mode": "pad",
-    "prune_level": 0.3,
-}
 
 Path("$RESULTS_JSON").write_text(json.dumps(results, indent=2))
 print(json.dumps(results, indent=2))
