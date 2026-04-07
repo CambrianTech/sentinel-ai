@@ -1,0 +1,42 @@
+--- a/evalplus/provider/vllm.py	(upstream evalplus v0.3.1)
++++ b/evalplus/provider/vllm.py	(forge v2 working state)
+@@ -29,12 +29,12 @@
+         }
+
+         self.force_base_prompt = force_base_prompt
+-        self.tokenizer = AutoTokenizer.from_pretrained(self.name, use_fast=False)
++        self.tokenizer = AutoTokenizer.from_pretrained(self.name)
+         if self.is_direct_completion():
+             self.eos += extra_eos_for_direct_completion(dataset)
+         else:
+             self.eos += ["\n```\n"]
+-        self.llm = LLM(model=name, max_model_len=2048, **kwargs)
++        self.llm = LLM(model=name, max_model_len=2048, gpu_memory_utilization=0.92, enforce_eager=True, **kwargs)
+
+     def is_direct_completion(self) -> bool:
+         return self.force_base_prompt or self.tokenizer.chat_template is None
+
+# Patch notes:
+#
+# 1. Drop use_fast=False on AutoTokenizer.
+#    Forced slow-tokenizer load fails on any model that ships only the fast
+#    tokenizer.json without the legacy vocab.json + merges.txt pair (e.g. our
+#    v1.5 14B). The fast tokenizer is the modern default and works for every
+#    HF model that includes a tokenizer.json. Removing the override lets HF's
+#    AutoTokenizer pick the right one.
+#
+# 2. Add gpu_memory_utilization=0.92 enforce_eager=True to LLM(...).
+#    Default vLLM gpu_memory_utilization=0.9 leaves <1 GiB of VRAM headroom
+#    on a 32 GiB GPU after loading a 14B fp16 model (~28 GiB), and CUDA graph
+#    capture wants ~2 GiB more on top of that. The combination silently OOMs
+#    during engine init. 0.92 + enforce_eager=True is the smallest change that
+#    fits the v1.5 14B fp16 with KV cache + activations.
+#
+# Apply with:
+#   patch -p1 -d /home/joel/.local/lib/python3.12/site-packages \
+#       < scripts/evalplus_vllm_provider.patch
+#
+# Or apply manually — both edits are localized to two lines.
+#
+# Filed upstream as a follow-up after the forge v2 work lands; this patch is
+# the local override needed to keep the v1.5 EvalPlus run honest.
