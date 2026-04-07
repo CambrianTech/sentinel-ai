@@ -160,10 +160,71 @@ def execute_alloy(alloy_path: str, output_dir: str = None, dry_run: bool = False
     print(f"  Baseline perplexity: {ctx.baseline_ppl:.2f}")
 
     # Transform stages (cycled)
+    # Layer 6 invariant: NO SILENT REGRESSION ACROSS CYCLES.
+    # After each cycle, eval and compare to the previous cycle.
+    # If perplexity regresses by more than the noise floor, halt and dump state.
+    # This is the structural fix that makes the LoRA-on-pruned-hooks bug class
+    # impossible to ship silently. See continuum #842 and kash-feedback.md.
+    cycle_ppls = [ctx.baseline_ppl]
+    REGRESSION_THRESHOLD_RATIO = 1.10   # >10% worse than previous cycle = regression
+    REGRESSION_THRESHOLD_ABS = 1.0      # AND >1.0 PPL absolute (avoid false alarms on tiny baselines)
     for cycle in range(1, cycles + 1):
         print(f"\n[4.{cycle}] Cycle {cycle}/{cycles}")
         for stage in transform_stages:
             ctx = create_executor(stage).execute(ctx)
+
+        # Per-cycle eval — same loader as baseline so the comparison is apples-to-apples
+        # Note: at this point hooks are still active, so this is the "training-side" view
+        cycle_eval = evaluate(ctx.model, eval_loader, out, f"cycle-{cycle}-eval")
+        cycle_ppl = cycle_eval["perplexity"]
+        cycle_ppls.append(cycle_ppl)
+        prev_ppl = cycle_ppls[-2]
+        print(f"  Cycle {cycle} eval: {cycle_ppl:.2f} (prev: {prev_ppl:.2f})")
+
+        # Check for silent regression
+        regressed_ratio = cycle_ppl > prev_ppl * REGRESSION_THRESHOLD_RATIO
+        regressed_abs = cycle_ppl - prev_ppl > REGRESSION_THRESHOLD_ABS
+        if regressed_ratio and regressed_abs:
+            print()
+            print("=" * 70)
+            print(f"  HALT: Layer 6 invariant violated at cycle {cycle}")
+            print("=" * 70)
+            print(f"  Previous cycle PPL: {prev_ppl:.2f}")
+            print(f"  Current cycle PPL:  {cycle_ppl:.2f}")
+            print(f"  Regression: {((cycle_ppl - prev_ppl) / prev_ppl * 100):.1f}%")
+            print(f"  Threshold: >{(REGRESSION_THRESHOLD_RATIO - 1) * 100:.0f}% AND >{REGRESSION_THRESHOLD_ABS} PPL absolute")
+            print()
+            print("  This is a SILENT REGRESSION HALT — the harness has detected that")
+            print("  this cycle made the model worse than the previous cycle and refuses")
+            print("  to advance. Investigate before re-running. Per-cycle data:")
+            for i, ppl in enumerate(cycle_ppls):
+                marker = "  ←" if i == len(cycle_ppls) - 1 else ""
+                print(f"    Cycle {i}: {ppl:.2f}{marker}")
+            print()
+            print("  References:")
+            print("    - continuum #842 (Layer 6 invariant)")
+            print("    - sentinel-ai #152 (LoRA-on-pruned-hooks: the bug class this catches)")
+            print("    - continuum kash-feedback.md")
+            print("=" * 70)
+
+            # Dump state to a file for post-mortem
+            import json as _json
+            halt_state = {
+                "halted_at_cycle": cycle,
+                "cycle_ppls": cycle_ppls,
+                "regression_ratio": cycle_ppl / prev_ppl,
+                "regression_absolute": cycle_ppl - prev_ppl,
+                "threshold_ratio": REGRESSION_THRESHOLD_RATIO,
+                "threshold_absolute": REGRESSION_THRESHOLD_ABS,
+                "model": model_name,
+                "domain": domain,
+            }
+            (out / "REGRESSION_HALT.json").write_text(_json.dumps(halt_state, indent=2))
+            raise RuntimeError(
+                f"Layer 6 silent-regression invariant: cycle {cycle} PPL {cycle_ppl:.2f} "
+                f"is >{(REGRESSION_THRESHOLD_RATIO - 1) * 100:.0f}% worse than previous cycle "
+                f"({prev_ppl:.2f}). Halting. State dumped to {out / 'REGRESSION_HALT.json'}."
+            )
 
     # Cleanup hooks
     for h in ctx.hooks:
