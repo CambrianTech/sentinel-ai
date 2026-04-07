@@ -1,0 +1,29 @@
+{
+  "model": "Qwen/Qwen2.5-0.5B",
+  "baseline_ppl": 24.53100969634011,
+  "results": {
+    "L2_weight_norm": 15269.655009777107,
+    "LoRA_gradient_magnitude": 24793.362951116425,
+    "Activation_magnitude": 145.03511968475036,
+    "Saliency_activation_x_gradient": 381.4584728642838
+  },
+  "ranked": [
+    [
+      "Activation_magnitude",
+      145.03511968475036
+    ],
+    [
+      "Saliency_activation_x_gradient",
+      381.4584728642838
+    ],
+    [
+      "L2_weight_norm",
+      15269.655009777107
+    ],
+    [
+      "LoRA_gradient_magnitude",
+      24793.362951116425
+    ]
+  ],
+  "note": "Lower is better. Pruning without retraining always degrades; the comparison is RELATIVE."
+}

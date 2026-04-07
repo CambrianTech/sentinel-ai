@@ -323,6 +323,330 @@ class TestPersistedModelMatches:
 # ── Test 4: Generation sanity check ────────────────────────────────────────
 
 
+def compute_lora_gradient_importance(model, tokenizer, info, calibration_texts=None, num_samples=8):
+    """Approximation of PLASTICITY-COMPACTION's gradient-magnitude trick.
+
+    Captures gradient magnitudes on the o_proj input via backward hooks during
+    a calibration forward+backward pass. Per-head L2 of grad_input is the
+    proxy for "how much loss flows back through this head."
+
+    This is the gradient-only signal — distinct from saliency which is
+    activation × gradient.
+    """
+    if calibration_texts is None:
+        calibration_texts = [
+            "The quick brown fox jumps over the lazy dog. " * 4,
+            "Machine learning models learn patterns from training data.",
+            "The capital of France is Paris.",
+            "Quantum mechanics describes atomic behavior.",
+        ]
+
+    layers = get_layers(model)
+    n_layers = info["num_layers"]
+    n_heads = info["num_heads"]
+    device = next(model.parameters()).device
+
+    importance = torch.zeros(n_layers, n_heads)
+    captured = {}
+
+    def make_hook(layer_idx):
+        def hook(module, grad_input, grad_output):
+            # grad_input[0] is gradient w.r.t. the input of o_proj
+            g = grad_input[0]
+            if g is None or g.dim() != 3:
+                return
+            B, T, D = g.shape
+            attn_module = layers[layer_idx]
+            attn = getattr(attn_module, "self_attn", getattr(attn_module, "attn", None))
+            actual_heads = getattr(attn, "num_heads", n_heads) if attn else n_heads
+            if D % actual_heads != 0:
+                return
+            head_dim = D // actual_heads
+            gh = g.view(B, T, actual_heads, head_dim)
+            mag = gh.float().norm(dim=-1).mean(dim=(0, 1))  # (num_heads,)
+            captured.setdefault(layer_idx, []).append(mag.cpu())
+        return hook
+
+    handles = []
+    for li in range(n_layers):
+        attn_module = layers[li]
+        attn = getattr(attn_module, "self_attn", getattr(attn_module, "attn", None))
+        if attn is None or not hasattr(attn, "o_proj"):
+            continue
+        handles.append(attn.o_proj.register_full_backward_hook(make_hook(li)))
+
+    model.train()  # need gradients
+    for text in calibration_texts[:num_samples]:
+        ids = tokenizer(text, return_tensors="pt", truncation=True, max_length=128).to(device)
+        if ids["input_ids"].shape[1] < 2:
+            continue
+        try:
+            out = model(**ids, labels=ids["input_ids"])
+            out.loss.backward()
+            model.zero_grad()
+        except Exception:
+            continue
+    model.eval()
+
+    for h in handles:
+        h.remove()
+
+    for li, mags_list in captured.items():
+        if not mags_list:
+            continue
+        stacked = torch.stack(mags_list)
+        mean_mag = stacked.mean(dim=0)
+        for hi in range(min(mean_mag.shape[0], n_heads)):
+            importance[li, hi] = mean_mag[hi].item()
+
+    return importance
+
+
+def compute_saliency_importance(model, tokenizer, info, calibration_texts=None, num_samples=8):
+    """Wanda/SNIP-style saliency: |activation| × |gradient|.
+
+    The chain-rule contribution of each head to the loss. Captures BOTH the
+    forward activation magnitude AND the backward gradient magnitude on the
+    o_proj input, then multiplies them per-head.
+
+    This is the canonical structured pruning importance metric in recent
+    literature (Wanda 2023, SparseGPT 2023). Predicted to be the strongest
+    of the four metrics in Kash's hierarchy.
+    """
+    if calibration_texts is None:
+        calibration_texts = [
+            "The quick brown fox jumps over the lazy dog. " * 4,
+            "Machine learning models learn patterns from training data.",
+            "The capital of France is Paris.",
+            "Quantum mechanics describes atomic behavior.",
+        ]
+
+    layers = get_layers(model)
+    n_layers = info["num_layers"]
+    n_heads = info["num_heads"]
+    device = next(model.parameters()).device
+
+    importance = torch.zeros(n_layers, n_heads)
+    fwd_captured = {}  # (layer_idx, sample_idx) -> per-head activation magnitude
+    bwd_captured = {}  # (layer_idx, sample_idx) -> per-head gradient magnitude
+    sample_idx = [0]
+
+    def make_fwd_hook(layer_idx):
+        def hook(module, inputs, output):
+            x = inputs[0]
+            if x.dim() != 3:
+                return
+            B, T, D = x.shape
+            attn_module = layers[layer_idx]
+            attn = getattr(attn_module, "self_attn", getattr(attn_module, "attn", None))
+            actual_heads = getattr(attn, "num_heads", n_heads) if attn else n_heads
+            if D % actual_heads != 0:
+                return
+            head_dim = D // actual_heads
+            xh = x.view(B, T, actual_heads, head_dim)
+            mag = xh.float().norm(dim=-1).mean(dim=(0, 1))
+            fwd_captured[(layer_idx, sample_idx[0])] = mag.cpu()
+        return hook
+
+    def make_bwd_hook(layer_idx):
+        def hook(module, grad_input, grad_output):
+            g = grad_input[0]
+            if g is None or g.dim() != 3:
+                return
+            B, T, D = g.shape
+            attn_module = layers[layer_idx]
+            attn = getattr(attn_module, "self_attn", getattr(attn_module, "attn", None))
+            actual_heads = getattr(attn, "num_heads", n_heads) if attn else n_heads
+            if D % actual_heads != 0:
+                return
+            head_dim = D // actual_heads
+            gh = g.view(B, T, actual_heads, head_dim)
+            mag = gh.float().norm(dim=-1).mean(dim=(0, 1))
+            bwd_captured[(layer_idx, sample_idx[0])] = mag.cpu()
+        return hook
+
+    fwd_handles = []
+    bwd_handles = []
+    for li in range(n_layers):
+        attn_module = layers[li]
+        attn = getattr(attn_module, "self_attn", getattr(attn_module, "attn", None))
+        if attn is None or not hasattr(attn, "o_proj"):
+            continue
+        fwd_handles.append(attn.o_proj.register_forward_hook(make_fwd_hook(li)))
+        bwd_handles.append(attn.o_proj.register_full_backward_hook(make_bwd_hook(li)))
+
+    model.train()
+    for s, text in enumerate(calibration_texts[:num_samples]):
+        sample_idx[0] = s
+        ids = tokenizer(text, return_tensors="pt", truncation=True, max_length=128).to(device)
+        if ids["input_ids"].shape[1] < 2:
+            continue
+        try:
+            out = model(**ids, labels=ids["input_ids"])
+            out.loss.backward()
+            model.zero_grad()
+        except Exception:
+            continue
+    model.eval()
+
+    for h in fwd_handles + bwd_handles:
+        h.remove()
+
+    # Saliency = activation × gradient, averaged across samples
+    saliency_per_head = {}
+    for (li, s), fwd_mag in fwd_captured.items():
+        bwd_mag = bwd_captured.get((li, s))
+        if bwd_mag is None:
+            continue
+        sal = fwd_mag * bwd_mag  # element-wise per head
+        saliency_per_head.setdefault(li, []).append(sal)
+
+    for li, sal_list in saliency_per_head.items():
+        if not sal_list:
+            continue
+        stacked = torch.stack(sal_list)
+        mean_sal = stacked.mean(dim=0)
+        for hi in range(min(mean_sal.shape[0], n_heads)):
+            importance[li, hi] = mean_sal[hi].item()
+
+    return importance
+
+
+class TestFourMetricImportanceComparison:
+    """Per Kash's four-signal hierarchy: compare L2-weight, activation, gradient, saliency.
+
+    Mechanistic prediction: weight-norm worst, saliency best.
+    Activation and gradient intermediate but for different reasons.
+
+    This is the experiment that validates or refutes PLASTICITY-COMPACTION's
+    "free utilization map from LoRA gradient capture" trick.
+    """
+
+    def test_four_metric_hierarchy(self, base_model_and_tokenizer, small_eval_dataset):
+        import sys
+        sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "scripts"))
+        try:
+            from defrag_inline import defrag_live_model
+            from forge_model import compute_activation_importance
+        except ImportError as e:
+            pytest.skip(f"forge_model imports unavailable: {e}")
+
+        import copy
+        base_model, tokenizer = base_model_and_tokenizer
+        layers = get_layers(base_model)
+        if layers is None:
+            pytest.skip("Could not locate layers")
+
+        cfg = base_model.config
+        num_q = cfg.num_attention_heads
+        num_kv = cfg.num_key_value_heads
+        group_size = num_q // num_kv
+
+        baseline_ppl = compute_perplexity(base_model, tokenizer, small_eval_dataset)
+        info = {"num_layers": len(layers), "num_heads": num_q}
+
+        results = {}
+
+        # ── Metric 1: L2 weight norm (the broken one) ──
+        m1 = copy.deepcopy(base_model)
+        dead = select_lowest_importance_kv_groups(m1, num_groups_to_remove=1)
+        try:
+            defrag_live_model(m1, dead_heads=dead)
+            results["L2_weight_norm"] = compute_perplexity(m1, tokenizer, small_eval_dataset)
+        except Exception as e:
+            results["L2_weight_norm"] = float("inf")
+        del m1
+
+        # Helper: pick lowest-scoring KV group from any importance tensor
+        def pick_dead_from_importance(importance_tensor, n_layers, num_q, num_kv, group_size):
+            dead = {}
+            for li in range(n_layers):
+                group_scores = []
+                for kv in range(num_kv):
+                    start = kv * group_size
+                    end = (kv + 1) * group_size
+                    score = importance_tensor[li, start:end].sum().item()
+                    group_scores.append((score, kv))
+                group_scores.sort()
+                kv_to_remove = group_scores[0][1]
+                dead[li] = list(range(kv_to_remove * group_size, (kv_to_remove + 1) * group_size))
+            return dead
+
+        # ── Metric 2: LoRA gradient magnitude (compaction paper's trick) ──
+        m2 = copy.deepcopy(base_model)
+        try:
+            grad_imp = compute_lora_gradient_importance(m2, tokenizer, info)
+            dead = pick_dead_from_importance(grad_imp, len(layers), num_q, num_kv, group_size)
+            defrag_live_model(m2, dead_heads=dead)
+            results["LoRA_gradient_magnitude"] = compute_perplexity(m2, tokenizer, small_eval_dataset)
+        except Exception as e:
+            results["LoRA_gradient_magnitude"] = float("inf")
+        del m2
+
+        # ── Metric 3: Activation magnitude (the fix) ──
+        m3 = copy.deepcopy(base_model)
+        try:
+            act_imp = compute_activation_importance(m3, tokenizer, info)
+            dead = pick_dead_from_importance(act_imp, len(layers), num_q, num_kv, group_size)
+            defrag_live_model(m3, dead_heads=dead)
+            results["Activation_magnitude"] = compute_perplexity(m3, tokenizer, small_eval_dataset)
+        except Exception as e:
+            results["Activation_magnitude"] = float("inf")
+        del m3
+
+        # ── Metric 4: Saliency (activation × gradient, Wanda/SNIP style) ──
+        m4 = copy.deepcopy(base_model)
+        try:
+            sal_imp = compute_saliency_importance(m4, tokenizer, info)
+            dead = pick_dead_from_importance(sal_imp, len(layers), num_q, num_kv, group_size)
+            defrag_live_model(m4, dead_heads=dead)
+            results["Saliency_activation_x_gradient"] = compute_perplexity(m4, tokenizer, small_eval_dataset)
+        except Exception as e:
+            results["Saliency_activation_x_gradient"] = float("inf")
+        del m4
+
+        # ── Report ──
+        print(f"\n  Baseline PPL: {baseline_ppl:.2f}")
+        print(f"  Four-metric comparison after pruning 1 KV group from each layer:")
+        ranked = sorted(results.items(), key=lambda kv: kv[1])
+        for i, (metric, ppl) in enumerate(ranked, 1):
+            ratio = ppl / baseline_ppl
+            print(f"  {i}. {metric:35s} PPL = {ppl:>10.2f}  ({ratio:>6.1f}x baseline)")
+
+        # Save raw numbers as a JSON artifact for the paper
+        import json as _json
+        artifact = {
+            "model": "Qwen/Qwen2.5-0.5B",
+            "baseline_ppl": baseline_ppl,
+            "results": results,
+            "ranked": [(m, p) for m, p in ranked],
+            "note": "Lower is better. Pruning without retraining always degrades; the comparison is RELATIVE.",
+        }
+        artifact_path = os.path.join(
+            os.path.dirname(__file__), "..", "..", "output", "four_metric_comparison.json"
+        )
+        os.makedirs(os.path.dirname(artifact_path), exist_ok=True)
+        with open(artifact_path, "w") as f:
+            _json.dump(artifact, f, indent=2)
+        print(f"\n  Artifact: {artifact_path}")
+
+        # All metrics must produce finite results
+        for metric, ppl in results.items():
+            assert not math.isnan(ppl), f"{metric} produced NaN"
+            assert not math.isinf(ppl), f"{metric} produced Inf — likely a tensor surgery break"
+
+        # The hypothesis test: at least one of the three non-broken metrics
+        # must be better than L2-weight-norm
+        l2 = results["L2_weight_norm"]
+        non_l2 = [results[k] for k in results if k != "L2_weight_norm" and not math.isinf(results[k])]
+        assert non_l2, "All non-L2 metrics failed to compute"
+        assert min(non_l2) < l2, (
+            f"None of the better-by-design metrics beat L2 weight norm. "
+            f"L2={l2:.2f}, others={non_l2}. "
+            "This would invalidate the activation-importance finding."
+        )
+
+
 class TestActivationVsWeightNormImportance:
     """Empirically prove activation-based importance beats L2-norm for selecting prunable heads.
 
