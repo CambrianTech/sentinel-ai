@@ -986,6 +986,24 @@ def main():
     vram_gb = torch.cuda.get_device_properties(0).total_memory / 1e9
     cfg = ForgeConfig.auto(info["fp16_gb"], vram_gb, args.load_in_4bit)
 
+    # HARD CHECK: pad-mode defrag requires fp16 weights for in-place tensor
+    # zeroing. bnb 4-bit/8-bit weights are stored in packed format and cannot
+    # be mutated through the standard tensor API. Auto-pick must NOT silently
+    # override pad mode by selecting 4-bit. The right move is to fail loud and
+    # let the user pick a smaller model, a bigger GPU, or --defrag-mode none.
+    if args.defrag_mode == "pad" and cfg.load_4bit:
+        sys.exit(
+            f"FATAL: --defrag-mode pad requires fp16 weights, but auto-config "
+            f"selected 4-bit (model fp16 = {info['fp16_gb']:.1f} GB, VRAM = "
+            f"{vram_gb:.0f} GB, ratio = {info['fp16_gb']/vram_gb:.2f}). Pad-mode "
+            f"defrag mutates weight tensors in place; bnb 4-bit storage is "
+            f"packed and cannot be mutated through the standard tensor API. "
+            f"Options: (1) use a GPU with more VRAM, (2) use a smaller base "
+            f"model, (3) implement bnb-aware pad defrag (Path B in the v2 "
+            f"forge plan), or (4) --defrag-mode slice (which violates llama.cpp "
+            f"runtime portability per Finding 6 — not recommended)."
+        )
+
     # Disk space check
     import shutil
     disk = shutil.disk_usage(out)
@@ -1082,27 +1100,25 @@ def main():
         if is_last_cycle and heads and args.defrag_mode != "none":
             write_status(out, "defrag", f"Cycle {cycle}: defragging pruned heads (final cycle, mode={args.defrag_mode})",
                         cycle=cycle)
-            try:
-                import sys as _sys
-                _sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-                from defrag_inline import defrag_live_model
-                # Remove hooks — defrag makes them unnecessary
-                for h in all_hooks:
-                    h.remove()
-                all_hooks.clear()
+            import sys as _sys
+            _sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+            from defrag_inline import defrag_live_model
+            # Remove hooks — defrag makes them unnecessary
+            for h in all_hooks:
+                h.remove()
+            all_hooks.clear()
 
-                freed = defrag_live_model(model, dead_heads=heads, mode=args.defrag_mode)
-                freed_mb = freed / 1e6
-                if freed_mb > 0:
-                    new_params = sum(p.numel() for p in model.parameters()) / 1e9
-                    print(f"  Defragged: freed {freed_mb:.0f}MB, model now {new_params:.1f}B params")
-                    write_status(out, "defrag_done", f"Freed {freed_mb:.0f}MB",
-                                cycle=cycle, freed_mb=round(freed_mb))
-                    check_vram("post-defrag")
-                else:
-                    print(f"  Defrag: no heads to remove")
-            except Exception as e:
-                print(f"  Defrag skipped: {e}")
+            # NO try/except. Defrag failure HALTS the forge. The whole point of
+            # the v2 path is that defrag must actually happen — silently skipping
+            # it produces a v1-class artifact mislabeled as v2, which is exactly
+            # the bug class VALIDATED-TENSOR-SURGERY documents.
+            freed = defrag_live_model(model, dead_heads=heads, mode=args.defrag_mode)
+            freed_mb = freed / 1e6
+            new_params = sum(p.numel() for p in model.parameters()) / 1e9
+            print(f"  Defragged: freed {freed_mb:.0f}MB, model now {new_params:.1f}B params")
+            write_status(out, "defrag_done", f"Freed {freed_mb:.0f}MB",
+                        cycle=cycle, freed_mb=round(freed_mb))
+            check_vram("post-defrag")
         elif heads:
             print(f"  Defrag deferred to final cycle (structural changes break mid-training)")
 

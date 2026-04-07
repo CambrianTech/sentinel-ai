@@ -129,34 +129,34 @@ def defrag_attention_layer_pad(attn, surviving_q_heads, surviving_kv_heads,
         with torch.no_grad():
             o.weight.data[:, ~keep_o_cols] = 0
 
-    # K, V projections: physical slice (KV pruning is safe in llama.cpp)
-    kv_indices = []
+    # K, V projections: zero rows of dead KV groups (do NOT physically slice).
+    # Per-layer slicing produces heterogeneous num_kv_heads across layers, which
+    # the global model.config cannot represent and which breaks SDPA attention.
+    # Zero-mode keeps num_kv_heads uniform across layers and lets quantization
+    # reclaim the storage from the zero blocks.
+    keep_kv_rows = torch.zeros(kv_head_dim * orig_num_kv_heads, dtype=torch.bool)
     for h in surviving_kv_heads:
-        kv_indices.extend(range(h * kv_head_dim, (h + 1) * kv_head_dim))
+        s, e = h * kv_head_dim, (h + 1) * kv_head_dim
+        keep_kv_rows[s:e] = True
 
     for name in ["k_proj", "v_proj"]:
         proj = getattr(attn, name, None)
-        if proj and hasattr(proj, "weight") and 0 < len(kv_indices) < proj.weight.shape[0]:
-            new_weight = proj.weight.data[kv_indices, :].contiguous()
-            new_bias = proj.bias.data[kv_indices].contiguous() if proj.bias is not None else None
-            setattr(attn, name, _make_linear(new_weight, new_bias))
+        if proj is None or not hasattr(proj, "weight"):
+            continue
+        if proj.weight.shape[0] != kv_head_dim * orig_num_kv_heads:
+            # Pre-existing shape mismatch (should not happen pre-defrag); skip.
+            continue
+        mask = keep_kv_rows.to(proj.weight.device)
+        with torch.no_grad():
+            proj.weight.data[~mask] = 0
+            if proj.bias is not None:
+                proj.bias.data[~mask] = 0
 
-    # Cached attributes:
-    # - num_heads STAYS at orig_num_heads (q_proj/o_proj shapes are unchanged)
-    # - num_key_value_heads goes to new count (KV physically removed)
-    # - num_key_value_groups = orig_num_heads // new_num_kv_heads
-    new_num_kv_heads = len(surviving_kv_heads)
-    new_num_kv_groups = orig_num_heads // max(new_num_kv_heads, 1)
-
-    for attr, val in [
-        ("num_heads", orig_num_heads),  # unchanged in pad mode
-        ("num_key_value_heads", new_num_kv_heads),
-        ("num_key_value_groups", new_num_kv_groups),
-        ("n_head", orig_num_heads),
-        ("n_kv_head", new_num_kv_heads),
-    ]:
-        if hasattr(attn, attr):
-            setattr(attn, attr, val)
+    # Cached attributes: nothing changes in pad mode. num_heads, num_key_value_heads,
+    # and num_key_value_groups all stay at their original values. The dead positions
+    # are zeroed in-place; the model's structural shape is unchanged.
+    # We do NOT touch attn.num_heads / num_key_value_heads — leaving them at the
+    # original values is the entire point of pad mode.
 
     bytes_after = sum(p.numel() * p.element_size() for p in attn.parameters())
     return bytes_before - bytes_after
