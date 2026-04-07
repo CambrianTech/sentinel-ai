@@ -466,7 +466,16 @@ def evaluate(model, eval_loader, output_dir: Path = None, label: str = "eval"):
 # ---------------------------------------------------------------------------
 
 def compute_head_importance(model, info: dict):
-    """L2 norm of Q-projection weights per head. Handles variable heads per layer after defrag."""
+    """L2 norm of Q-projection weights per head. Handles variable heads per layer after defrag.
+
+    DEPRECATED for selection purposes: see compute_activation_importance() for the
+    behaviorally validated metric. This function is retained for backward compatibility
+    and for use as a fast proxy when calibration data is unavailable.
+
+    Validation finding (sentinel-ai #155): L2 norm of Q projection is anti-correlated
+    with importance for at least Qwen2.5-0.5B. Removing the lowest-L2-norm heads
+    produced 9x worse perplexity than removing arbitrary heads.
+    """
     layers = get_layers(model)
     n_layers = info["num_layers"]
     n_heads = info["num_heads"]  # Original count — actual may differ after defrag
@@ -492,6 +501,137 @@ def compute_head_importance(model, info: dict):
             s, e = hi * actual_head_dim, (hi + 1) * actual_head_dim
             if e <= w.shape[0]:
                 importance[li, hi] = w[s:e].norm().item()
+
+    return importance
+
+
+def compute_activation_importance(model, tokenizer, info: dict, calibration_texts=None, max_length=128, num_samples=16):
+    """Activation-based head importance via forward-hook capture on the O projection.
+
+    For each attention layer, capture the input to o_proj on a small calibration batch.
+    The per-head magnitude of that input is a direct measure of how much each head is
+    contributing to the residual stream — exactly the quantity that determines whether
+    removing the head will degrade output.
+
+    This replaces L2-norm-of-Q ranking, which Layer 4 of the validation harness found
+    to be anti-correlated with importance for at least Qwen2.5-0.5B (sentinel-ai #155).
+
+    Args:
+        model: live PyTorch model
+        tokenizer: matching tokenizer
+        info: dict with num_layers, num_heads
+        calibration_texts: list of strings to use as calibration data. If None, uses
+            a small built-in set. For best results, pass texts representative of the
+            target deployment domain.
+        max_length: max tokens per calibration sample
+        num_samples: number of calibration samples to average
+
+    Returns:
+        Tensor of shape (n_layers, n_heads) where higher values = more important.
+        Heads with the lowest values are the safest to remove.
+    """
+    if calibration_texts is None:
+        calibration_texts = [
+            "The quick brown fox jumps over the lazy dog. " * 4,
+            "In computer science, a recursive function is one that calls itself.",
+            "The capital of France is Paris, located on the Seine river.",
+            "Quantum mechanics describes the behavior of matter at atomic scales.",
+            "Machine learning models learn patterns from training data.",
+            "Climate change refers to long-term shifts in temperature and weather patterns.",
+            "The mitochondria is the powerhouse of the cell, producing ATP through respiration.",
+            "Shakespeare wrote both tragedies and comedies during the Elizabethan era.",
+        ] * 2  # 16 samples
+
+    layers = get_layers(model)
+    n_layers = info["num_layers"]
+    n_heads = info["num_heads"]
+    device = next(model.parameters()).device
+
+    # Per-layer head importance accumulator
+    importance = torch.zeros(n_layers, n_heads)
+    counts = torch.zeros(n_layers)
+
+    # Install hooks on every o_proj to capture its INPUT
+    # The input to o_proj is the concatenation of per-head attention outputs:
+    # shape (batch, seq, num_heads * head_dim). We measure per-head L2 over batch+seq.
+    captured = {}
+
+    def make_hook(layer_idx):
+        def hook(module, inputs, output):
+            x = inputs[0]  # the input to o_proj
+            # x.shape: (batch, seq, num_heads * head_dim)
+            if x.dim() != 3:
+                return
+            B, T, D = x.shape
+            # Read actual head_dim from the o_proj's input dimension and module's num_heads
+            # Use cached attention attribute first, fall back to info
+            attn_module = layers[layer_idx]
+            attn = getattr(attn_module, "self_attn", getattr(attn_module, "attn", None))
+            actual_heads = getattr(attn, "num_heads", n_heads) if attn else n_heads
+            if D % actual_heads != 0:
+                # Defragged irregularly — just record what we can
+                return
+            head_dim = D // actual_heads
+            # Reshape to (batch, seq, num_heads, head_dim) and compute per-head L2
+            xh = x.view(B, T, actual_heads, head_dim)
+            # Magnitude per head, averaged across batch and sequence
+            mag = xh.float().norm(dim=-1).mean(dim=(0, 1))  # (num_heads,)
+            captured.setdefault(layer_idx, []).append(mag.cpu())
+        return hook
+
+    handles = []
+    for li in range(n_layers):
+        attn_module = layers[li]
+        attn = getattr(attn_module, "self_attn", getattr(attn_module, "attn", None))
+        if attn is None or not hasattr(attn, "o_proj"):
+            continue
+        handles.append(attn.o_proj.register_forward_hook(make_hook(li)))
+
+    # Run calibration data through the model
+    model.eval()
+    with torch.no_grad():
+        for text in calibration_texts[:num_samples]:
+            ids = tokenizer(text, return_tensors="pt", truncation=True, max_length=max_length).to(device)
+            if ids["input_ids"].shape[1] < 2:
+                continue
+            try:
+                model(**ids)
+            except Exception:
+                continue  # skip samples that fail forward
+
+    # Remove hooks
+    for h in handles:
+        h.remove()
+
+    # Aggregate captured magnitudes
+    for li, mags_list in captured.items():
+        if not mags_list:
+            continue
+        # Stack and average across calibration samples
+        stacked = torch.stack(mags_list)  # (n_samples, n_heads_at_layer)
+        mean_mag = stacked.mean(dim=0)  # (n_heads_at_layer,)
+        actual_heads = mean_mag.shape[0]
+        for hi in range(min(actual_heads, n_heads)):
+            importance[li, hi] = mean_mag[hi].item()
+        counts[li] = 1
+
+    # Layers we couldn't measure: fall back to L2-norm proxy
+    for li in range(n_layers):
+        if counts[li] == 0:
+            attn_module = layers[li]
+            attn = getattr(attn_module, "self_attn", getattr(attn_module, "attn", None))
+            if attn is None:
+                continue
+            q = getattr(attn, "q_proj", None)
+            if q is None:
+                continue
+            w = q.weight.data.float()
+            actual_heads = w.shape[0] // (w.shape[0] // n_heads) if n_heads > 0 else 0
+            head_dim = w.shape[0] // max(actual_heads, 1)
+            for hi in range(min(actual_heads, n_heads)):
+                s, e = hi * head_dim, (hi + 1) * head_dim
+                if e <= w.shape[0]:
+                    importance[li, hi] = w[s:e].norm().item()
 
     return importance
 

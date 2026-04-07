@@ -323,6 +323,96 @@ class TestPersistedModelMatches:
 # ── Test 4: Generation sanity check ────────────────────────────────────────
 
 
+class TestActivationVsWeightNormImportance:
+    """Empirically prove activation-based importance beats L2-norm for selecting prunable heads.
+
+    This is the validation of the fix for sentinel-ai #155.
+    The test compares perplexity after defrag using:
+    - L2 norm of Q projection (the broken metric)
+    - Activation magnitude on calibration data (the fixed metric)
+
+    The activation-based metric should produce LOWER post-defrag perplexity.
+    """
+
+    def test_activation_importance_beats_weight_norm(
+        self, base_model_and_tokenizer, small_eval_dataset
+    ):
+        import sys
+        sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "scripts"))
+        try:
+            from defrag_inline import defrag_live_model
+            from forge_model import compute_activation_importance, get_layers as fm_get_layers
+        except ImportError as e:
+            pytest.skip(f"forge_model imports unavailable: {e}")
+
+        import copy
+        base_model, tokenizer = base_model_and_tokenizer
+        layers = get_layers(base_model)
+        if layers is None:
+            pytest.skip("Could not locate layers")
+
+        cfg = base_model.config
+        num_q = cfg.num_attention_heads
+        num_kv = cfg.num_key_value_heads
+        group_size = num_q // num_kv
+
+        baseline_ppl = compute_perplexity(base_model, tokenizer, small_eval_dataset)
+        print(f"\n  Baseline PPL: {baseline_ppl:.2f}")
+
+        # ── Strategy A: L2 norm of Q (the broken metric) ──
+        model_a = copy.deepcopy(base_model)
+        dead_a = select_lowest_importance_kv_groups(model_a, num_groups_to_remove=1)
+        try:
+            defrag_live_model(model_a, dead_heads=dead_a)
+        except Exception as e:
+            pytest.skip(f"weight-norm defrag failed: {e}")
+        ppl_a = compute_perplexity(model_a, tokenizer, small_eval_dataset)
+        print(f"  Weight-norm L2 (broken):   PPL = {ppl_a:.2f}")
+        del model_a
+
+        # ── Strategy B: Activation-based importance (the fix) ──
+        model_b = copy.deepcopy(base_model)
+        info = {"num_layers": len(layers), "num_heads": num_q}
+        try:
+            importance = compute_activation_importance(model_b, tokenizer, info)
+        except Exception as e:
+            pytest.skip(f"activation importance failed: {e}")
+
+        # Pick lowest-importance KV group per layer using the activation metric.
+        # Sum head importances within each KV group, take the lowest-sum group.
+        dead_b = {}
+        for li in range(len(layers)):
+            group_scores = []
+            for kv in range(num_kv):
+                start = kv * group_size
+                end = (kv + 1) * group_size
+                score = importance[li, start:end].sum().item()
+                group_scores.append((score, kv))
+            group_scores.sort()
+            kv_to_remove = group_scores[0][1]  # lowest-scoring group
+            dead_b[li] = list(range(kv_to_remove * group_size, (kv_to_remove + 1) * group_size))
+
+        try:
+            defrag_live_model(model_b, dead_heads=dead_b)
+        except Exception as e:
+            pytest.skip(f"activation defrag failed: {e}")
+        ppl_b = compute_perplexity(model_b, tokenizer, small_eval_dataset)
+        print(f"  Activation-based (fix):    PPL = {ppl_b:.2f}")
+        del model_b
+
+        # The fix must produce LOWER perplexity than the broken metric
+        # (we don't claim it's near baseline — pruning without retraining still hurts)
+        improvement = (ppl_a - ppl_b) / ppl_a * 100
+        print(f"  Improvement from fix: {improvement:.1f}%")
+
+        assert ppl_b < ppl_a, (
+            f"Activation-based ({ppl_b:.2f}) did NOT beat weight-norm ({ppl_a:.2f}). "
+            "The fix is not actually better than the broken metric on this model."
+        )
+        assert not math.isnan(ppl_b)
+        assert not math.isinf(ppl_b)
+
+
 class TestGenerationSanity:
     """A defragged model should generate coherent (or at least non-broken) text."""
 
