@@ -221,6 +221,51 @@ def defrag_live_model(model, dead_heads=None, threshold=1e-6):
         total_freed += freed
         defragged_layers += 1
 
+    # CRITICAL: Update model.config to match the new tensor shapes.
+    # Without this, save_pretrained() saves the old config (claiming N heads) but
+    # actual tensors have fewer heads. from_pretrained() then fails with size mismatch.
+    # Find the new dims by reading the first defragged layer's actual tensor shapes.
+    if defragged_layers > 0:
+        first_attn = None
+        for layer in layers:
+            attn = getattr(layer, "self_attn", getattr(layer, "attn", None))
+            if attn is not None and hasattr(attn, "q_proj"):
+                first_attn = attn
+                break
+
+        if first_attn is not None:
+            # Read actual current dims from tensors (post-defrag)
+            actual_q_out = first_attn.q_proj.weight.shape[0]
+            actual_kv_out = first_attn.k_proj.weight.shape[0]
+            new_num_heads = actual_q_out // q_head_dim
+            new_num_kv_heads = actual_kv_out // kv_head_dim
+
+            # Update top-level config
+            cfg = model.config
+            if hasattr(cfg, "num_attention_heads"):
+                cfg.num_attention_heads = new_num_heads
+            if hasattr(cfg, "num_key_value_heads"):
+                cfg.num_key_value_heads = new_num_kv_heads
+            if hasattr(cfg, "n_head"):
+                cfg.n_head = new_num_heads
+            if hasattr(cfg, "n_kv_head"):
+                cfg.n_kv_head = new_num_kv_heads
+
+            # CRITICAL: explicitly set head_dim. Without this, HF infers it as
+            # hidden_size / num_heads which is wrong after pruning (we kept
+            # the original head_dim, just removed heads). The Q projection
+            # output is num_heads * head_dim, NOT hidden_size.
+            cfg.head_dim = q_head_dim
+
+            # Also update nested text_config if present (multimodal models)
+            tc = nested_config(cfg)
+            if tc is not cfg:
+                if hasattr(tc, "num_attention_heads"):
+                    tc.num_attention_heads = new_num_heads
+                if hasattr(tc, "num_key_value_heads"):
+                    tc.num_key_value_heads = new_num_kv_heads
+                tc.head_dim = q_head_dim
+
     # Force garbage collection to actually free GPU memory
     import gc
     gc.collect()
