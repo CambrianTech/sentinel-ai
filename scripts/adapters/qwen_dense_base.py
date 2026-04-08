@@ -248,30 +248,115 @@ class QwenDenseBase(FamilyAdapter):
     def _train_compensation(self, ctx: "ForgeContext", **params) -> "ForgeContext":
         """§ 4.1.3.3 KL-distillation-against-teacher compensation LoRA.
 
-        Tier 2 stub today. The flagship artifact (qwen2.5-coder-7b-compacted,
-        the §4.1.3.3 anchor) was forged via direct CLI invocation of
-        scripts/compensation_lora.py — wiring it through the adapter set
-        is roadmap step 3 of the plugin sprint, which will refactor
-        compensation_lora.py to expose a callable function alongside its
-        existing CLI wrapper.
+        Param contract (from the alloy's compensation lora stage):
+            teacher:            HF id or path of the unmodified teacher
+            teacherPrecision:   '8bit' | '4bit' (defaults to '8bit')
+            calibrationDataset: path to the held-out calibration JSONL
+            kdTemperature:      float (currently unused — temperature is fixed
+                                in compute_distillation_loss; future work
+                                threads it through)
+            loraRank:           int
+            loraAlpha:          int
+            targetModules:      list[str] of LoRA target module names
+            lossType:           'kl_logits' | 'mse_hidden' | 'both'
+            steps:              int
+            learningRate:       string (parsed to float)
+            mergedAtSave:       bool (currently always merged via merge_and_unload)
+            maxLength:          int (defaults 1024)
+
+        Loads the teacher fresh in the requested quant tier (the adapter
+        does NOT preload the teacher because it's only needed for the
+        compensation step), runs the distillation training loop against
+        ctx.model + ctx.tokenizer, merges the LoRA into the student
+        weights, saves the compensated student to ctx.output_dir/compensated,
+        reloads ctx.model from the compensated dir.
         """
-        teacher = params.get("teacher")
-        kd_t = params.get("kdTemperature", 2.0)
-        loss = params.get("lossType", "kl_logits")
-        rank = params.get("loraRank")
+        teacher_path = params.get("teacher")
+        teacher_quant = params.get("teacherPrecision", "8bit")
+        calibration_data = params.get("calibrationDataset")
+        loss_type = params.get("lossType", "kl_logits")
+        lora_rank = int(params.get("loraRank", 16))
+        lora_alpha = int(params.get("loraAlpha", 32))
+        target_modules = params.get("targetModules", [
+            "q_proj", "k_proj", "v_proj", "o_proj",
+            "gate_proj", "up_proj", "down_proj",
+        ])
+        steps = int(params.get("steps", 500))
+        lr = float(params.get("learningRate", "1e-4"))
+        max_length = int(params.get("maxLength", 1024))
+
         self.log(
-            f"compensation-LoRA § 4.1.3.3 — teacher={teacher}, "
-            f"kdTemperature={kd_t}, loss={loss}, loraRank={rank}"
+            f"compensation-LoRA § 4.1.3.3 — teacher={teacher_path} ({teacher_quant}), "
+            f"loss={loss_type}, loraRank={lora_rank}, steps={steps}"
         )
 
         if ctx.model is None:
             self.log("  No model loaded — compensation train deferred (dispatch-only path)")
             return ctx
 
-        raise NotImplementedError(
-            f"{self.name}._train_compensation Tier 2 wiring deferred. The "
-            f"compensation distillation path runs through "
-            f"scripts/compensation_lora.py today; Tier 2 hookup wires it "
-            f"via the adapter so the alloy is the single entry point. "
-            f"Tracked as roadmap step 3 in docs/PLUGIN-SPRINT.md."
+        if not teacher_path:
+            raise ValueError(
+                f"{self.name}._train_compensation: alloy stage missing 'teacher' "
+                f"field. The §4.1.3.3 compensation distillation requires a teacher "
+                f"model id or path."
+            )
+        if not calibration_data:
+            raise ValueError(
+                f"{self.name}._train_compensation: alloy stage missing "
+                f"'calibrationDataset' field. The §4.1.3.4.1 discipline gate "
+                f"requires the held-out calibration corpus to be declared."
+            )
+
+        # Lazy import — Tier 1 dispatch must work without torch / transformers / peft.
+        import sys
+        from pathlib import Path
+        sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+        from compensation_lora import compensate_lora
+
+        # Resolve calibration corpus relative to ctx.output_dir if not absolute.
+        corpus_path = Path(calibration_data)
+        if not corpus_path.is_absolute():
+            corpus_path = (ctx.output_dir / corpus_path).resolve()
+
+        compensated_out = (ctx.output_dir / "compensated").resolve()
+
+        result = compensate_lora(
+            student=ctx.model,
+            student_tokenizer=ctx.tokenizer,
+            teacher_path=teacher_path,
+            teacher_quant=teacher_quant,
+            calibration_data=corpus_path,
+            output=compensated_out,
+            steps=steps,
+            lora_rank=lora_rank,
+            lora_alpha=lora_alpha,
+            learning_rate=lr,
+            loss_type=loss_type,
+            target_modules=list(target_modules),
+            max_length=max_length,
         )
+
+        # Reload ctx.model from the compensated dir so downstream stages see
+        # the merged-and-unloaded compensated student rather than the
+        # in-memory pre-compensation original.
+        import torch
+        from transformers import AutoModelForCausalLM, AutoTokenizer
+        self.log(f"  reloading compensated student from {compensated_out}")
+        del ctx.model
+        torch.cuda.empty_cache()
+        ctx.model = AutoModelForCausalLM.from_pretrained(
+            str(compensated_out),
+            torch_dtype="auto",
+            device_map="auto",
+            trust_remote_code=True,
+        )
+        ctx.tokenizer = AutoTokenizer.from_pretrained(
+            str(compensated_out), trust_remote_code=True,
+        )
+        ctx.compensated_model_dir = str(compensated_out)
+        self.log(
+            f"  compensation complete: {result['steps_completed']} steps, "
+            f"final_loss={result['final_loss']:.6f}"
+        )
+
+        return ctx
