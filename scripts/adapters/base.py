@@ -90,6 +90,11 @@ class FamilyAdapter(ABC):
         """Human-readable adapter name for logs and dispatch reports."""
         return type(self).__name__
 
+    def log(self, msg: str) -> None:
+        """Adapter log helper. Mirrors StageExecutor.log so adapter methods
+        and stage executors produce visually consistent output."""
+        print(f"  [{self.name}] {msg}")
+
     # ── Stage handlers — subclasses override only what applies ──────────────
 
     def prune(self, ctx: "ForgeContext", **params) -> "ForgeContext":
