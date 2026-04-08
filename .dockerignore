@@ -1,0 +1,22 @@
+# Don't send these to Docker build context
+output/
+models/
+*.gguf
+*.safetensors
+*.bin
+*.pt
+*.pth
+*.ckpt
+__pycache__/
+*.pyc
+.git/
+.github/
+notebooks/
+tests/
+docs/
+*.egg-info/
+.venv/
+venv/
+node_modules/
+evalplus_results/
+wandb/
