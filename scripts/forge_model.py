@@ -540,6 +540,69 @@ def compute_head_importance(model, info: dict):
     return importance
 
 
+# ── Calibration text sets for compute_activation_importance ─────────────────
+# DEFAULT (generic English): the v1 set used by every forge run prior to the
+# §4.1.3.2 PPL/HumanEval-disconnect finding. These prompts exercise general
+# language patterns but not the specific circuits HumanEval problems load.
+# Marked as "generic" to make the calibration domain explicit at every call site.
+DEFAULT_CALIBRATION_TEXTS_GENERIC = [
+    "The quick brown fox jumps over the lazy dog. " * 4,
+    "In computer science, a recursive function is one that calls itself.",
+    "The capital of France is Paris, located on the Seine river.",
+    "Quantum mechanics describes the behavior of matter at atomic scales.",
+    "Machine learning models learn patterns from training data.",
+    "Climate change refers to long-term shifts in temperature and weather patterns.",
+    "The mitochondria is the powerhouse of the cell, producing ATP through respiration.",
+    "Shakespeare wrote both tragedies and comedies during the Elizabethan era.",
+] * 2  # 16 samples
+
+# CODE-COMPLETION (HumanEval-format, NOT actual HumanEval problems): hand-
+# written function-signature + docstring prompts that exercise the same
+# circuits HumanEval-style code completion will load. The §4.1.3.2 finding
+# is that the activation-magnitude metric overfits to the calibration
+# distribution; this set tests whether shifting calibration to be in-domain
+# for the held-out task closes the PPL/HumanEval disconnect.
+#
+# IMPORTANT: these are hand-written, NOT drawn from HumanEval, MBPP, or any
+# other benchmark we evaluate against. Using actual HumanEval problems would
+# be training on the test set. The function names, docstring patterns, and
+# return-value structures are HumanEval-FORMAT but the specific problems are
+# original.
+DEFAULT_CALIBRATION_TEXTS_CODE = [
+    'def reverse_string(s: str) -> str:\n    """Return the reverse of the input string.\n    >>> reverse_string("hello")\n    \'olleh\'\n    """\n    return s[::-1]\n',
+    'def is_palindrome(s: str) -> bool:\n    """Return True if s reads the same forwards and backwards.\n    >>> is_palindrome("racecar")\n    True\n    """\n    return s == s[::-1]\n',
+    'def sum_of_squares(numbers: list) -> int:\n    """Return the sum of squares of all numbers in the list.\n    >>> sum_of_squares([1, 2, 3])\n    14\n    """\n    return sum(n * n for n in numbers)\n',
+    'def count_vowels(text: str) -> int:\n    """Count the vowels (aeiou, case insensitive) in text.\n    >>> count_vowels("Hello World")\n    3\n    """\n    return sum(1 for c in text.lower() if c in "aeiou")\n',
+    'def factorial(n: int) -> int:\n    """Compute n! recursively.\n    >>> factorial(5)\n    120\n    """\n    if n <= 1:\n        return 1\n    return n * factorial(n - 1)\n',
+    'def filter_even(numbers: list) -> list:\n    """Return only the even numbers from the input list.\n    >>> filter_even([1, 2, 3, 4, 5])\n    [2, 4]\n    """\n    return [n for n in numbers if n % 2 == 0]\n',
+    'def find_max(numbers: list) -> int:\n    """Return the largest number in the list.\n    >>> find_max([3, 1, 4, 1, 5, 9, 2, 6])\n    9\n    """\n    return max(numbers)\n',
+    'def remove_duplicates(items: list) -> list:\n    """Return the items list with duplicates removed, preserving order.\n    >>> remove_duplicates([1, 2, 2, 3, 1, 4])\n    [1, 2, 3, 4]\n    """\n    seen = set()\n    return [x for x in items if not (x in seen or seen.add(x))]\n',
+    'def average(numbers: list) -> float:\n    """Compute the arithmetic mean of the numbers.\n    >>> average([1, 2, 3, 4, 5])\n    3.0\n    """\n    return sum(numbers) / len(numbers) if numbers else 0.0\n',
+    'def char_frequency(text: str) -> dict:\n    """Return a dictionary mapping each character to its count in text.\n    >>> char_frequency("aabbc")\n    {\'a\': 2, \'b\': 2, \'c\': 1}\n    """\n    freq = {}\n    for c in text:\n        freq[c] = freq.get(c, 0) + 1\n    return freq\n',
+    'def fibonacci_sequence(n: int) -> list:\n    """Return the first n Fibonacci numbers as a list.\n    >>> fibonacci_sequence(6)\n    [0, 1, 1, 2, 3, 5]\n    """\n    seq = [0, 1]\n    while len(seq) < n:\n        seq.append(seq[-1] + seq[-2])\n    return seq[:n]\n',
+    'def is_prime(n: int) -> bool:\n    """Return True if n is a prime number.\n    >>> is_prime(7)\n    True\n    """\n    if n < 2:\n        return False\n    for i in range(2, int(n ** 0.5) + 1):\n        if n % i == 0:\n            return False\n    return True\n',
+    'def merge_sorted(a: list, b: list) -> list:\n    """Merge two sorted lists into a single sorted list.\n    >>> merge_sorted([1, 3, 5], [2, 4, 6])\n    [1, 2, 3, 4, 5, 6]\n    """\n    result, i, j = [], 0, 0\n    while i < len(a) and j < len(b):\n        if a[i] < b[j]:\n            result.append(a[i]); i += 1\n        else:\n            result.append(b[j]); j += 1\n    result.extend(a[i:]); result.extend(b[j:])\n    return result\n',
+    'def gcd(a: int, b: int) -> int:\n    """Return the greatest common divisor of a and b.\n    >>> gcd(12, 18)\n    6\n    """\n    while b:\n        a, b = b, a % b\n    return a\n',
+    'def flatten(nested: list) -> list:\n    """Flatten a list of lists into a single list.\n    >>> flatten([[1, 2], [3, 4], [5]])\n    [1, 2, 3, 4, 5]\n    """\n    return [item for sublist in nested for item in sublist]\n',
+    'def word_count(text: str) -> int:\n    """Count the number of whitespace-separated words in text.\n    >>> word_count("hello world foo bar")\n    4\n    """\n    return len(text.split())\n',
+]
+
+
+def get_calibration_texts(source: str) -> list[str]:
+    """Return the calibration text set for the requested source.
+
+    Sources:
+        "generic": 16 generic English sentences (default, the v1 set)
+        "code": 16 hand-written HumanEval-format code completion prompts
+                (held-out from any benchmark we evaluate against)
+    """
+    if source == "generic":
+        return DEFAULT_CALIBRATION_TEXTS_GENERIC
+    if source == "code":
+        return DEFAULT_CALIBRATION_TEXTS_CODE
+    raise ValueError(f"unknown calibration source {source!r}; known: generic, code")
+
+
 def compute_activation_importance(model, tokenizer, info: dict, calibration_texts=None, max_length=128, num_samples=16):
     """Activation-based head importance via forward-hook capture on the O projection.
 
@@ -566,16 +629,7 @@ def compute_activation_importance(model, tokenizer, info: dict, calibration_text
         Heads with the lowest values are the safest to remove.
     """
     if calibration_texts is None:
-        calibration_texts = [
-            "The quick brown fox jumps over the lazy dog. " * 4,
-            "In computer science, a recursive function is one that calls itself.",
-            "The capital of France is Paris, located on the Seine river.",
-            "Quantum mechanics describes the behavior of matter at atomic scales.",
-            "Machine learning models learn patterns from training data.",
-            "Climate change refers to long-term shifts in temperature and weather patterns.",
-            "The mitochondria is the powerhouse of the cell, producing ATP through respiration.",
-            "Shakespeare wrote both tragedies and comedies during the Elizabethan era.",
-        ] * 2  # 16 samples
+        calibration_texts = DEFAULT_CALIBRATION_TEXTS_GENERIC
 
     layers = get_layers(model)
     n_layers = info["num_layers"]
@@ -828,7 +882,7 @@ def prune_by_hooks(model, heads_to_prune, info):
 
 def prune(model, prune_percent, info, method="zero_weights",
           metric="auto", tokenizer=None, calibration_texts=None,
-          distribution="per_layer"):
+          distribution="per_layer", calibration_source="generic"):
     """Dispatch to the right pruning strategy.
 
     Args:
@@ -845,6 +899,13 @@ def prune(model, prune_percent, info, method="zero_weights",
     """
     if metric == "auto":
         metric = "activation" if tokenizer is not None else "l2_weight"
+
+    # Resolve calibration_texts: if caller passed an explicit set, use it.
+    # Otherwise look up the named calibration_source. The named lookup happens
+    # here (not in compute_activation_importance) so the dispatch is visible
+    # at the prune() boundary and the diagnostic line below can report it.
+    if calibration_texts is None:
+        calibration_texts = get_calibration_texts(calibration_source)
 
     if metric == "activation":
         if tokenizer is None:
@@ -870,7 +931,7 @@ def prune(model, prune_percent, info, method="zero_weights",
     # bug from sentinel-ai#165 is visible at forge time, not after the fact.
     layer_counts = sorted(set(len(v) for v in heads.values())) if heads else [0]
     layers_touched = len(heads)
-    print(f"  Pruned {n_pruned}/{total} heads ({method}, metric={metric}, distribution={distribution})")
+    print(f"  Pruned {n_pruned}/{total} heads ({method}, metric={metric}, distribution={distribution}, calibration={calibration_source})")
     print(f"    layers touched: {layers_touched}/{info['num_layers']}, per-layer prune counts: {layer_counts}")
     return heads, hooks
 
@@ -1037,6 +1098,15 @@ def main():
                             "eliminating the early-layer bias of activation-magnitude "
                             "importance (sentinel-ai #165). 'global_flat' is the v1 "
                             "behavior, kept for v1 reproduction only.")
+    parser.add_argument("--calibration-source", type=str, default="generic",
+                       choices=["generic", "code"],
+                       help="Calibration text set used by activation-importance metric. "
+                            "'generic' (default, v1 behavior) uses 16 generic English sentences. "
+                            "'code' uses 16 hand-written HumanEval-format code completion prompts "
+                            "(held-out from any benchmark). The §4.1.3.2 PPL/HumanEval-disconnect "
+                            "finding suggests calibration domain matters; 'code' is the held-out-aware "
+                            "experiment that tests whether shifting calibration to be in-domain "
+                            "for the held-out task closes the disconnect.")
     parser.add_argument("--defrag-mode", type=str, default="slice",
                        choices=["slice", "pad", "none"],
                        help="Defrag behavior. 'slice' = physical removal (v1, breaks "
@@ -1190,6 +1260,7 @@ def main():
             metric=args.prune_metric,
             tokenizer=tokenizer,
             distribution=args.prune_distribution,
+            calibration_source=args.calibration_source,
         )
         all_hooks.extend(hooks)
 
