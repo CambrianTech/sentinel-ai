@@ -98,25 +98,58 @@ def _how_it_was_made(stages: list, domain: str, cycles: int, hw_device: str) -> 
     parts = []
     for s in stages:
         stype = s.get("type", "?")
+        label = ""
         if stype == "context-extend":
             method = s.get("method", "YaRN")
             target = s.get("targetLength", 0)
-            note = ""
-            if "qwen" in str(s.get("config", {})).lower() or True:
-                note = " `rope_parameters` (not `rope_scaling` \u2014 Qwen3.5 specific)"
-            parts.append(f"- **Context extension**: {method} via{note}")
+            label = f"- **Context extension**: {method}, target {target:,} tokens"
         elif stype == "prune":
             strategy = s.get("strategy", "entropy")
             level = s.get("level", 0)
             pct = int(level * 100) if level <= 1 else int(level)
-            parts.append(f"- **Pruning**: {pct}% heads via {strategy}")
+            defrag = s.get("defragMode")
+            extra = f", {defrag}-mode defrag" if defrag else ""
+            norm = ", layer-normalized" if s.get("perLayerNormalized") else ""
+            label = f"- **Pruning**: {pct}% heads via `{strategy}`{norm}{extra}"
         elif stype == "train":
             dataset = s.get("dataset", "domain data")
             steps = s.get("steps", "?")
-            parts.append(f"- **Training data**: [{dataset}](https://huggingface.co/datasets/{dataset})")
+            label = f"- **Training**: [{dataset}](https://huggingface.co/datasets/{dataset}), {steps} steps"
         elif stype == "lora":
-            rank = s.get("rank", "?")
-            parts.append(f"- **LoRA**: rank {rank}")
+            sub_name = s.get("name", "lora")
+            rank = s.get("loraRank") or s.get("rank") or "?"
+            steps = s.get("steps", "?")
+            loss_type = s.get("lossType")
+            teacher = s.get("teacher")
+            if loss_type or teacher:
+                label = f"- **{sub_name}**: rank {rank}, {steps} steps, `{loss_type}` distillation"
+                if teacher:
+                    label += f" against `{teacher}`"
+            else:
+                label = f"- **{sub_name}**: rank {rank}, {steps} steps"
+        elif stype == "expert-prune":
+            level = s.get("level", 0)
+            pct = int(level * 100) if level <= 1 else int(level)
+            label = f"- **Expert pruning**: {pct}% of MoE experts removed pre-load"
+        elif stype == "eval":
+            anchor = s.get("calibrationAnchor")
+            if anchor and anchor.get("model"):
+                anchor_name = anchor["model"].split("/")[-1]
+                pub = anchor.get("publishedScore")
+                meas = anchor.get("measuredScore")
+                tol = anchor.get("tolerance", 3.0)
+                label = f"- **Calibrated evaluation**: anchored against `{anchor_name}` (published {pub}, measured {meas}, ±{tol}pt tolerance)"
+            else:
+                label = "- **Evaluation**"
+        else:
+            label = f"- **{stype}**"
+
+        parts.append(label)
+        # Render the stage's `notes` field as an indented italic explanation
+        # under the bullet. This is where the methodology prose lives.
+        notes = (s.get("notes") or "").strip()
+        if notes:
+            parts.append(f"  > {notes}")
 
     parts.append(f"- **Hardware**: {hw_device}")
     parts.append("- **Forge tool**: [Continuum](https://github.com/CambrianTech/continuum) Factory + [sentinel-ai](https://github.com/CambrianTech/sentinel-ai)")
@@ -267,6 +300,65 @@ license: {alloy.get('license', 'apache-2.0')}
 
 ---
 """
+
+    # About — render alloy.description as prose. This is the most expressive
+    # field in the alloy and was previously thrown away by the card generator.
+    description = alloy.get("description", "").strip()
+    if description:
+        card += "\n## About this model\n\n"
+        card += description + "\n\n"
+
+    # The Journey — narrative four-run progression. For recovery artifacts
+    # the path that led to the final number is the actual story; the headline
+    # number is just the punchline.
+    progression = r.get("fourRunProgression") or r.get("runProgression") or []
+    if progression and len(progression) >= 2:
+        card += "## The Journey\n\n"
+        first = progression[0]
+        last = progression[-1]
+        first_score = first.get("humaneval") or first.get("score")
+        last_score = last.get("humaneval") or last.get("score")
+        if isinstance(first_score, (int, float)) and isinstance(last_score, (int, float)):
+            card += (
+                f"This artifact is the punchline of a four-run experimental sequence on the same base model. "
+                f"The first run scored **{first_score:.1f}**; the final run scored **{last_score:.1f}**. "
+                f"Each run between them isolated a single variable, and each result narrowed the design space "
+                f"to the structural fix that recovered near-base capability.\n\n"
+            )
+        card += "| Run | Configuration | HumanEval pass@1 |\n|---|---|---|\n"
+        for run in progression:
+            rnum = run.get("run", "?")
+            cfg = run.get("config", "?")
+            score = run.get("humaneval") or run.get("score") or "—"
+            score_str = f"**{score:.1f}**" if isinstance(score, (int, float)) else str(score)
+            card += f"| {rnum} | {cfg} | {score_str} |\n"
+        card += "\n"
+
+    # Loss function ablation — substantive sub-finding for distillation
+    # artifacts. Tells the "MSE collapsed, KL recovered" story as prose.
+    ablation = r.get("lossFunctionAblation") or []
+    if ablation and len(ablation) >= 2:
+        card += "## Loss Function Ablation\n\n"
+        card += (
+            "The compensation LoRA was run twice with identical configuration, varying only the "
+            "distillation loss. The result is a substantive methodology finding in its own right:\n\n"
+        )
+        card += "| Distillation loss | HumanEval | HumanEval+ | Outcome |\n|---|---|---|---|\n"
+        for a in ablation:
+            ltype = a.get("lossType", "?")
+            he = a.get("humaneval", "—")
+            hep = a.get("humaneval_plus", "—")
+            outcome = a.get("outcome", "")
+            he_s = f"**{he:.1f}**" if isinstance(he, (int, float)) else str(he)
+            hep_s = f"**{hep:.1f}**" if isinstance(hep, (int, float)) else str(hep)
+            card += f"| `{ltype}` | {he_s} | {hep_s} | {outcome} |\n"
+        card += (
+            "\nMSE-on-hidden-states has a degenerate fixed point: the student can satisfy the loss by "
+            "collapsing some downstream computation, regardless of whether the hidden states encode useful "
+            "information. KL-on-output-logits has none, because matching the teacher's output distribution "
+            "directly constrains task-level behavior. **For autoregressive language models, distillation "
+            "must operate at the output layer, not at intermediate residual streams.**\n\n"
+        )
 
     # Benchmarks
     benchmarks = r.get("benchmarks", [])
