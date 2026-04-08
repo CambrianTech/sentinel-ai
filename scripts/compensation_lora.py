@@ -386,12 +386,18 @@ def main() -> None:
     print(f"[compensation_lora] loading student from {args.student} (fp16, grad-checkpointed)")
     student = load_student(args.student, device)
 
-    # Preconditions: both models must carry head_dim explicitly (post-defrag
-    # invariant from §4.1.3 / Finding 6) and must have matching hidden_size +
-    # num_hidden_layers (required for hidden-state distillation).
+    # Preconditions: the STUDENT must carry head_dim explicitly (post-defrag
+    # invariant from §4.1.3 / Finding 6 — the v1 bug we are explicitly
+    # defending against). The TEACHER does NOT need this assertion: an
+    # unmodified base model legitimately has implicit head_dim because no
+    # defrag happened, and `hidden_size / num_attention_heads` is the
+    # ground-truth for the unmodified architecture. The assertion exists to
+    # catch the case where a forge artifact loses head_dim during save_pretrained,
+    # which only applies to artifacts that went through defrag.
     print("[compensation_lora] checking preconditions")
-    assert_explicit_head_dim(teacher.config)
     assert_explicit_head_dim(student.config)
+    # Teacher + student must have matching hidden_size + num_hidden_layers
+    # for hidden-state distillation to be coherent (per-layer alignment).
     if teacher.config.hidden_size != student.config.hidden_size:
         raise AssertionError(
             f"teacher hidden_size={teacher.config.hidden_size} != "

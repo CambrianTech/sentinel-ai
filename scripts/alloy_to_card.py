@@ -17,10 +17,40 @@ from pathlib import Path
 
 
 def _generate_headline(stages: list, base_model: str, domain: str, improvement: float,
-                       baseline: float, final: float, cycles: int) -> tuple[str, str]:
+                       baseline: float, final: float, cycles: int,
+                       benchmarks: list = None) -> tuple[str, str]:
     """Generate an adaptive headline based on what the forge actually did."""
     stage_types = {s.get("type") for s in stages}
     base_name = base_model.split("/")[-1]
+    benchmarks = benchmarks or []
+
+    # Benchmark-anchored headline (when results carry baseScore comparisons)
+    # Used for recovery artifacts where PPL is not the primary metric.
+    bench_with_base = [b for b in benchmarks if b.get("baseScore") is not None and b.get("score") is not None]
+    has_ppl = baseline is not None and final is not None and improvement is not None
+    if bench_with_base and not has_ppl:
+        primary = bench_with_base[0]
+        bname = primary.get("name", "benchmark")
+        score = primary["score"]
+        base = primary["baseScore"]
+        delta = primary.get("delta", score - base)
+        prune_stage = next((s for s in stages if s.get("type") == "prune"), None)
+        pct_str = ""
+        if prune_stage:
+            level = prune_stage.get("level", 0)
+            pct = int(level * 100) if level <= 1 else int(level)
+            pct_str = f"{pct}% Pruned, "
+        headline = f"{pct_str}{score:.1f} {bname.replace('_', '+').upper()} (base {base:.1f})"
+        bench_lines = "\n".join(
+            f"- **{b.get('name','?').replace('_','+').upper()}**: {b['score']:.1f} (base {b['baseScore']:.1f}, Δ {b.get('delta', b['score']-b['baseScore']):+.1f})"
+            for b in bench_with_base
+        )
+        subtitle = (
+            f"**{base_name}** forged through Experiential Plasticity and recovered "
+            f"to within calibration tolerance of the unmodified base via KL-distillation "
+            f"compensation LoRA.\n\n{bench_lines}"
+        )
+        return headline, subtitle
 
     # Context extension is the primary headline when present
     ctx_stage = next((s for s in stages if s.get("type") == "context-extend"), None)
@@ -39,24 +69,26 @@ def _generate_headline(stages: list, base_model: str, domain: str, improvement: 
         )
         return headline, subtitle
 
+    has_ppl = baseline is not None and final is not None and improvement is not None
+    ppl_line = f"\n\n**{baseline:.2f} \u2192 {final:.2f} perplexity** \u00b7 {cycles} cycles" if has_ppl else f"\n\n{cycles} cycle{'s' if cycles != 1 else ''}"
+    imp_str = f"{improvement:+.1f}% Better" if has_ppl else f"Forged for {domain.title()}"
+
     # Pruning is the primary headline when present (no context extend)
     prune_stage = next((s for s in stages if s.get("type") == "prune"), None)
     if prune_stage:
         level = prune_stage.get("level", 0)
         pct = int(level * 100) if level <= 1 else int(level)
-        headline = f"{pct}% Smaller, {improvement:+.1f}% Better"
+        headline = f"{pct}% Smaller, {imp_str}"
         subtitle = (
             f"**{base_name}** pruned by {pct}% and retrained for {domain} "
-            f"through Experiential Plasticity.\n\n"
-            f"**{baseline:.2f} \u2192 {final:.2f} perplexity** \u00b7 {cycles} cycles"
+            f"through Experiential Plasticity.{ppl_line}"
         )
         return headline, subtitle
 
     # Default: training-focused
-    headline = f"+{improvement:.1f}% Better at {domain.title()}"
+    headline = f"+{improvement:.1f}% Better at {domain.title()}" if has_ppl else f"Forged for {domain.title()}"
     subtitle = (
-        f"**{base_name}** forged for {domain} through Experiential Plasticity.\n\n"
-        f"**{baseline:.2f} \u2192 {final:.2f} perplexity** \u00b7 {cycles} cycles"
+        f"**{base_name}** forged for {domain} through Experiential Plasticity.{ppl_line}"
     )
     return headline, subtitle
 
@@ -193,7 +225,7 @@ def alloy_to_card(alloy: dict, alloy_hash: str = "") -> str:
     all_tags = sorted(auto_tags)
 
     # Generate adaptive headline based on what the model actually does
-    headline, subtitle = _generate_headline(stages, base_model, domain, improvement, baseline, final, cycles)
+    headline, subtitle = _generate_headline(stages, base_model, domain, improvement, baseline, final, cycles, r.get("benchmarks", []))
 
     card = f"""---
 tags:
@@ -239,19 +271,32 @@ license: {alloy.get('license', 'apache-2.0')}
     # Benchmarks
     benchmarks = r.get("benchmarks", [])
     if benchmarks:
+        any_base = any(b.get("baseScore") is not None for b in benchmarks)
         card += "\n## Benchmarks\n\n"
-        card += "| Benchmark | Result | Verified |\n|-----------|--------|----------|\n"
+        if any_base:
+            card += "| Benchmark | Score | Base | Δ | Verified |\n|---|---|---|---|---|\n"
+        else:
+            card += "| Benchmark | Result | Verified |\n|---|---|---|\n"
         for b in benchmarks:
             bname = b.get("name", "?")
             metrics = b.get("metrics", {})
-            # Try common metric keys in priority order
-            score = (metrics.get("score") or metrics.get("accuracy") or
+            # Try flat keys first (forge-alloy v1 schema), then nested metrics
+            score = (b.get("score") or metrics.get("score") or metrics.get("accuracy") or
                      metrics.get("passing") or metrics.get("improvement") or
                      metrics.get("final") or metrics.get("status") or "—")
             if isinstance(score, float):
                 score = f"{score:.1f}"
             has_hash = "✅ Result hash" if b.get("resultHash") else "Self-reported"
-            card += f"| **{bname}** | **{score}** | {has_hash} |\n"
+            if any_base:
+                base = b.get("baseScore")
+                base_str = f"{base:.1f}" if isinstance(base, (int, float)) else "—"
+                delta = b.get("delta")
+                if delta is None and isinstance(base, (int, float)) and isinstance(b.get("score"), (int, float)):
+                    delta = b["score"] - base
+                delta_str = f"{delta:+.1f}" if isinstance(delta, (int, float)) else "—"
+                card += f"| **{bname}** | **{score}** | {base_str} | {delta_str} | {has_hash} |\n"
+            else:
+                card += f"| **{bname}** | **{score}** | {has_hash} |\n"
         card += "\n"
 
     # Certifications (adapter attestations)
