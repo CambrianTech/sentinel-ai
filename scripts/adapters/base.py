@@ -179,8 +179,90 @@ class FamilyAdapter(ABC):
         return ctx
 
     def eval(self, ctx: "ForgeContext", **params) -> "ForgeContext":
-        """Benchmark evaluation. Default: no-op at the family layer — the
-        existing EvalExecutor handles it via eval_with_calibration.py."""
+        """Benchmark evaluation — dispatches each declared benchmark to its
+        registered runner via the eval_runners registry.
+
+        Param contract (from the alloy's eval stage):
+            benchmarks: list[dict]   — each dict has at minimum {'name': str};
+                                       optional fields: 'samplesPath' (the
+                                       per-problem outputs to score), 'metric',
+                                       'submitToLeaderboard', etc.
+            calibrationAnchor: dict  — § 4.1.4.1 anchor-reproduction discipline
+                                       gate metadata (passed through unchanged
+                                       to the alloy's results.benchmarks[]
+                                       calibrationAnchor field)
+
+        Default behavior (this method): for each benchmark, look up the
+        runner via eval_runners.resolve_runner, call runner.score on the
+        samplesPath, append a benchmark entry to ctx.eval_results that
+        carries the canonical ScoreResult fields. The EvalExecutor then
+        merges those into ctx.alloy['results']['benchmarks'].
+
+        Family adapters MAY override this method if they need family-specific
+        eval orchestration (e.g. a Qwen3VLAdapter might want to attach an
+        image preprocessor before delegating to the base eval). Most won't.
+        Adding a new benchmark NEVER means editing this method — write a
+        new file in scripts/eval_runners/ instead.
+        """
+        benchmarks = params.get("benchmarks", [])
+        if not benchmarks:
+            return ctx
+
+        # Lazy import — Tier 1 dispatch must work without evalplus installed.
+        # The runners' actual scorers (evalplus, lm-eval-harness, etc.) are
+        # imported even more lazily inside each runner's score() method.
+        import sys
+        from pathlib import Path
+        sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+        from eval_runners import resolve_runner
+
+        if not hasattr(ctx, "eval_results") or ctx.eval_results is None:
+            ctx.eval_results = []
+
+        for bench in benchmarks:
+            name = bench.get("name") if isinstance(bench, dict) else None
+            if not name:
+                raise ValueError(
+                    f"{self.name}.eval: benchmark entry missing 'name' field. "
+                    f"Got: {bench!r}"
+                )
+            samples_path = bench.get("samplesPath")
+            if samples_path is None:
+                # No samples path means there's nothing for the scorer to
+                # consume. Some runners (a future SamplesGeneratingRunner)
+                # could generate them on the fly, but the canonical eval
+                # path expects an upstream codegen stage to have written
+                # samples to disk. Loud failure here so the gap is visible.
+                raise ValueError(
+                    f"{self.name}.eval: benchmark {name!r} has no samplesPath. "
+                    f"The eval stage requires per-problem samples to score; "
+                    f"add a samplesPath field to the alloy or run the codegen "
+                    f"step first."
+                )
+
+            samples_abs = Path(samples_path)
+            if not samples_abs.is_absolute():
+                samples_abs = (ctx.output_dir / samples_abs).resolve()
+
+            self.log(f"eval: scoring {name} from {samples_abs}")
+            runner = resolve_runner(name)
+            result = runner.score(samples_abs)
+            self.log(
+                f"  {name}: pass@1={result.pass_at_1:.4f} "
+                f"({result.passed}/{result.total})"
+            )
+            ctx.eval_results.append({
+                "name": name,
+                "metrics": {
+                    "pass_at_1": result.pass_at_1,
+                    "passed": result.passed,
+                    "total": result.total,
+                    **result.extras,
+                },
+                "samplesPath": result.samples_path,
+                "metric": result.metric,
+            })
+
         return ctx
 
     def publish(self, ctx: "ForgeContext", **params) -> "ForgeContext":
