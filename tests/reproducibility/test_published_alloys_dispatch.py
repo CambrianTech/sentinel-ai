@@ -85,9 +85,10 @@ PUBLISHED_ALLOYS: list[tuple[str, str | None, str]] = [
     ("continuum-ai/qwen3.5-27b-code-forged-defragged",      None, "no-alloy-file"),
     ("continuum-ai/qwen3.5-27b-code-forged-mlx-4bit",       None, "no-alloy-file"),
 
-    # ── Deferred families: adapters land after Qwen3.5 dense is fully green ──
-    # MoE morning-of-2026-04-08 §4.1.3.4 anchor artifacts.
-    ("continuum-ai/qwen3-coder-30b-a3b-compacted-19b-256k", None, "deferred"),
+    # ── MoE §4.1.3.4 anchor artifacts ────────────────────────────────────────
+    # qwen3_moe adapter landed — this one must dispatch cleanly.
+    ("continuum-ai/qwen3-coder-30b-a3b-compacted-19b-256k", None, "active"),
+    # Deferred until OlmoeAdapter lands (next commit).
     ("continuum-ai/olmoe-1b-7b-compacted-5b",               None, "deferred"),
     # Dense compensated v2-7B — the §4.1.3.3 anchor (qwen2 architecture).
     ("continuum-ai/qwen2.5-coder-7b-compacted",             None, "deferred"),

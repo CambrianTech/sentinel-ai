@@ -23,6 +23,7 @@ from .dispatch import resolve_adapter_chain, DispatchError
 # decorator. Order doesn't matter — registry is keyed by architecture string,
 # not by import order. NEW family = new module here.
 from . import qwen3_dense  # noqa: F401  — registers Qwen3DenseAdapter for qwen3_5
+from . import qwen3_moe    # noqa: F401  — registers Qwen3MoEAdapter for qwen3_moe
 
 __all__ = [
     "FamilyAdapter",
