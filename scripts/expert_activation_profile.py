@@ -105,8 +105,27 @@ def main() -> int:
     model.eval()
     cfg = model.config
     num_layers = cfg.num_hidden_layers
-    num_experts = cfg.num_experts
-    num_experts_per_tok = cfg.num_experts_per_tok
+    # MoE field names vary across families: Qwen3MoE/Olmoe use num_experts,
+    # GraniteMoE/Mixtral use num_local_experts, DeepSeek-V2 uses
+    # n_routed_experts. Try in order.
+    num_experts = (
+        getattr(cfg, "num_experts", None)
+        or getattr(cfg, "num_local_experts", None)
+        or getattr(cfg, "n_routed_experts", None)
+    )
+    num_experts_per_tok = (
+        getattr(cfg, "num_experts_per_tok", None)
+        or getattr(cfg, "num_active_experts", None)
+    )
+    if num_experts is None:
+        raise ValueError(
+            f"could not find expert count on {type(cfg).__name__}; "
+            f"checked num_experts / num_local_experts / n_routed_experts"
+        )
+    if num_experts_per_tok is None:
+        raise ValueError(
+            f"could not find num_experts_per_tok on {type(cfg).__name__}"
+        )
     _log(f"  arch: {type(model).__name__}")
     _log(f"  layers={num_layers} experts={num_experts} top_k={num_experts_per_tok}")
 
@@ -189,9 +208,14 @@ def main() -> int:
         json.dump(out_data, f, indent=2)
     _log(f"wrote {out_path}")
 
-    # Quick stats: per-layer top-10 activation counts
+    # Quick stats: per-layer top-5 activation counts. Pick first / mid / last
+    # layer dynamically so this works on any model depth (Qwen3-Coder-30B has
+    # 48 layers, OLMoE has 16, Granite-3.1-3b-a800m has 32, etc.).
     _log("per-layer top expert counts (sample):")
-    for li in [0, 23, 47]:
+    sample_layers = sorted({0, num_layers // 2, num_layers - 1})
+    for li in sample_layers:
+        if li not in counts:
+            continue
         sorted_idxs = counts[li].argsort(descending=True)[:5].tolist()
         sorted_vals = counts[li][sorted_idxs].tolist()
         zeros = (counts[li] == 0).sum().item()
