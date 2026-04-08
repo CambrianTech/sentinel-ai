@@ -140,6 +140,34 @@ def publish(output_dir: Path, org: str = "continuum-ai",
         print("  WARNING: No model/ directory — publishing metadata only")
 
     # --- PHASE 1: FINALIZE ALLOY (write receipt, then hash) ---
+    # Inject benchmark resultHashes from on-disk sample files BEFORE the
+    # alloy is canonicalized and hashed. Each benchmark in
+    # results.benchmarks may carry a `samplesPath` (relative to output_dir)
+    # pointing at the per-problem evaluation output (e.g. evalplus's
+    # sanitized JSONL). At publish time we compute SHA-256 of that file
+    # and inject it as `resultHash`, which moves the benchmark from
+    # "self-reported" to "attested" on the verify page — a third party can
+    # download the JSONL from the same HF repo, recompute the hash, verify
+    # it matches the alloy, and re-score against the per-problem outputs
+    # without trusting the producer's claim. This is the cheapest concrete
+    # trust upgrade per the forge-alloy attestation roadmap.
+    bench_hashed = 0
+    for b in alloy.get("results", {}).get("benchmarks", []):
+        samples_rel = b.get("samplesPath")
+        if not samples_rel or b.get("resultHash"):
+            continue
+        samples_abs = (output_dir / samples_rel).resolve()
+        if not samples_abs.exists():
+            print(f"  WARNING: benchmark '{b.get('name','?')}' samplesPath {samples_rel} not found — skipping resultHash")
+            continue
+        if not str(samples_abs).startswith(str(output_dir.resolve())):
+            print(f"  WARNING: benchmark '{b.get('name','?')}' samplesPath {samples_rel} escapes publish dir — skipping")
+            continue
+        b["resultHash"] = "sha256:" + hash_file(samples_abs)
+        bench_hashed += 1
+    if bench_hashed:
+        print(f"  Result-hashed {bench_hashed} benchmark sample file(s)")
+
     alloy["receipt"] = {
         "publications": [{
             "target": "huggingface",
