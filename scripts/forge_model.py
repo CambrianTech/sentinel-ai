@@ -90,6 +90,41 @@ def nested_config(config):
     return getattr(config, "text_config", config)
 
 
+def is_full_attention_layer(config, layer_idx: int) -> bool:
+    """True if layer `layer_idx` is a full-attention layer.
+
+    For uniform-architecture models (Qwen2/Qwen2.5/Qwen3 dense/Llama), there
+    is no `layer_types` field on the config and EVERY layer is full attention,
+    so this returns True unconditionally.
+
+    For hybrid-architecture models (Qwen3.5 with Gated DeltaNet + full attention),
+    the config has a `layer_types` list of strings like
+    ["linear_attention", "linear_attention", "linear_attention", "full_attention", ...]
+    and we check the layer's type explicitly. Non-full-attention layers must be
+    skipped by all attention-surgery code paths (defrag, importance, pruning).
+
+    This is the Strategy A path from sentinel-ai#163: skip non-full_attention
+    layers entirely. Strategy B (per-layer-type compaction) is a separate
+    follow-up.
+    """
+    tc = nested_config(config)
+    layer_types = getattr(tc, "layer_types", None)
+    if layer_types is None:
+        return True  # uniform architecture, every layer is full attention
+    if layer_idx >= len(layer_types):
+        return True  # safety: layer index out of range, treat as full
+    return layer_types[layer_idx] == "full_attention"
+
+
+def has_hybrid_layers(config) -> bool:
+    """True if the model has a non-uniform layer_types list."""
+    tc = nested_config(config)
+    layer_types = getattr(tc, "layer_types", None)
+    if layer_types is None:
+        return False
+    return len(set(layer_types)) > 1
+
+
 def get_model_info(model_name: str) -> dict:
     """Architecture info with accurate parameter count."""
     from transformers import AutoConfig
@@ -505,6 +540,69 @@ def compute_head_importance(model, info: dict):
     return importance
 
 
+# ── Calibration text sets for compute_activation_importance ─────────────────
+# DEFAULT (generic English): the v1 set used by every forge run prior to the
+# §4.1.3.2 PPL/HumanEval-disconnect finding. These prompts exercise general
+# language patterns but not the specific circuits HumanEval problems load.
+# Marked as "generic" to make the calibration domain explicit at every call site.
+DEFAULT_CALIBRATION_TEXTS_GENERIC = [
+    "The quick brown fox jumps over the lazy dog. " * 4,
+    "In computer science, a recursive function is one that calls itself.",
+    "The capital of France is Paris, located on the Seine river.",
+    "Quantum mechanics describes the behavior of matter at atomic scales.",
+    "Machine learning models learn patterns from training data.",
+    "Climate change refers to long-term shifts in temperature and weather patterns.",
+    "The mitochondria is the powerhouse of the cell, producing ATP through respiration.",
+    "Shakespeare wrote both tragedies and comedies during the Elizabethan era.",
+] * 2  # 16 samples
+
+# CODE-COMPLETION (HumanEval-format, NOT actual HumanEval problems): hand-
+# written function-signature + docstring prompts that exercise the same
+# circuits HumanEval-style code completion will load. The §4.1.3.2 finding
+# is that the activation-magnitude metric overfits to the calibration
+# distribution; this set tests whether shifting calibration to be in-domain
+# for the held-out task closes the PPL/HumanEval disconnect.
+#
+# IMPORTANT: these are hand-written, NOT drawn from HumanEval, MBPP, or any
+# other benchmark we evaluate against. Using actual HumanEval problems would
+# be training on the test set. The function names, docstring patterns, and
+# return-value structures are HumanEval-FORMAT but the specific problems are
+# original.
+DEFAULT_CALIBRATION_TEXTS_CODE = [
+    'def reverse_string(s: str) -> str:\n    """Return the reverse of the input string.\n    >>> reverse_string("hello")\n    \'olleh\'\n    """\n    return s[::-1]\n',
+    'def is_palindrome(s: str) -> bool:\n    """Return True if s reads the same forwards and backwards.\n    >>> is_palindrome("racecar")\n    True\n    """\n    return s == s[::-1]\n',
+    'def sum_of_squares(numbers: list) -> int:\n    """Return the sum of squares of all numbers in the list.\n    >>> sum_of_squares([1, 2, 3])\n    14\n    """\n    return sum(n * n for n in numbers)\n',
+    'def count_vowels(text: str) -> int:\n    """Count the vowels (aeiou, case insensitive) in text.\n    >>> count_vowels("Hello World")\n    3\n    """\n    return sum(1 for c in text.lower() if c in "aeiou")\n',
+    'def factorial(n: int) -> int:\n    """Compute n! recursively.\n    >>> factorial(5)\n    120\n    """\n    if n <= 1:\n        return 1\n    return n * factorial(n - 1)\n',
+    'def filter_even(numbers: list) -> list:\n    """Return only the even numbers from the input list.\n    >>> filter_even([1, 2, 3, 4, 5])\n    [2, 4]\n    """\n    return [n for n in numbers if n % 2 == 0]\n',
+    'def find_max(numbers: list) -> int:\n    """Return the largest number in the list.\n    >>> find_max([3, 1, 4, 1, 5, 9, 2, 6])\n    9\n    """\n    return max(numbers)\n',
+    'def remove_duplicates(items: list) -> list:\n    """Return the items list with duplicates removed, preserving order.\n    >>> remove_duplicates([1, 2, 2, 3, 1, 4])\n    [1, 2, 3, 4]\n    """\n    seen = set()\n    return [x for x in items if not (x in seen or seen.add(x))]\n',
+    'def average(numbers: list) -> float:\n    """Compute the arithmetic mean of the numbers.\n    >>> average([1, 2, 3, 4, 5])\n    3.0\n    """\n    return sum(numbers) / len(numbers) if numbers else 0.0\n',
+    'def char_frequency(text: str) -> dict:\n    """Return a dictionary mapping each character to its count in text.\n    >>> char_frequency("aabbc")\n    {\'a\': 2, \'b\': 2, \'c\': 1}\n    """\n    freq = {}\n    for c in text:\n        freq[c] = freq.get(c, 0) + 1\n    return freq\n',
+    'def fibonacci_sequence(n: int) -> list:\n    """Return the first n Fibonacci numbers as a list.\n    >>> fibonacci_sequence(6)\n    [0, 1, 1, 2, 3, 5]\n    """\n    seq = [0, 1]\n    while len(seq) < n:\n        seq.append(seq[-1] + seq[-2])\n    return seq[:n]\n',
+    'def is_prime(n: int) -> bool:\n    """Return True if n is a prime number.\n    >>> is_prime(7)\n    True\n    """\n    if n < 2:\n        return False\n    for i in range(2, int(n ** 0.5) + 1):\n        if n % i == 0:\n            return False\n    return True\n',
+    'def merge_sorted(a: list, b: list) -> list:\n    """Merge two sorted lists into a single sorted list.\n    >>> merge_sorted([1, 3, 5], [2, 4, 6])\n    [1, 2, 3, 4, 5, 6]\n    """\n    result, i, j = [], 0, 0\n    while i < len(a) and j < len(b):\n        if a[i] < b[j]:\n            result.append(a[i]); i += 1\n        else:\n            result.append(b[j]); j += 1\n    result.extend(a[i:]); result.extend(b[j:])\n    return result\n',
+    'def gcd(a: int, b: int) -> int:\n    """Return the greatest common divisor of a and b.\n    >>> gcd(12, 18)\n    6\n    """\n    while b:\n        a, b = b, a % b\n    return a\n',
+    'def flatten(nested: list) -> list:\n    """Flatten a list of lists into a single list.\n    >>> flatten([[1, 2], [3, 4], [5]])\n    [1, 2, 3, 4, 5]\n    """\n    return [item for sublist in nested for item in sublist]\n',
+    'def word_count(text: str) -> int:\n    """Count the number of whitespace-separated words in text.\n    >>> word_count("hello world foo bar")\n    4\n    """\n    return len(text.split())\n',
+]
+
+
+def get_calibration_texts(source: str) -> list[str]:
+    """Return the calibration text set for the requested source.
+
+    Sources:
+        "generic": 16 generic English sentences (default, the v1 set)
+        "code": 16 hand-written HumanEval-format code completion prompts
+                (held-out from any benchmark we evaluate against)
+    """
+    if source == "generic":
+        return DEFAULT_CALIBRATION_TEXTS_GENERIC
+    if source == "code":
+        return DEFAULT_CALIBRATION_TEXTS_CODE
+    raise ValueError(f"unknown calibration source {source!r}; known: generic, code")
+
+
 def compute_activation_importance(model, tokenizer, info: dict, calibration_texts=None, max_length=128, num_samples=16):
     """Activation-based head importance via forward-hook capture on the O projection.
 
@@ -531,16 +629,7 @@ def compute_activation_importance(model, tokenizer, info: dict, calibration_text
         Heads with the lowest values are the safest to remove.
     """
     if calibration_texts is None:
-        calibration_texts = [
-            "The quick brown fox jumps over the lazy dog. " * 4,
-            "In computer science, a recursive function is one that calls itself.",
-            "The capital of France is Paris, located on the Seine river.",
-            "Quantum mechanics describes the behavior of matter at atomic scales.",
-            "Machine learning models learn patterns from training data.",
-            "Climate change refers to long-term shifts in temperature and weather patterns.",
-            "The mitochondria is the powerhouse of the cell, producing ATP through respiration.",
-            "Shakespeare wrote both tragedies and comedies during the Elizabethan era.",
-        ] * 2  # 16 samples
+        calibration_texts = DEFAULT_CALIBRATION_TEXTS_GENERIC
 
     layers = get_layers(model)
     n_layers = info["num_layers"]
@@ -579,11 +668,22 @@ def compute_activation_importance(model, tokenizer, info: dict, calibration_text
             captured.setdefault(layer_idx, []).append(mag.cpu())
         return hook
 
+    # Strategy A: only attach hooks to full_attention layers. For hybrid
+    # architectures (Qwen3.5), the linear_attention layers do not have an
+    # o_proj in the standard shape and must be skipped. Their importance
+    # row stays at zero and gets marked inf below so select_heads_to_prune
+    # never picks heads from them.
+    config = getattr(model, "config", None)
     handles = []
+    skipped_layer_indices = set()
     for li in range(n_layers):
+        if config is not None and not is_full_attention_layer(config, li):
+            skipped_layer_indices.add(li)
+            continue
         attn_module = layers[li]
         attn = getattr(attn_module, "self_attn", getattr(attn_module, "attn", None))
         if attn is None or not hasattr(attn, "o_proj"):
+            skipped_layer_indices.add(li)
             continue
         handles.append(attn.o_proj.register_forward_hook(make_hook(li)))
 
@@ -615,52 +715,101 @@ def compute_activation_importance(model, tokenizer, info: dict, calibration_text
             importance[li, hi] = mean_mag[hi].item()
         counts[li] = 1
 
-    # Layers we couldn't measure: fall back to L2-norm proxy
+    # NO FALLBACK to L2-norm. The L2-norm metric is the v1 bug
+    # (sentinel-ai#155, VALIDATED-TENSOR-SURGERY Finding 4) — silently
+    # falling back to it would mask metric coverage gaps the same way
+    # the in-pipeline forward-hook eval masked the v1 LoRA bug.
+    #
+    # For each layer:
+    # - skipped (Strategy A): mark all heads as inf so select_heads_to_prune
+    #   never picks them. This is correct for non-full_attention layers in
+    #   hybrid architectures.
+    # - full_attention but no captured data: this is a real bug. Halt loudly.
     for li in range(n_layers):
+        if li in skipped_layer_indices:
+            # Strategy A: non-full_attention layer, do not prune any head
+            importance[li, :] = float("inf")
+            continue
         if counts[li] == 0:
-            attn_module = layers[li]
-            attn = getattr(attn_module, "self_attn", getattr(attn_module, "attn", None))
-            if attn is None:
-                continue
-            q = getattr(attn, "q_proj", None)
-            if q is None:
-                continue
-            w = q.weight.data.float()
-            actual_heads = w.shape[0] // (w.shape[0] // n_heads) if n_heads > 0 else 0
-            head_dim = w.shape[0] // max(actual_heads, 1)
-            for hi in range(min(actual_heads, n_heads)):
-                s, e = hi * head_dim, (hi + 1) * head_dim
-                if e <= w.shape[0]:
-                    importance[li, hi] = w[s:e].norm().item()
+            raise RuntimeError(
+                f"compute_activation_importance: layer {li} is full_attention "
+                f"but the activation hook captured no data. This is a real bug "
+                f"(possibly a missing o_proj on the layer, or all calibration "
+                f"forward passes failed). Falling back to L2-norm here would "
+                f"mask the bug; halting instead."
+            )
 
     return importance
 
 
-def select_heads_to_prune(importance, prune_percent, min_surviving_per_layer=4):
-    """Select lowest-importance heads. Never prune a layer below min_surviving_per_layer."""
+def select_heads_to_prune(importance, prune_percent, min_surviving_per_layer=4,
+                          mode="per_layer"):
+    """Select lowest-importance heads.
+
+    Two modes:
+        "per_layer" (DEFAULT): prune `prune_percent` of heads from EACH layer
+            independently, picking the lowest-importance heads within that layer.
+            Eliminates the cross-layer bias of activation-magnitude importance
+            (early layers have smaller residual stream norms, so flat-global
+            ranking concentrates prunes in the first few layers — see
+            sentinel-ai#165 v2-7B investigation).
+
+        "global_flat" (LEGACY): the v1 behavior — sort all heads globally by
+            importance and prune the lowest. Kept for v1 reproduction. Do NOT
+            use this mode for new forge runs; it has a structural early-layer
+            bias that destroys low-level capacity disproportionately.
+
+    The min_surviving_per_layer floor still applies in both modes.
+    """
     n_layers, n_heads = importance.shape
-
-    flat = importance.flatten()
-    _, indices = flat.sort()
-
     heads = {}
-    n_pruned = 0
-    for idx in indices:
-        if importance[idx // n_heads, idx % n_heads] == float('inf'):
-            continue  # Skip non-attention layers
-        li = idx.item() // n_heads
-        hi = idx.item() % n_heads
-        # Check this layer hasn't hit minimum
-        current_pruned = len(heads.get(li, []))
-        finite_heads = (importance[li] < float('inf')).sum().item()
-        if finite_heads - current_pruned <= min_surviving_per_layer:
-            continue  # Would leave too few heads in this layer
-        heads.setdefault(li, []).append(hi)
-        n_pruned += 1
-        if n_pruned >= int(importance.numel() * prune_percent):
-            break
+    n_pruned_total = 0
 
-    return heads, n_pruned
+    if mode == "per_layer":
+        # Per-layer pruning: prune ceil-or-floor(prune_percent * n_finite_heads_in_layer)
+        # heads from each layer, picked from lowest importance within that layer.
+        for li in range(n_layers):
+            row = importance[li]
+            finite_mask = row < float("inf")
+            n_finite = int(finite_mask.sum().item())
+            if n_finite == 0:
+                continue  # non-attention layer (e.g. linear-attention in hybrid models)
+
+            # Number of heads to prune in THIS layer
+            n_to_prune = int(round(prune_percent * n_finite))
+            # Respect the minimum-surviving floor
+            max_prunable = max(0, n_finite - min_surviving_per_layer)
+            n_to_prune = min(n_to_prune, max_prunable)
+            if n_to_prune == 0:
+                continue
+
+            # Pick the n_to_prune lowest-importance heads in this layer
+            finite_indices = [h for h in range(n_heads) if row[h] < float("inf")]
+            finite_indices.sort(key=lambda h: row[h].item())
+            picked = finite_indices[:n_to_prune]
+            heads[li] = picked
+            n_pruned_total += len(picked)
+
+    elif mode == "global_flat":
+        flat = importance.flatten()
+        _, indices = flat.sort()
+        for idx in indices:
+            if importance[idx // n_heads, idx % n_heads] == float("inf"):
+                continue
+            li = idx.item() // n_heads
+            hi = idx.item() % n_heads
+            current_pruned = len(heads.get(li, []))
+            finite_heads = (importance[li] < float("inf")).sum().item()
+            if finite_heads - current_pruned <= min_surviving_per_layer:
+                continue
+            heads.setdefault(li, []).append(hi)
+            n_pruned_total += 1
+            if n_pruned_total >= int(importance.numel() * prune_percent):
+                break
+    else:
+        raise ValueError(f"select_heads_to_prune mode must be 'per_layer' or 'global_flat', got {mode!r}")
+
+    return heads, n_pruned_total
 
 
 def prune_by_zeroing(model, heads_to_prune, info):
@@ -731,10 +880,45 @@ def prune_by_hooks(model, heads_to_prune, info):
     return hooks
 
 
-def prune(model, prune_percent, info, method="zero_weights"):
-    """Dispatch to the right pruning strategy."""
-    importance = compute_head_importance(model, info)
-    heads, n_pruned = select_heads_to_prune(importance, prune_percent)
+def prune(model, prune_percent, info, method="zero_weights",
+          metric="auto", tokenizer=None, calibration_texts=None,
+          distribution="per_layer", calibration_source="generic"):
+    """Dispatch to the right pruning strategy.
+
+    Args:
+        model: live PyTorch model
+        prune_percent: fraction of total heads to remove
+        info: model info dict
+        method: 'zero_weights' or 'forward_hooks'
+        metric: importance metric to use:
+            - 'auto'        — activation if tokenizer is provided, else l2_weight
+            - 'activation'  — compute_activation_importance (recommended; sentinel-ai #155)
+            - 'l2_weight'   — compute_head_importance (DEPRECATED, kept for v1 reproduction)
+        tokenizer: required for 'activation' metric
+        calibration_texts: optional calibration set for 'activation' metric
+    """
+    if metric == "auto":
+        metric = "activation" if tokenizer is not None else "l2_weight"
+
+    # Resolve calibration_texts: if caller passed an explicit set, use it.
+    # Otherwise look up the named calibration_source. The named lookup happens
+    # here (not in compute_activation_importance) so the dispatch is visible
+    # at the prune() boundary and the diagnostic line below can report it.
+    if calibration_texts is None:
+        calibration_texts = get_calibration_texts(calibration_source)
+
+    if metric == "activation":
+        if tokenizer is None:
+            raise ValueError("metric='activation' requires a tokenizer")
+        importance = compute_activation_importance(
+            model, tokenizer, info, calibration_texts=calibration_texts,
+        )
+    elif metric == "l2_weight":
+        importance = compute_head_importance(model, info)
+    else:
+        raise ValueError(f"Unknown importance metric: {metric}")
+
+    heads, n_pruned = select_heads_to_prune(importance, prune_percent, mode=distribution)
     total = info["num_layers"] * info["num_heads"]
 
     hooks = []
@@ -743,7 +927,12 @@ def prune(model, prune_percent, info, method="zero_weights"):
     else:
         prune_by_zeroing(model, heads, info)
 
-    print(f"  Pruned {n_pruned}/{total} heads ({method})")
+    # Diagnostic: report per-layer prune distribution so the early-layer-bias
+    # bug from sentinel-ai#165 is visible at forge time, not after the fact.
+    layer_counts = sorted(set(len(v) for v in heads.values())) if heads else [0]
+    layers_touched = len(heads)
+    print(f"  Pruned {n_pruned}/{total} heads ({method}, metric={metric}, distribution={distribution}, calibration={calibration_source})")
+    print(f"    layers touched: {layers_touched}/{info['num_layers']}, per-layer prune counts: {layer_counts}")
     return heads, hooks
 
 
@@ -897,6 +1086,33 @@ def main():
     parser.add_argument("--prune-level", type=float, default=0.3)
     parser.add_argument("--prune-strategy", type=str, default="entropy",
                        help="Pruning strategy: entropy, magnitude, gradient, random")
+    parser.add_argument("--prune-metric", type=str, default="auto",
+                       choices=["auto", "activation", "l2_weight"],
+                       help="Importance metric for head selection. 'activation' is "
+                            "recommended (sentinel-ai #155); 'l2_weight' is deprecated "
+                            "but kept for v1 reproduction.")
+    parser.add_argument("--prune-distribution", type=str, default="per_layer",
+                       choices=["per_layer", "global_flat"],
+                       help="Head selection distribution mode. 'per_layer' (default) "
+                            "prunes prune_level fraction from EACH layer independently, "
+                            "eliminating the early-layer bias of activation-magnitude "
+                            "importance (sentinel-ai #165). 'global_flat' is the v1 "
+                            "behavior, kept for v1 reproduction only.")
+    parser.add_argument("--calibration-source", type=str, default="generic",
+                       choices=["generic", "code"],
+                       help="Calibration text set used by activation-importance metric. "
+                            "'generic' (default, v1 behavior) uses 16 generic English sentences. "
+                            "'code' uses 16 hand-written HumanEval-format code completion prompts "
+                            "(held-out from any benchmark). The §4.1.3.2 PPL/HumanEval-disconnect "
+                            "finding suggests calibration domain matters; 'code' is the held-out-aware "
+                            "experiment that tests whether shifting calibration to be in-domain "
+                            "for the held-out task closes the disconnect.")
+    parser.add_argument("--defrag-mode", type=str, default="slice",
+                       choices=["slice", "pad", "none"],
+                       help="Defrag behavior. 'slice' = physical removal (v1, breaks "
+                            "llama.cpp on most modern transformers). 'pad' = physical "
+                            "removal in compute, zero-pad q_proj/o_proj back to "
+                            "hidden_size on save (Finding 6 fix). 'none' = skip defrag.")
     parser.add_argument("--lr", "--learning-rate", type=float, default=5e-5)
     parser.add_argument("--max-samples", type=int, default=2000)
     parser.add_argument("--early-stop", type=float, default=None,
@@ -947,6 +1163,24 @@ def main():
     info = get_model_info(args.model)
     vram_gb = torch.cuda.get_device_properties(0).total_memory / 1e9
     cfg = ForgeConfig.auto(info["fp16_gb"], vram_gb, args.load_in_4bit)
+
+    # HARD CHECK: pad-mode defrag requires fp16 weights for in-place tensor
+    # zeroing. bnb 4-bit/8-bit weights are stored in packed format and cannot
+    # be mutated through the standard tensor API. Auto-pick must NOT silently
+    # override pad mode by selecting 4-bit. The right move is to fail loud and
+    # let the user pick a smaller model, a bigger GPU, or --defrag-mode none.
+    if args.defrag_mode == "pad" and cfg.load_4bit:
+        sys.exit(
+            f"FATAL: --defrag-mode pad requires fp16 weights, but auto-config "
+            f"selected 4-bit (model fp16 = {info['fp16_gb']:.1f} GB, VRAM = "
+            f"{vram_gb:.0f} GB, ratio = {info['fp16_gb']/vram_gb:.2f}). Pad-mode "
+            f"defrag mutates weight tensors in place; bnb 4-bit storage is "
+            f"packed and cannot be mutated through the standard tensor API. "
+            f"Options: (1) use a GPU with more VRAM, (2) use a smaller base "
+            f"model, (3) implement bnb-aware pad defrag (Path B in the v2 "
+            f"forge plan), or (4) --defrag-mode slice (which violates llama.cpp "
+            f"runtime portability per Finding 6 — not recommended)."
+        )
 
     # Disk space check
     import shutil
@@ -1021,7 +1255,13 @@ def main():
         write_status(out, "pruning", f"Cycle {cycle}: pruning heads after training",
                     cycle=cycle)
         cycle_prune = args.prune_level / args.cycles
-        heads, hooks = prune(model, cycle_prune, info, cfg.pruning_method)
+        heads, hooks = prune(
+            model, cycle_prune, info, cfg.pruning_method,
+            metric=args.prune_metric,
+            tokenizer=tokenizer,
+            distribution=args.prune_distribution,
+            calibration_source=args.calibration_source,
+        )
         all_hooks.extend(hooks)
 
         write_status(out, "post_prune_eval", f"Cycle {cycle}: evaluating after prune",
@@ -1037,30 +1277,28 @@ def main():
         is_last_cycle = (cycle == args.cycles) or (args.early_stop and cycle >= 2 and
             abs(cycle_results[-2]["post_train_ppl"] - post_train["perplexity"]) / cycle_results[-2]["post_train_ppl"] * 100 < args.early_stop if len(cycle_results) >= 2 else False)
 
-        if is_last_cycle and heads:
-            write_status(out, "defrag", f"Cycle {cycle}: defragging pruned heads (final cycle)",
+        if is_last_cycle and heads and args.defrag_mode != "none":
+            write_status(out, "defrag", f"Cycle {cycle}: defragging pruned heads (final cycle, mode={args.defrag_mode})",
                         cycle=cycle)
-            try:
-                import sys as _sys
-                _sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-                from defrag_inline import defrag_live_model
-                # Remove hooks — defrag makes them unnecessary
-                for h in all_hooks:
-                    h.remove()
-                all_hooks.clear()
+            import sys as _sys
+            _sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+            from defrag_inline import defrag_live_model
+            # Remove hooks — defrag makes them unnecessary
+            for h in all_hooks:
+                h.remove()
+            all_hooks.clear()
 
-                freed = defrag_live_model(model, dead_heads=heads)
-                freed_mb = freed / 1e6
-                if freed_mb > 0:
-                    new_params = sum(p.numel() for p in model.parameters()) / 1e9
-                    print(f"  Defragged: freed {freed_mb:.0f}MB, model now {new_params:.1f}B params")
-                    write_status(out, "defrag_done", f"Freed {freed_mb:.0f}MB",
-                                cycle=cycle, freed_mb=round(freed_mb))
-                    check_vram("post-defrag")
-                else:
-                    print(f"  Defrag: no heads to remove")
-            except Exception as e:
-                print(f"  Defrag skipped: {e}")
+            # NO try/except. Defrag failure HALTS the forge. The whole point of
+            # the v2 path is that defrag must actually happen — silently skipping
+            # it produces a v1-class artifact mislabeled as v2, which is exactly
+            # the bug class VALIDATED-TENSOR-SURGERY documents.
+            freed = defrag_live_model(model, dead_heads=heads, mode=args.defrag_mode)
+            freed_mb = freed / 1e6
+            new_params = sum(p.numel() for p in model.parameters()) / 1e9
+            print(f"  Defragged: freed {freed_mb:.0f}MB, model now {new_params:.1f}B params")
+            write_status(out, "defrag_done", f"Freed {freed_mb:.0f}MB",
+                        cycle=cycle, freed_mb=round(freed_mb))
+            check_vram("post-defrag")
         elif heads:
             print(f"  Defrag deferred to final cycle (structural changes break mid-training)")
 

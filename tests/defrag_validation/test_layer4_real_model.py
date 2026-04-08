@@ -512,6 +512,192 @@ def compute_saliency_importance(model, tokenizer, info, calibration_texts=None, 
     return importance
 
 
+class TestFourMetricAtLargerCalibration:
+    """Same four-metric comparison, but with 64 calibration samples instead of 8.
+
+    Kash's hypothesis: the gradient signal is anti-information at small calibration
+    sizes because it's dominated by big-activation heads. With ≥1000 samples it
+    should stabilize. We test 64 (8× the original) as a midpoint that's still
+    cheap on consumer hardware. If the gradient and saliency rankings improve
+    substantially, the hypothesis is supported and we should test 1000+ next.
+    If they don't improve, the metrics are structurally wrong on this model
+    regardless of calibration size.
+
+    This is the experiment that resolves whether PLASTICITY-COMPACTION's
+    gradient-magnitude trick is salvageable or fundamentally broken.
+    """
+
+    LARGE_CALIBRATION_TEXTS = [
+        # 64 diverse samples spanning code, math, science, language, reasoning
+        "def fibonacci(n): return n if n < 2 else fibonacci(n-1) + fibonacci(n-2)",
+        "The derivative of x^2 with respect to x is 2x.",
+        "Quantum entanglement is a phenomenon where particles become correlated.",
+        "import numpy as np\narr = np.array([1, 2, 3])\nprint(arr.mean())",
+        "Photosynthesis converts light energy into chemical energy stored in glucose.",
+        "The integral of cos(x) is sin(x) plus a constant.",
+        "for i in range(10): print(i * 2)",
+        "Newton's third law states that every action has an equal and opposite reaction.",
+        "SELECT * FROM users WHERE age > 18 ORDER BY name;",
+        "The mitochondria is the powerhouse of the cell.",
+        "class LinkedList: def __init__(self): self.head = None",
+        "DNA is composed of four nucleotide bases: adenine, thymine, guanine, cytosine.",
+        "The speed of light in vacuum is approximately 299,792,458 meters per second.",
+        "git commit -m 'Fix the validation harness'",
+        "Plate tectonics explains the movement of Earth's lithospheric plates.",
+        "function reverse(s) { return s.split('').reverse().join(''); }",
+        "The Pythagorean theorem states a squared plus b squared equals c squared.",
+        "echo 'Hello, World!' | base64",
+        "Photosynthesis occurs in the chloroplasts of plant cells.",
+        "matrix.transpose() returns a new matrix with rows and columns swapped.",
+        "The French Revolution began in 1789 with the storming of the Bastille.",
+        "lambda x: x * 2",
+        "RNA polymerase catalyzes the synthesis of RNA from a DNA template.",
+        "Proof: assume p is rational, then p = a/b in lowest terms...",
+        "tcp connection refused on port 8080",
+        "The melting point of iron is 1538 degrees Celsius.",
+        "Kubernetes orchestrates containerized applications across clusters.",
+        "Differential equations describe how quantities change over time.",
+        "asyncio.run(main())",
+        "The Krebs cycle produces ATP through oxidative phosphorylation.",
+        "Bayesian inference updates beliefs based on new evidence.",
+        "ssh user@hostname -p 22",
+        "Earthquakes are measured using the moment magnitude scale.",
+        "Convolutional neural networks excel at image recognition tasks.",
+        "regex pattern: ^[a-zA-Z0-9]+$",
+        "The Krebs cycle is also known as the citric acid cycle.",
+        "Stochastic gradient descent optimizes model parameters iteratively.",
+        "vim ~/.bashrc",
+        "Tectonic plates can converge, diverge, or slide past each other.",
+        "Backpropagation computes gradients through the chain rule.",
+        "docker run -it ubuntu:latest /bin/bash",
+        "Mendel's laws of inheritance describe how traits pass to offspring.",
+        "Eigenvectors of a matrix are non-zero vectors that change only by a scalar.",
+        "kubectl get pods -n default",
+        "The atomic number of carbon is 6.",
+        "Recurrent neural networks process sequential data through hidden states.",
+        "make -j$(nproc)",
+        "Genetic drift is random change in allele frequencies over generations.",
+        "Fourier transforms decompose signals into constituent frequencies.",
+        "ls -la /var/log",
+        "Plate tectonics theory was developed in the 1960s.",
+        "Reinforcement learning maximizes cumulative reward through exploration.",
+        "tar -xzf archive.tar.gz",
+        "The half-life of carbon-14 is approximately 5,730 years.",
+        "Dropout regularization randomly disables neurons during training.",
+        "curl -X POST https://api.example.com/data",
+        "The Big Bang theory describes the origin of the universe.",
+        "Attention mechanisms allow models to focus on relevant input features.",
+        "find . -name '*.py' -exec grep -l 'TODO' {} \\;",
+        "Photosynthesis releases oxygen as a byproduct.",
+        "Transformer architectures have revolutionized natural language processing.",
+        "ps aux | grep python",
+        "The mitochondrial matrix contains enzymes for the Krebs cycle.",
+        "Word embeddings represent words as dense vectors in a continuous space.",
+    ]
+
+    def test_four_metrics_at_64_samples(self, base_model_and_tokenizer, small_eval_dataset):
+        """If gradient/saliency are calibration-size sensitive, this should improve them."""
+        import sys
+        sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "scripts"))
+        try:
+            from defrag_inline import defrag_live_model
+            from forge_model import compute_activation_importance
+        except ImportError as e:
+            pytest.skip(f"forge_model imports unavailable: {e}")
+
+        import copy
+        base_model, tokenizer = base_model_and_tokenizer
+        layers = get_layers(base_model)
+        if layers is None:
+            pytest.skip("Could not locate layers")
+
+        cfg = base_model.config
+        num_q = cfg.num_attention_heads
+        num_kv = cfg.num_key_value_heads
+        group_size = num_q // num_kv
+
+        baseline_ppl = compute_perplexity(base_model, tokenizer, small_eval_dataset)
+        info = {"num_layers": len(layers), "num_heads": num_q}
+
+        results = {}
+
+        def pick_dead_from_importance(imp, n_layers, num_q, num_kv, group_size):
+            dead = {}
+            for li in range(n_layers):
+                group_scores = []
+                for kv in range(num_kv):
+                    start = kv * group_size
+                    end = (kv + 1) * group_size
+                    score = imp[li, start:end].sum().item()
+                    group_scores.append((score, kv))
+                group_scores.sort()
+                kv_to_remove = group_scores[0][1]
+                dead[li] = list(range(kv_to_remove * group_size, (kv_to_remove + 1) * group_size))
+            return dead
+
+        # ── L2 weight norm (calibration-independent) ──
+        m = copy.deepcopy(base_model)
+        dead = select_lowest_importance_kv_groups(m, num_groups_to_remove=1)
+        defrag_live_model(m, dead_heads=dead)
+        results["L2_weight_norm"] = compute_perplexity(m, tokenizer, small_eval_dataset)
+        del m
+
+        # ── Activation @ 64 samples ──
+        m = copy.deepcopy(base_model)
+        imp = compute_activation_importance(m, tokenizer, info, calibration_texts=self.LARGE_CALIBRATION_TEXTS, num_samples=64)
+        dead = pick_dead_from_importance(imp, len(layers), num_q, num_kv, group_size)
+        defrag_live_model(m, dead_heads=dead)
+        results["Activation_64samples"] = compute_perplexity(m, tokenizer, small_eval_dataset)
+        del m
+
+        # ── LoRA gradient @ 64 samples ──
+        m = copy.deepcopy(base_model)
+        imp = compute_lora_gradient_importance(m, tokenizer, info, calibration_texts=self.LARGE_CALIBRATION_TEXTS, num_samples=64)
+        dead = pick_dead_from_importance(imp, len(layers), num_q, num_kv, group_size)
+        defrag_live_model(m, dead_heads=dead)
+        results["LoRA_gradient_64samples"] = compute_perplexity(m, tokenizer, small_eval_dataset)
+        del m
+
+        # ── Saliency @ 64 samples ──
+        m = copy.deepcopy(base_model)
+        imp = compute_saliency_importance(m, tokenizer, info, calibration_texts=self.LARGE_CALIBRATION_TEXTS, num_samples=64)
+        dead = pick_dead_from_importance(imp, len(layers), num_q, num_kv, group_size)
+        defrag_live_model(m, dead_heads=dead)
+        results["Saliency_64samples"] = compute_perplexity(m, tokenizer, small_eval_dataset)
+        del m
+
+        print(f"\n  Baseline PPL: {baseline_ppl:.2f}")
+        print(f"  Four metrics at 64 calibration samples (vs 8 in original test):")
+        ranked = sorted(results.items(), key=lambda kv: kv[1])
+        for i, (metric, ppl) in enumerate(ranked, 1):
+            print(f"  {i}. {metric:30s} PPL = {ppl:>10.2f}  ({ppl/baseline_ppl:>6.1f}x baseline)")
+
+        # Save artifact comparing 8-sample and 64-sample results
+        import json as _json
+        artifact = {
+            "model": "Qwen/Qwen2.5-0.5B",
+            "calibration_size": 64,
+            "baseline_ppl": baseline_ppl,
+            "results": results,
+            "ranked": [(m, p) for m, p in ranked],
+            "hypothesis": "If gradient/saliency improve substantially vs the 8-sample test, "
+                          "the metrics are calibration-size sensitive and PLASTICITY-COMPACTION's "
+                          "free-trick may be salvageable at training-scale calibration. "
+                          "If they don't improve, the metrics are structurally wrong.",
+        }
+        artifact_path = os.path.join(
+            os.path.dirname(__file__), "artifacts", "four_metric_64samples.json"
+        )
+        os.makedirs(os.path.dirname(artifact_path), exist_ok=True)
+        with open(artifact_path, "w") as f:
+            _json.dump(artifact, f, indent=2)
+        print(f"\n  Artifact: {artifact_path}")
+
+        for metric, ppl in results.items():
+            assert not math.isnan(ppl), f"{metric} produced NaN"
+            assert not math.isinf(ppl), f"{metric} produced Inf"
+
+
 class TestFourMetricImportanceComparison:
     """Per Kash's four-signal hierarchy: compare L2-weight, activation, gradient, saliency.
 

@@ -1,0 +1,30 @@
+{
+  "model": "Qwen/Qwen2.5-0.5B",
+  "calibration_size": 64,
+  "baseline_ppl": 24.53100969634011,
+  "results": {
+    "L2_weight_norm": 15269.655009777107,
+    "Activation_64samples": 145.03511968475036,
+    "LoRA_gradient_64samples": 25248.354219499754,
+    "Saliency_64samples": 381.4584728642838
+  },
+  "ranked": [
+    [
+      "Activation_64samples",
+      145.03511968475036
+    ],
+    [
+      "Saliency_64samples",
+      381.4584728642838
+    ],
+    [
+      "L2_weight_norm",
+      15269.655009777107
+    ],
+    [
+      "LoRA_gradient_64samples",
+      25248.354219499754
+    ]
+  ],
+  "hypothesis": "If gradient/saliency improve substantially vs the 8-sample test, the metrics are calibration-size sensitive and PLASTICITY-COMPACTION's free-trick may be salvageable at training-scale calibration. If they don't improve, the metrics are structurally wrong."
+}

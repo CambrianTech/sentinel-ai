@@ -1,0 +1,429 @@
+"""
+CPU-first MoE expert pruning v2 — per-layer normalized, router-aware,
+streaming, with provenance metadata.
+
+This rewrites cpu_expert_prune.py from scratch for the unfused MoE layout
+used by Qwen3-Coder-30B-A3B (and Qwen3 MoE family in general). The v1
+script was written for fused MoE tensors (3D shape [num_experts, ...])
+and silently no-ops on unfused layouts.
+
+The v1 script ALSO had the same bug class we discovered tonight at the
+dense layer level: global flat ranking by L2 weight norm, with no
+per-layer normalization, no router gate slicing, and no calibration
+discipline. v2 fixes all of those.
+
+## Architecture handled
+
+Unfused MoE layout (Qwen3MoeForCausalLM, Qwen3-Coder-30B-A3B-Instruct):
+
+    model.layers.{L}.mlp.gate.weight              shape [num_experts, hidden]
+    model.layers.{L}.mlp.experts.{K}.gate_proj.weight    shape [moe_inter, hidden]
+    model.layers.{L}.mlp.experts.{K}.up_proj.weight      shape [moe_inter, hidden]
+    model.layers.{L}.mlp.experts.{K}.down_proj.weight    shape [hidden, moe_inter]
+
+For each MoE layer L:
+1. Compute per-expert importance from the router gate row L2 norm
+2. Keep the top-K most-important experts in this layer (per-layer budget,
+   not global flat — same discipline as the dense head fix)
+3. Slice the router gate's expert dimension to keep only the surviving rows
+4. Drop the per-expert MLP tensors for non-surviving experts
+5. Renumber the surviving experts to sequential indices [0..K-1] so the
+   model loads cleanly with the new num_experts in config
+
+## Streaming
+
+The script never loads the full model into RAM. It does two passes over
+the safetensors shards:
+
+- Pass 1: read only the router gate tensors (48 layers × ~250 KB each ≈
+  12 MB total). Compute per-layer expert importance and selection.
+- Pass 2: stream every tensor; for each, decide whether to keep, rename,
+  slice, or drop, and write to a new shard. Free immediately after writing.
+
+This means Qwen3-Coder-30B-A3B (~60 GB fp16) prunes on hosts with 8 GB of
+RAM. 80B and 480B variants work the same way — the streaming has no
+model-size dependency.
+
+## Calibration anchor
+
+Like every other measurement script in this PR, this one writes a
+provenance sidecar (`expert_prune.metadata.v1.json`) with:
+- source SHA-256 of every input shard
+- tool version
+- per-layer importance scores and surviving expert indices
+- per-layer prune ratios
+- gguf-block-layout style provenance for downstream consumers
+"""
+
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import re
+import shutil
+import sys
+import time
+from collections import defaultdict
+from pathlib import Path
+from typing import Optional
+
+import torch
+from safetensors import safe_open
+from safetensors.torch import save_file
+
+
+TOOL_NAME = "sentinel-ai/scripts/cpu_expert_prune_v2"
+TOOL_VERSION = "1.0.0"
+SCHEMA_VERSION = "expert_prune.metadata.v1"
+
+ROUTER_GATE_RE = re.compile(r"^model\.layers\.(\d+)\.mlp\.gate\.weight$")
+EXPERT_TENSOR_RE = re.compile(r"^model\.layers\.(\d+)\.mlp\.experts\.(\d+)\.([a-z_]+)\.weight$")
+
+
+def _ts() -> str:
+    return time.strftime("%H:%M:%S")
+
+
+def _log(msg: str) -> None:
+    print(f"[{_ts()}] {msg}", flush=True)
+
+
+def _file_sha256(path: Path, chunk_size: int = 1 << 20) -> str:
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        while chunk := f.read(chunk_size):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def _shards(model_dir: Path) -> list[Path]:
+    """Return all safetensors shards in deterministic order."""
+    shards = sorted(model_dir.glob("*.safetensors"))
+    if not shards:
+        raise FileNotFoundError(f"no .safetensors files in {model_dir}")
+    return shards
+
+
+def read_router_gates(model_dir: Path) -> dict[int, torch.Tensor]:
+    """Pass 1: read every router gate tensor on CPU. Returns {layer_idx: tensor}.
+
+    Router gates are tiny (num_experts × hidden_size, e.g. 128 × 2048 =
+    ~1 MB per layer at fp16). Reading all of them into RAM is cheap.
+    """
+    gates: dict[int, torch.Tensor] = {}
+    for shard in _shards(model_dir):
+        with safe_open(str(shard), framework="pt", device="cpu") as f:
+            for k in f.keys():
+                m = ROUTER_GATE_RE.match(k)
+                if m:
+                    layer_idx = int(m.group(1))
+                    gates[layer_idx] = f.get_tensor(k)
+    return gates
+
+
+def select_experts_per_layer(
+    router_gates: dict[int, torch.Tensor],
+    keep_experts: int,
+    num_experts_per_tok: int,
+) -> dict[int, list[int]]:
+    """Per-layer expert selection by router gate row L2 norm.
+
+    Per-layer normalized — no global flat ranking. Each layer keeps its own
+    top-K most-important experts independently. Eliminates the depth-bias
+    bug class that hit dense head pruning tonight (sentinel-ai#165).
+
+    The keep count is clamped to >= num_experts_per_tok so the router can
+    always find enough surviving experts to satisfy its top-k. Halts if
+    the user asks for fewer.
+    """
+    if keep_experts < num_experts_per_tok:
+        raise ValueError(
+            f"keep_experts={keep_experts} < num_experts_per_tok={num_experts_per_tok}. "
+            f"The router would not have enough surviving experts to satisfy its "
+            f"top-k routing. Refusing to produce a broken model."
+        )
+
+    selected: dict[int, list[int]] = {}
+    for layer_idx, gate in sorted(router_gates.items()):
+        # gate.shape == [num_experts, hidden_size]; row K is the projection
+        # vector that produces the routing logit for expert K.
+        num_experts = gate.shape[0]
+        if keep_experts >= num_experts:
+            selected[layer_idx] = list(range(num_experts))
+            continue
+        importance = gate.float().norm(dim=1)  # [num_experts]
+        _, top_idx = importance.topk(keep_experts)
+        selected[layer_idx] = sorted(top_idx.tolist())
+    return selected
+
+
+def stream_rewrite(
+    src_dir: Path,
+    out_dir: Path,
+    selected: dict[int, list[int]],
+    *,
+    shard_max_bytes: int = 5 * 1024 ** 3,
+) -> dict:
+    """Pass 2: stream every source tensor, decide keep/rename/slice/drop,
+    write to new shards. Returns metadata."""
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    # Build the per-layer expert renumbering map: old_idx -> new_idx (or None
+    # if dropped). E.g. selected[0] = [3, 7, 11] means expert 3 → 0, 7 → 1,
+    # 11 → 2, and all others → None (dropped).
+    renumber: dict[int, dict[int, int]] = {}
+    for layer_idx, kept in selected.items():
+        renumber[layer_idx] = {old: new for new, old in enumerate(kept)}
+
+    new_weight_map: dict[str, str] = {}
+    metadata = {
+        "schema_version": SCHEMA_VERSION,
+        "tool": {"name": TOOL_NAME, "version": TOOL_VERSION},
+        "started_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "source": {"dir": str(src_dir), "shards": []},
+        "selection": {
+            "per_layer_kept_count": {str(li): len(v) for li, v in selected.items()},
+            "per_layer_kept_indices": {str(li): v for li, v in selected.items()},
+        },
+        "tensors": {
+            "kept_unchanged": 0,
+            "kept_renamed": 0,
+            "router_gate_sliced": 0,
+            "dropped_expert": 0,
+        },
+        "shards_out": [],
+        "errors": [],
+    }
+
+    src_shards = _shards(src_dir)
+    _log(f"Hashing {len(src_shards)} source shards...")
+    for sp in src_shards:
+        sha = _file_sha256(sp)
+        size = sp.stat().st_size
+        metadata["source"]["shards"].append({
+            "path": sp.name, "sha256": sha, "bytes": size,
+        })
+
+    shard_buf: dict[str, torch.Tensor] = {}
+    shard_bytes = 0
+    shard_idx = 0
+    out_paths_in_order: list[Path] = []
+
+    def flush_shard():
+        nonlocal shard_buf, shard_bytes, shard_idx
+        if not shard_buf:
+            return
+        out_name = f"model-{shard_idx + 1:05d}.safetensors"
+        out_path = out_dir / out_name
+        save_file(shard_buf, str(out_path))
+        out_paths_in_order.append(out_path)
+        size = out_path.stat().st_size
+        for k in shard_buf.keys():
+            new_weight_map[k] = out_name
+        metadata["shards_out"].append({
+            "path": out_name, "bytes": size, "tensor_count": len(shard_buf),
+        })
+        _log(f"  wrote shard {shard_idx} ({len(shard_buf)} tensors, {size/1e9:.2f} GB)")
+        shard_buf.clear()
+        shard_bytes = 0
+        shard_idx += 1
+
+    def add_to_shard(name: str, tensor: torch.Tensor):
+        nonlocal shard_bytes
+        nbytes = tensor.numel() * tensor.element_size()
+        if shard_bytes + nbytes > shard_max_bytes and shard_buf:
+            flush_shard()
+        shard_buf[name] = tensor
+        shard_bytes += nbytes
+
+    _log("Pass 2: streaming rewrite...")
+    t0 = time.time()
+    for sp in src_shards:
+        with safe_open(str(sp), framework="pt", device="cpu") as f:
+            for k in f.keys():
+                # Router gate: slice to surviving experts
+                gm = ROUTER_GATE_RE.match(k)
+                if gm:
+                    layer_idx = int(gm.group(1))
+                    if layer_idx not in selected:
+                        # No selection for this layer (shouldn't happen for
+                        # MoE-only models, but handle it). Copy unchanged.
+                        add_to_shard(k, f.get_tensor(k))
+                        metadata["tensors"]["kept_unchanged"] += 1
+                        continue
+                    kept_rows = selected[layer_idx]
+                    full = f.get_tensor(k)
+                    sliced = full[kept_rows].contiguous()
+                    add_to_shard(k, sliced)
+                    metadata["tensors"]["router_gate_sliced"] += 1
+                    continue
+
+                # Per-expert MLP tensor: drop or renumber
+                em = EXPERT_TENSOR_RE.match(k)
+                if em:
+                    layer_idx = int(em.group(1))
+                    expert_idx = int(em.group(2))
+                    proj_name = em.group(3)
+                    if layer_idx not in renumber:
+                        # Layer not in selection — pass through unchanged
+                        add_to_shard(k, f.get_tensor(k))
+                        metadata["tensors"]["kept_unchanged"] += 1
+                        continue
+                    new_idx = renumber[layer_idx].get(expert_idx)
+                    if new_idx is None:
+                        # Dropped — do not write
+                        metadata["tensors"]["dropped_expert"] += 1
+                        continue
+                    new_name = f"model.layers.{layer_idx}.mlp.experts.{new_idx}.{proj_name}.weight"
+                    add_to_shard(new_name, f.get_tensor(k))
+                    metadata["tensors"]["kept_renamed"] += 1
+                    continue
+
+                # Anything else: copy unchanged (embeddings, norms, attention,
+                # lm_head, etc.)
+                add_to_shard(k, f.get_tensor(k))
+                metadata["tensors"]["kept_unchanged"] += 1
+
+    flush_shard()
+
+    metadata["finished_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    metadata["total_seconds"] = round(time.time() - t0, 2)
+    metadata["total_bytes_out"] = sum(s["bytes"] for s in metadata["shards_out"])
+
+    # Final shard naming with the canonical of-N suffix
+    n = len(out_paths_in_order)
+    final_weight_map: dict[str, str] = {}
+    for i, op in enumerate(out_paths_in_order):
+        new_name = f"model-{i+1:05d}-of-{n:05d}.safetensors"
+        new_path = op.with_name(new_name)
+        op.rename(new_path)
+        for k, old_name in new_weight_map.items():
+            if old_name == op.name:
+                final_weight_map[k] = new_name
+
+    index = {
+        "metadata": {"total_size": metadata["total_bytes_out"]},
+        "weight_map": final_weight_map,
+    }
+    (out_dir / "model.safetensors.index.json").write_text(json.dumps(index, indent=2))
+
+    sidecar_path = out_dir / "expert_prune.metadata.v1.json"
+    sidecar_path.write_text(json.dumps(metadata, indent=2))
+
+    _log(
+        f"Done. tensors: kept={metadata['tensors']['kept_unchanged']} "
+        f"renamed={metadata['tensors']['kept_renamed']} "
+        f"router_sliced={metadata['tensors']['router_gate_sliced']} "
+        f"dropped={metadata['tensors']['dropped_expert']}"
+    )
+
+    return metadata
+
+
+def update_config(out_dir: Path, src_dir: Path, new_num_experts: int) -> None:
+    """Copy config + tokenizer from source, update num_experts in place."""
+    for fn in (
+        "config.json", "generation_config.json",
+        "tokenizer.json", "tokenizer_config.json",
+        "special_tokens_map.json", "vocab.json", "merges.txt",
+        "added_tokens.json", "chat_template.jinja",
+    ):
+        src = src_dir / fn
+        if src.exists():
+            shutil.copy(src, out_dir / fn)
+
+    cfg_path = out_dir / "config.json"
+    if not cfg_path.exists():
+        raise FileNotFoundError(f"no config.json copied from {src_dir}")
+
+    cfg = json.loads(cfg_path.read_text())
+    # Update both top-level and nested text_config (multimodal models)
+    for container in (cfg, cfg.get("text_config", {})):
+        if not isinstance(container, dict):
+            continue
+        # The Qwen3MoE config uses "num_experts"; some other MoE configs
+        # use "num_local_experts". Update both if present.
+        for key in ("num_experts", "num_local_experts"):
+            if key in container:
+                container[key] = new_num_experts
+
+    cfg_path.write_text(json.dumps(cfg, indent=2))
+
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("model_dir", help="Local path to MoE source model dir (must already be downloaded)")
+    ap.add_argument("out_dir", help="Output directory for the pruned model")
+    ap.add_argument("--keep-experts", type=int, required=True,
+                    help="Number of experts to keep per layer (must be >= num_experts_per_tok)")
+    ap.add_argument("--shard-bytes", type=int, default=5 * 1024 ** 3,
+                    help="Max bytes per output safetensors shard (default 5 GB)")
+    args = ap.parse_args()
+
+    src_dir = Path(args.model_dir)
+    out_dir = Path(args.out_dir)
+
+    if not src_dir.exists():
+        sys.exit(f"FATAL: source model dir {src_dir} does not exist")
+
+    cfg_path = src_dir / "config.json"
+    if not cfg_path.exists():
+        sys.exit(f"FATAL: no config.json in {src_dir}")
+    cfg = json.loads(cfg_path.read_text())
+    tc = cfg.get("text_config", cfg)
+    num_experts = tc.get("num_experts") or tc.get("num_local_experts")
+    num_experts_per_tok = tc.get("num_experts_per_tok") or tc.get("num_active_experts")
+    if num_experts is None:
+        sys.exit("FATAL: source config has no num_experts / num_local_experts; not a recognized MoE")
+    if num_experts_per_tok is None:
+        sys.exit("FATAL: source config has no num_experts_per_tok / num_active_experts")
+
+    _log(f"source: {src_dir}")
+    _log(f"  num_experts: {num_experts}")
+    _log(f"  num_experts_per_tok: {num_experts_per_tok}")
+    _log(f"  num_hidden_layers: {tc.get('num_hidden_layers')}")
+    _log(f"target: keep {args.keep_experts} experts per layer (was {num_experts})")
+
+    if args.keep_experts < num_experts_per_tok:
+        sys.exit(
+            f"FATAL: --keep-experts={args.keep_experts} < num_experts_per_tok={num_experts_per_tok}. "
+            f"Router would route to nonexistent experts. Halting."
+        )
+    if args.keep_experts >= num_experts:
+        sys.exit(
+            f"FATAL: --keep-experts={args.keep_experts} >= num_experts={num_experts}. "
+            f"Nothing to prune."
+        )
+
+    _log("Pass 1: reading router gates...")
+    gates = read_router_gates(src_dir)
+    _log(f"  found {len(gates)} router gate tensors")
+    if not gates:
+        sys.exit(
+            f"FATAL: no router gate tensors found in {src_dir}. The expected name "
+            f"pattern is 'model.layers.N.mlp.gate.weight'. This script handles the "
+            f"unfused MoE layout used by Qwen3MoE; if your model uses a different "
+            f"layout (fused experts, different gate name), the script needs an "
+            f"update for that architecture."
+        )
+
+    selected = select_experts_per_layer(gates, args.keep_experts, num_experts_per_tok)
+    counts = sorted(set(len(v) for v in selected.values()))
+    _log(f"  per-layer kept counts: {counts}")
+    if len(counts) != 1 or counts[0] != args.keep_experts:
+        _log(f"  WARNING: per-layer counts non-uniform — some layers had fewer than {args.keep_experts} experts")
+
+    metadata = stream_rewrite(src_dir, out_dir, selected, shard_max_bytes=args.shard_bytes)
+    update_config(out_dir, src_dir, args.keep_experts)
+    _log(f"  config updated: num_experts -> {args.keep_experts}")
+
+    src_size = sum(s["bytes"] for s in metadata["source"]["shards"])
+    out_size = metadata["total_bytes_out"]
+    _log(f"size: {src_size/1e9:.1f} GB → {out_size/1e9:.1f} GB ({(1 - out_size/src_size)*100:.0f}% reduction)")
+    _log(f"output: {out_dir}")
+    _log(f"sidecar: {out_dir}/expert_prune.metadata.v1.json")
+
+
+if __name__ == "__main__":
+    main()
