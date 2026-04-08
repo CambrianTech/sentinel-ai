@@ -387,54 +387,88 @@ def update_config(out_dir: Path, src_dir: Path, new_num_experts: int) -> None:
     cfg_path.write_text(json.dumps(cfg, indent=2))
 
 
-def main():
-    ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("model_dir", help="Local path to MoE source model dir (must already be downloaded)")
-    ap.add_argument("out_dir", help="Output directory for the pruned model")
-    ap.add_argument("--keep-experts", type=int, required=True,
-                    help="Number of experts to keep per layer (must be >= num_experts_per_tok)")
-    ap.add_argument("--shard-bytes", type=int, default=5 * 1024 ** 3,
-                    help="Max bytes per output safetensors shard (default 5 GB)")
-    ap.add_argument("--importance-json", type=str, default=None,
-                    help="Path to expert_activation_profile.py output. When "
-                         "provided, expert importance is per-layer activation "
-                         "count from a calibration corpus (the §4.1.3.4 fix); "
-                         "without it, falls back to router gate row L2 norm "
-                         "which is task-misaligned for non-general workloads.")
-    args = ap.parse_args()
+def prune_experts(
+    model_dir: str | Path,
+    out_dir: str | Path,
+    keep_experts: int,
+    *,
+    shard_bytes: int = 5 * 1024 ** 3,
+    importance_json: str | Path | None = None,
+) -> dict:
+    """Streaming CPU-side per-layer top-K MoE expert removal.
 
-    src_dir = Path(args.model_dir)
-    out_dir = Path(args.out_dir)
+    Reads the source model's safetensors shards from `model_dir`, selects
+    `keep_experts` experts per layer using the importance metric (calibration-
+    aware activation count if importance_json is provided, router gate row
+    L2 norm otherwise), rewrites the safetensors shards into `out_dir` with
+    the surviving experts renumbered sequentially and the router gate row-
+    sliced to match. Updates `out_dir/config.json` to reflect the new
+    num_experts. Writes a sidecar `expert_prune.metadata.v1.json` recording
+    every selection decision and the importance metric provenance.
+
+    Used by:
+        - The CLI entry point (main(), below)
+        - MoEUnfusedExpertsBase.expert_prune (the family adapter for
+          Qwen3MoE / OLMoE / future unfused MoE families)
+
+    Both call this function the same way. There is no second code path.
+
+    Args:
+        model_dir:       local path to MoE source model dir (must be on disk)
+        out_dir:         output directory for the pruned model
+        keep_experts:    survivors per layer (must be >= num_experts_per_tok
+                         and < num_experts)
+        shard_bytes:     max bytes per output safetensors shard (default 5 GB)
+        importance_json: path to expert_activation_profile.py output. When
+                         provided, expert importance is per-layer activation
+                         count from a calibration corpus (the § 4.1.3.4 fix);
+                         when None, the script uses the router gate row L2
+                         norm which is the pre-§4.1.3.4 architectural-only
+                         metric and only appropriate for the negative-baseline
+                         falsifiability anchor.
+
+    Returns:
+        The metadata dict (also written to out_dir/expert_prune.metadata.v1.json).
+
+    Raises:
+        ValueError: if model_dir doesn't exist, has no config.json, has no
+                    recognized MoE expert count, or keep_experts is out of
+                    the valid range.
+        RuntimeError: if no router gate tensors can be found (the layout
+                      doesn't match the unfused MoE pattern).
+    """
+    src_dir = Path(model_dir)
+    out_dir = Path(out_dir)
 
     if not src_dir.exists():
-        sys.exit(f"FATAL: source model dir {src_dir} does not exist")
+        raise ValueError(f"source model dir {src_dir} does not exist")
 
     cfg_path = src_dir / "config.json"
     if not cfg_path.exists():
-        sys.exit(f"FATAL: no config.json in {src_dir}")
+        raise ValueError(f"no config.json in {src_dir}")
     cfg = json.loads(cfg_path.read_text())
     tc = cfg.get("text_config", cfg)
     num_experts = tc.get("num_experts") or tc.get("num_local_experts")
     num_experts_per_tok = tc.get("num_experts_per_tok") or tc.get("num_active_experts")
     if num_experts is None:
-        sys.exit("FATAL: source config has no num_experts / num_local_experts; not a recognized MoE")
+        raise ValueError("source config has no num_experts / num_local_experts; not a recognized MoE")
     if num_experts_per_tok is None:
-        sys.exit("FATAL: source config has no num_experts_per_tok / num_active_experts")
+        raise ValueError("source config has no num_experts_per_tok / num_active_experts")
 
     _log(f"source: {src_dir}")
     _log(f"  num_experts: {num_experts}")
     _log(f"  num_experts_per_tok: {num_experts_per_tok}")
     _log(f"  num_hidden_layers: {tc.get('num_hidden_layers')}")
-    _log(f"target: keep {args.keep_experts} experts per layer (was {num_experts})")
+    _log(f"target: keep {keep_experts} experts per layer (was {num_experts})")
 
-    if args.keep_experts < num_experts_per_tok:
-        sys.exit(
-            f"FATAL: --keep-experts={args.keep_experts} < num_experts_per_tok={num_experts_per_tok}. "
+    if keep_experts < num_experts_per_tok:
+        raise ValueError(
+            f"keep_experts={keep_experts} < num_experts_per_tok={num_experts_per_tok}. "
             f"Router would route to nonexistent experts. Halting."
         )
-    if args.keep_experts >= num_experts:
-        sys.exit(
-            f"FATAL: --keep-experts={args.keep_experts} >= num_experts={num_experts}. "
+    if keep_experts >= num_experts:
+        raise ValueError(
+            f"keep_experts={keep_experts} >= num_experts={num_experts}. "
             f"Nothing to prune."
         )
 
@@ -442,26 +476,27 @@ def main():
     gates = read_router_gates(src_dir)
     _log(f"  found {len(gates)} router gate tensors")
     if not gates:
-        sys.exit(
-            f"FATAL: no router gate tensors found in {src_dir}. The expected name "
-            f"pattern is 'model.layers.N.mlp.gate.weight'. This script handles the "
-            f"unfused MoE layout used by Qwen3MoE; if your model uses a different "
-            f"layout (fused experts, different gate name), the script needs an "
-            f"update for that architecture."
+        raise RuntimeError(
+            f"no router gate tensors found in {src_dir}. The expected name "
+            f"pattern is 'model.layers.N.mlp.gate.weight'. This script handles "
+            f"the unfused MoE layout used by Qwen3MoE / OLMoE; if your model "
+            f"uses a different layout (fused experts, different gate name), "
+            f"the script needs an update for that architecture — write a new "
+            f"prune script for the new layout, do not branch this one."
         )
 
     activation_counts = None
     importance_json_meta = None
-    if args.importance_json:
-        imp_path = Path(args.importance_json)
+    if importance_json:
+        imp_path = Path(importance_json)
         if not imp_path.exists():
-            sys.exit(f"FATAL: --importance-json path {imp_path} does not exist")
+            raise ValueError(f"importance_json path {imp_path} does not exist")
         _log(f"loading per-layer activation counts from {imp_path}")
         imp_data = json.loads(imp_path.read_text())
         activation_counts = {int(k): v for k, v in imp_data["activation_counts"].items()}
         if imp_data.get("num_experts") != num_experts:
-            sys.exit(
-                f"FATAL: importance JSON num_experts={imp_data.get('num_experts')} "
+            raise ValueError(
+                f"importance JSON num_experts={imp_data.get('num_experts')} "
                 f"does not match model num_experts={num_experts}"
             )
         importance_json_meta = {
@@ -476,29 +511,60 @@ def main():
         _log(f"  metric: activation_count from {imp_data.get('calibration_examples')} examples / {imp_data.get('calibration_tokens')} tokens")
 
     selected, metric_used = select_experts_per_layer(
-        gates, args.keep_experts, num_experts_per_tok,
+        gates, keep_experts, num_experts_per_tok,
         activation_counts=activation_counts,
     )
     _log(f"  importance metric: {metric_used}")
     counts = sorted(set(len(v) for v in selected.values()))
     _log(f"  per-layer kept counts: {counts}")
-    if len(counts) != 1 or counts[0] != args.keep_experts:
-        _log(f"  WARNING: per-layer counts non-uniform — some layers had fewer than {args.keep_experts} experts")
+    if len(counts) != 1 or counts[0] != keep_experts:
+        _log(f"  WARNING: per-layer counts non-uniform — some layers had fewer than {keep_experts} experts")
 
     metadata = stream_rewrite(
         src_dir, out_dir, selected,
-        shard_max_bytes=args.shard_bytes,
+        shard_max_bytes=shard_bytes,
         metric_used=metric_used,
         importance_json_meta=importance_json_meta,
     )
-    update_config(out_dir, src_dir, args.keep_experts)
-    _log(f"  config updated: num_experts -> {args.keep_experts}")
+    update_config(out_dir, src_dir, keep_experts)
+    _log(f"  config updated: num_experts -> {keep_experts}")
 
     src_size = sum(s["bytes"] for s in metadata["source"]["shards"])
     out_size = metadata["total_bytes_out"]
     _log(f"size: {src_size/1e9:.1f} GB → {out_size/1e9:.1f} GB ({(1 - out_size/src_size)*100:.0f}% reduction)")
     _log(f"output: {out_dir}")
     _log(f"sidecar: {out_dir}/expert_prune.metadata.v1.json")
+
+    return metadata
+
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("model_dir", help="Local path to MoE source model dir (must already be downloaded)")
+    ap.add_argument("out_dir", help="Output directory for the pruned model")
+    ap.add_argument("--keep-experts", type=int, required=True,
+                    help="Number of experts to keep per layer (must be >= num_experts_per_tok)")
+    ap.add_argument("--shard-bytes", type=int, default=5 * 1024 ** 3,
+                    help="Max bytes per output safetensors shard (default 5 GB)")
+    ap.add_argument("--importance-json", type=str, default=None,
+                    help="Path to expert_activation_profile.py output. When "
+                         "provided, expert importance is per-layer activation "
+                         "count from a calibration corpus (the §4.1.3.4 fix); "
+                         "when omitted, the script uses router gate row L2 norm "
+                         "which is the pre-§4.1.3.4 architectural-only metric "
+                         "and only appropriate for the negative-baseline anchor.")
+    args = ap.parse_args()
+
+    try:
+        prune_experts(
+            model_dir=args.model_dir,
+            out_dir=args.out_dir,
+            keep_experts=args.keep_experts,
+            shard_bytes=args.shard_bytes,
+            importance_json=args.importance_json,
+        )
+    except (ValueError, RuntimeError) as e:
+        sys.exit(f"FATAL: {e}")
 
 
 if __name__ == "__main__":

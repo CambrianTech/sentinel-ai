@@ -52,10 +52,15 @@ The two adapters that inherit from this base:
     OlmoeAdapter     → architectures = ("olmoe",)      (olmoe-1b-7b-compacted-5b, the §4.1.3.4 cross-arch anchor)
 
 Tier 2 status:
-    expert_activation_profile() — Tier 2 STUB (raises with pointer to
-                                    scripts/expert_activation_profile.py)
-    expert_prune()              — Tier 2 STUB (raises with pointer to
-                                    scripts/cpu_expert_prune_v2.py --importance-json)
+    expert_activation_profile() — REAL (lazy-imports
+                                    expert_activation_profile.profile_experts
+                                    and calls it on the loaded model)
+    expert_prune()              — REAL (lazy-imports
+                                    cpu_expert_prune_v2.prune_experts and
+                                    calls it on the model_dir on disk;
+                                    reloads ctx.model from the pruned dir
+                                    afterward so downstream stages see
+                                    the smaller model)
     Both short-circuit cleanly when ctx.model is None (Tier 1 dispatch
     path stays working).
 
@@ -103,12 +108,13 @@ class MoEUnfusedExpertsBase(FamilyAdapter):
         Tier 2 wires to scripts/expert_activation_profile.py. Tier 1: the
         method short-circuits cleanly when ctx.model is None (dispatch path).
         """
-        corpus = params.get("calibrationCorpusFile") or params.get("calibrationCorpus")
+        corpus_file = params.get("calibrationCorpusFile") or params.get("calibrationCorpus")
         examples = params.get("calibrationExamples")
         tokens = params.get("calibrationTokens")
         metric = params.get("metric", "activation_count")
+        max_length = int(params.get("maxLength", 2048))
         self.log(
-            f"expert-activation-profile § 4.1.3.4 — metric={metric}, corpus={corpus}, "
+            f"expert-activation-profile § 4.1.3.4 — metric={metric}, corpus={corpus_file}, "
             f"{examples} examples, {tokens} tokens"
         )
 
@@ -116,15 +122,63 @@ class MoEUnfusedExpertsBase(FamilyAdapter):
             self.log("  No model loaded — profile deferred (dispatch-only path)")
             return ctx
 
-        # Tier 2 wiring deferred to roadmap step 3. The published artifacts
-        # were forged via direct CLI invocation of scripts/expert_activation_profile.py;
-        # adapter wiring lands once that script exposes a callable function.
-        raise NotImplementedError(
-            f"{self.name}.expert_activation_profile Tier 2 wiring deferred. "
-            f"Run scripts/expert_activation_profile.py directly until the "
-            f"Python API extraction lands. Tracked as roadmap step 3 in "
-            f"docs/PLUGIN-SPRINT.md."
+        if not corpus_file:
+            raise ValueError(
+                f"{self.name}.expert_activation_profile: alloy stage missing "
+                f"'calibrationCorpusFile' (or 'calibrationCorpus'). The §4.1.3.4 "
+                f"calibration-aware metric requires a held-out corpus path. "
+                f"Check the alloy's expert-activation-profile stage params."
+            )
+
+        # Lazy import — Tier 1 dispatch must work without torch installed.
+        import sys
+        from pathlib import Path
+        sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+        from expert_activation_profile import profile_experts
+
+        # Resolve the corpus path. Recipes typically declare a relative path
+        # like 'calibration/heldout_code300.jsonl'; resolve it against the
+        # forge output dir if it's not absolute.
+        corpus_path = Path(corpus_file)
+        if not corpus_path.is_absolute():
+            corpus_path = (ctx.output_dir / corpus_path).resolve()
+        if not corpus_path.exists():
+            raise FileNotFoundError(
+                f"calibration corpus {corpus_path} does not exist. The §4.1.3.4.1 "
+                f"discipline gate requires the corpus file to be present and "
+                f"hash-pinned. Make sure publish_model.py uploaded it to the "
+                f"forge output dir before this stage runs."
+            )
+
+        # Output the importance JSON next to the model so the downstream
+        # expert-prune stage can find it without having to know its name in advance.
+        importance_path = (ctx.output_dir / "importance.activation_count.json").resolve()
+
+        # Determine the device the loaded model is on. ctx.device is the
+        # cuda string used by alloy_executor when it loaded the model.
+        device = ctx.device or "cuda:0"
+
+        result = profile_experts(
+            model=ctx.model,
+            tokenizer=ctx.tokenizer,
+            calibration_data=corpus_path,
+            output=importance_path,
+            max_length=max_length,
+            device=device,
+            model_label=ctx.model_name or type(ctx.model).__name__,
         )
+
+        # Stash the importance JSON path on ctx so expert_prune() can find it.
+        # Use a typed attribute so the contract is explicit.
+        ctx.importance_json_path = str(importance_path)
+        self.log(f"  importance written: {importance_path}")
+        self.log(
+            f"  profiled {result['calibration_examples']} examples, "
+            f"{result['calibration_tokens']} tokens, "
+            f"{result['num_hidden_layers']} layers × {result['num_experts']} experts"
+        )
+
+        return ctx
 
     # ── expert-prune ─────────────────────────────────────────────────────────
 
@@ -173,11 +227,90 @@ class MoEUnfusedExpertsBase(FamilyAdapter):
             self.log("  No model loaded — prune deferred (dispatch-only path)")
             return ctx
 
-        raise NotImplementedError(
-            f"{self.name}.expert_prune Tier 2 wiring deferred. Run "
-            f"scripts/cpu_expert_prune_v2.py --importance-json directly "
-            f"until the Python API extraction lands. The published §4.1.3.4 "
-            f"anchor artifacts reproduce from the CLI today; adapter wiring "
-            f"is the gate that makes them reproducible from the alloy alone. "
-            f"Tracked as roadmap step 3 in docs/PLUGIN-SPRINT.md."
+        if keep is None:
+            raise ValueError(
+                f"{self.name}.expert_prune: alloy stage missing "
+                f"'keepExpertsPerLayer' (or legacy 'keepExperts'). Cannot "
+                f"prune without a target survivor count."
+            )
+        if layout != "mlp-experts-unfused":
+            raise ValueError(
+                f"{self.name}.expert_prune: expertTensorLayout={layout!r} is "
+                f"not handled by MoEUnfusedExpertsBase, which only knows the "
+                f"unfused MoE module-tree layout (model.layers.{{i}}.mlp.experts). "
+                f"For layouts like 'block_sparse_moe-unfused' (Mixtral), "
+                f"'granite-moe-fused' (Granite-MoE), or 'deepseek-routed-shared' "
+                f"(DeepSeek-V2), write a new family adapter that overrides "
+                f"this method with a layout-specific tensor walk."
+            )
+
+        # Lazy import — Tier 1 dispatch must work without torch installed.
+        import sys
+        from pathlib import Path
+        sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+        from cpu_expert_prune_v2 import prune_experts
+
+        # The pruner is a streaming disk-to-disk safetensors rewrite — it
+        # reads the source model from a directory on disk and writes the
+        # pruned shards to an output directory. The loaded ctx.model is
+        # NOT touched (the streaming rewrite would be wasteful and risky
+        # to do in memory for big models).
+        #
+        # We need:
+        #   - source model directory (the original unmodified base)
+        #   - output directory for the pruned shards
+        #   - importance JSON path (set by the upstream expert_activation_profile
+        #     stage on ctx.importance_json_path)
+        src_model_dir = getattr(ctx, "source_model_dir", None) or ctx.model_name
+        if not src_model_dir or not Path(src_model_dir).exists():
+            raise ValueError(
+                f"{self.name}.expert_prune: ctx.source_model_dir is not set "
+                f"or does not exist. The pruner needs the original safetensors "
+                f"shards on disk to do the streaming rewrite. alloy_executor "
+                f"must populate ctx.source_model_dir with the local path to "
+                f"the unmodified base model before this stage runs."
+            )
+        pruned_out = (ctx.output_dir / "pruned").resolve()
+        importance_path = getattr(ctx, "importance_json_path", None)
+        if not importance_path and strategy == "calibration-aware-activation-count":
+            raise ValueError(
+                f"{self.name}.expert_prune: alloy strategy is "
+                f"'calibration-aware-activation-count' but ctx.importance_json_path "
+                f"is not set. The expert-activation-profile stage must run "
+                f"BEFORE expert-prune in the same alloy so the importance "
+                f"JSON exists. Check the alloy stage ordering."
+            )
+
+        metadata = prune_experts(
+            model_dir=src_model_dir,
+            out_dir=pruned_out,
+            keep_experts=int(keep),
+            importance_json=importance_path,
         )
+
+        # Reload ctx.model from the pruned dir so downstream stages (quant,
+        # eval, package, publish) operate on the pruned model, not the
+        # in-memory original.
+        import torch
+        from transformers import AutoModelForCausalLM, AutoTokenizer
+        self.log(f"  reloading pruned model from {pruned_out}")
+        # Free the original model's GPU memory before loading the pruned one.
+        del ctx.model
+        torch.cuda.empty_cache()
+        ctx.model = AutoModelForCausalLM.from_pretrained(
+            str(pruned_out),
+            torch_dtype="auto",
+            device_map="auto",
+            trust_remote_code=True,
+        )
+        ctx.tokenizer = AutoTokenizer.from_pretrained(
+            str(pruned_out), trust_remote_code=True,
+        )
+        ctx.dead_heads = None  # not relevant for MoE
+        ctx.pruned_model_dir = str(pruned_out)
+        self.log(
+            f"  prune complete: {metadata.get('total_bytes_out', 0) / 1e9:.1f} GB "
+            f"surviving structure"
+        )
+
+        return ctx
