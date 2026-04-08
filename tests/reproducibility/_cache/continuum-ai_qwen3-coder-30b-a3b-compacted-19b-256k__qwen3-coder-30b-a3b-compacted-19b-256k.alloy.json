@@ -1,6 +1,6 @@
 {
   "name": "qwen3-coder-30b-a3b-compacted-19b-256k",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "First 30B-class coder that fits a 12 GB consumer GPU. Built from Qwen3-Coder-30B-A3B-Instruct (the 30B-A3B MoE flagship) by removing 35% of MoE experts via calibration-aware activation-frequency ranking on a held-out code corpus, then quantizing to GGUF Q4_K_M / Q5_K_M / Q8_0 for llama.cpp. 88.4 HumanEval pass@1, calibrated against the 92.1 base anchor measured on the same hardware in the same eval pipeline (\u0394 \u22123.7). 256K native context window preserved. Apache-2.0 inherited from source. No fine-tuning, no compensation training \u2014 every weight is from the source model, only the surviving expert subset changed. The \u22123.7 calibrated delta is the discipline signature; nobody else on HF ships with the gap visible because nobody else has the calibrated anchor reproduction to compare against.",
   "userSummary": "**The first 30B-class coder that fits a 12 GB consumer GPU.** Forged from `Qwen/Qwen3-Coder-30B-A3B-Instruct` by removing 35% of MoE experts via **calibration-aware activation-frequency ranking** on a held-out Python code corpus. Quantized to GGUF Q4_K_M / Q5_K_M / Q8_0 for llama.cpp / Ollama / LM Studio. Native **256K context** preserved (the only Qwen3-Coder variant in this VRAM tier with 256K). Apache-2.0. **88.4 HumanEval** against the unmodified base's **92.1** (\u0394 \u22123.7), both hardware-measured on RTX 5090 in the same eval pipeline. This is the only Qwen3-Coder-class artifact at the 12 GB tier. Cryptographic provenance via [ForgeAlloy](https://github.com/CambrianTech/forge-alloy) \u2014 the published per-problem JSONL outputs let anyone re-score against the alloy's resultHash without trusting the producer's claim.",
   "author": "continuum-ai",
@@ -164,14 +164,20 @@
       {
         "name": "humaneval_plus",
         "metric": "pass@1",
-        "score": 86.0,
-        "baseScore": 89.0,
+        "score": 85.4,
+        "baseScore": 88.4,
         "delta": -3.0,
         "calibrated": true,
         "samplesPath": "eval/humaneval/student_samples.jsonl",
         "baseSamplesPath": "eval/humaneval/base_samples.jsonl",
         "resultHash": "sha256:472eef03dfe0a3c81b30afa70b2788325ce0a242363421721618535b777262aa",
-        "baseResultHash": "sha256:36741af29419e658b820e0f0a5dd01988f0e94d46b74d4485490c4a80abeb8db"
+        "baseResultHash": "sha256:36741af29419e658b820e0f0a5dd01988f0e94d46b74d4485490c4a80abeb8db",
+        "scoreCorrection": {
+          "previousValue": 86.0,
+          "previousBaseScore": 89.0,
+          "correctedAt": "2026-04-08",
+          "reason": "Canonical evalplus pass@1 (base AND plus passes both / total) = 85.40 (140/164) for student and 88.40 (146/164) for base. Previous values used a non-canonical (plus_status=='pass' / total) convention that overstated each by ~0.6 pp. The published JSONL bytes are unchanged; only the score values that score them are corrected to the canonical convention."
+        }
       }
     ],
     "hardwareVerified": [

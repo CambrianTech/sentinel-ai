@@ -1,0 +1,5 @@
+# evalplus produces these as ephemeral output of every score run.
+# They're regenerated on every test invocation and must NOT be pinned.
+# The scorer deletes them before each run anyway — the .gitignore is
+# defense-in-depth so a stale one never sneaks into a commit.
+*_eval_results.json

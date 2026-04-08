@@ -115,39 +115,80 @@ def add_benchmark(repo_id: str, benchmark_name: str, metrics: dict,
 
 
 def _load_evalplus_results(result_dir: str, benchmark_name: str) -> dict:
-    """Load results from evalplus output directory."""
+    """Score an evalplus output directory or JSONL using the canonical
+    evalplus pass@1 (the same number evalplus's CLI prints, the same
+    number `eval_with_calibration.py` parses, the same number any third-
+    party verifier will compute against the published JSONL).
+
+    Previous version had two failure modes:
+      1. The eval_results.json branch read keys (`pass@1.n_correct`)
+         that don't exist in evalplus's actual output schema and always
+         returned 0/164.
+      2. The JSONL fallback counted `is_passing` / `passed` fields that
+         the published JSONLs don't carry — always returned 0/164.
+    Both meant `add_benchmark.py --from-evalplus` was a no-op that
+    silently wrote 0% to the alloy.
+
+    Fix: delegate to tests/reproducibility/_humaneval_scorer.py which
+    wraps evalplus's official CLI with the macOS reliability_guard +
+    fork-multiprocessing patches and returns the canonical pass@1 for
+    BOTH humaneval (base) and humaneval_plus (base AND plus passes
+    convention).
+
+    Args:
+        result_dir: path to a directory containing one or more *.jsonl
+                    sample files, or to a single .jsonl file directly
+        benchmark_name: 'humaneval' or 'humaneval_plus' (selects which
+                    of the two pass@1 numbers to return)
+    """
     result_dir = Path(result_dir)
 
-    # Look for eval_results.json
-    eval_file = result_dir / "eval_results.json"
-    if eval_file.exists():
-        results = json.loads(eval_file.read_text())
-        return {
-            "passing": results.get("pass@1", {}).get("n_correct", 0),
-            "total": results.get("pass@1", {}).get("n_total", 164),
-            "score": round(results.get("pass@1", {}).get("pass@1", 0) * 100, 1),
-        }
+    # Find the samples JSONL. Accept either a direct file or a directory.
+    if result_dir.is_file() and result_dir.suffix == ".jsonl":
+        samples_path = result_dir
+    else:
+        # Prefer a sanitized JSONL if present (evalplus.sanitize convention),
+        # otherwise the first .jsonl in the directory or its humaneval/ subdir.
+        candidates = []
+        for d in (result_dir, result_dir / "humaneval"):
+            if d.exists():
+                candidates.extend(sorted(d.glob("*-sanitized.jsonl")))
+                candidates.extend(sorted(d.glob("*.jsonl")))
+        candidates = [c for c in candidates if not c.name.endswith("_eval_results.json")]
+        if not candidates:
+            print(f"  No JSONL samples found under {result_dir}")
+            return None
+        samples_path = candidates[0]
 
-    # Look for samples and count pass/fail
-    samples_dir = result_dir
-    if not any(samples_dir.glob("*.jsonl")):
-        samples_dir = result_dir / "humaneval"
+    # Delegate to the canonical scorer (uses evalplus's official CLI).
+    import sys
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tests" / "reproducibility"))
+    from _humaneval_scorer import score_jsonl
 
-    for jsonl in samples_dir.glob("*.jsonl"):
-        results = []
-        with open(jsonl) as f:
-            for line in f:
-                results.append(json.loads(line))
-        if results:
-            passing = sum(1 for r in results if r.get("is_passing", r.get("passed", False)))
-            total = len(results)
-            return {
-                "passing": passing,
-                "total": total,
-                "score": round(passing / total * 100, 1) if total > 0 else 0,
-            }
+    try:
+        result = score_jsonl(samples_path)
+    except Exception as e:
+        print(f"  evalplus scoring failed: {e}")
+        return None
 
-    return None
+    # Select the benchmark we were asked for.
+    key = benchmark_name
+    if key not in result:
+        print(f"  scorer returned no key for benchmark {key!r}; got {sorted(result.keys())}")
+        return None
+    section = result[key]
+
+    return {
+        "passing": section.get("passed"),
+        "total": section.get("total"),
+        # Canonical pass@1 percentage. round to 2 dp NEVER 1 dp — 1 dp
+        # rounding loses the third digit and creates the publish-pipeline
+        # discrepancies the Tier 4 reproducibility test catches.
+        "score": round(section["pass_at_1"] * 100, 2),
+        "metric": "pass@1",
+        "samplesPath": str(samples_path),
+        "datasetHash": result.get("dataset_hash"),
+    }
 
 
 def main():
