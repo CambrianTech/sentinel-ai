@@ -88,8 +88,8 @@ PUBLISHED_ALLOYS: list[tuple[str, str | None, str]] = [
     # ── MoE §4.1.3.4 anchor artifacts ────────────────────────────────────────
     # qwen3_moe adapter landed — this one must dispatch cleanly.
     ("continuum-ai/qwen3-coder-30b-a3b-compacted-19b-256k", None, "active"),
-    # Deferred until OlmoeAdapter lands (next commit).
-    ("continuum-ai/olmoe-1b-7b-compacted-5b",               None, "deferred"),
+    # olmoe adapter landed — second §4.1.3.4 cross-architecture anchor.
+    ("continuum-ai/olmoe-1b-7b-compacted-5b",               None, "active"),
     # Dense compensated v2-7B — the §4.1.3.3 anchor (qwen2 architecture).
     ("continuum-ai/qwen2.5-coder-7b-compacted",             None, "deferred"),
 ]
