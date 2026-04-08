@@ -156,19 +156,33 @@ def publish(output_dir: Path, org: str = "continuum-ai",
     # without trusting the producer's claim. This is the cheapest concrete
     # trust upgrade per the forge-alloy attestation roadmap.
     bench_hashed = 0
+    def _hash_sample(rel_path: str, label: str) -> str | None:
+        if not rel_path:
+            return None
+        abs_path = (output_dir / rel_path).resolve()
+        if not abs_path.exists():
+            print(f"  WARNING: benchmark '{label}' samples {rel_path} not found — skipping resultHash")
+            return None
+        if not str(abs_path).startswith(str(output_dir.resolve())):
+            print(f"  WARNING: benchmark '{label}' samples {rel_path} escapes publish dir — skipping")
+            return None
+        return "sha256:" + hash_file(abs_path)
+
     for b in alloy.get("results", {}).get("benchmarks", []):
-        samples_rel = b.get("samplesPath")
-        if not samples_rel or b.get("resultHash"):
-            continue
-        samples_abs = (output_dir / samples_rel).resolve()
-        if not samples_abs.exists():
-            print(f"  WARNING: benchmark '{b.get('name','?')}' samplesPath {samples_rel} not found — skipping resultHash")
-            continue
-        if not str(samples_abs).startswith(str(output_dir.resolve())):
-            print(f"  WARNING: benchmark '{b.get('name','?')}' samplesPath {samples_rel} escapes publish dir — skipping")
-            continue
-        b["resultHash"] = "sha256:" + hash_file(samples_abs)
-        bench_hashed += 1
+        bname = b.get("name", "?")
+        # Student samples → resultHash
+        if not b.get("resultHash"):
+            h = _hash_sample(b.get("samplesPath"), bname)
+            if h:
+                b["resultHash"] = h
+                bench_hashed += 1
+        # Base samples → baseResultHash (when the alloy carries a hardware
+        # measurement of the unmodified base for self-anchor calibration)
+        if not b.get("baseResultHash"):
+            h = _hash_sample(b.get("baseSamplesPath"), f"{bname} base")
+            if h:
+                b["baseResultHash"] = h
+                bench_hashed += 1
     if bench_hashed:
         print(f"  Result-hashed {bench_hashed} benchmark sample file(s)")
 
@@ -249,7 +263,9 @@ def publish(output_dir: Path, org: str = "continuum-ai",
     except Exception as e:
         raise RuntimeError(f"Failed to create repo: {e}")
 
-    # Upload model weights
+    # Upload model weights — safetensors layout (model/ subdir) OR GGUF
+    # layout (.gguf files at output_dir root, the convention for HF quant
+    # repos). The two layouts are mutually exclusive per repo.
     if model_dir.exists():
         safetensors = list(model_dir.glob("*.safetensors"))
         if safetensors:
@@ -267,6 +283,18 @@ def publish(output_dir: Path, org: str = "continuum-ai",
             if cfg_path.exists():
                 api.upload_file(path_or_fileobj=str(cfg_path), path_in_repo=cfg_name, repo_id=repo_id)
                 files_uploaded += 1
+
+    # GGUF layout — quant tiers at the repo root (HF convention for
+    # llama.cpp / Ollama / LM Studio consumption). Resolves symlinks
+    # so the upload reads the actual file content.
+    gguf_files = sorted(output_dir.glob("*.gguf"))
+    if gguf_files:
+        print(f"  Uploading {len(gguf_files)} GGUF tier(s)...")
+        for gf in gguf_files:
+            real = gf.resolve()
+            api.upload_file(path_or_fileobj=str(real), path_in_repo=gf.name, repo_id=repo_id)
+            total_bytes += real.stat().st_size
+            files_uploaded += 1
 
     # Upload benchmark samples
     bench_dir = output_dir / "benchmark"

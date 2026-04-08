@@ -34,22 +34,47 @@ def _generate_headline(stages: list, base_model: str, domain: str, improvement: 
         score = primary["score"]
         base = primary["baseScore"]
         delta = primary.get("delta", score - base)
-        prune_stage = next((s for s in stages if s.get("type") == "prune"), None)
+        # Headline prefix from pruning stages — covers BOTH dense head pruning
+        # ("12% Pruned") and MoE expert pruning ("35% Pruned"). Picks whichever
+        # is present.
         pct_str = ""
+        prune_stage = next((s for s in stages if s.get("type") == "prune"), None)
+        expert_stage = next((s for s in stages if s.get("type") == "expert-prune"), None)
         if prune_stage:
             level = prune_stage.get("level", 0)
             pct = int(level * 100) if level <= 1 else int(level)
             pct_str = f"{pct}% Pruned, "
+        elif expert_stage:
+            pct = expert_stage.get("prunePct")
+            if pct is None:
+                kept = expert_stage.get("keepExpertsPerLayer")
+                orig = expert_stage.get("originalExpertsPerLayer")
+                if kept and orig:
+                    pct = round((1 - kept / orig) * 100)
+            if pct:
+                pct_str = f"{int(pct)}% Experts Pruned, "
         headline = f"{pct_str}{score:.1f} {bname.replace('_', '+').upper()} (base {base:.1f})"
         bench_lines = "\n".join(
             f"- **{b.get('name','?').replace('_','+').upper()}**: {b['score']:.1f} (base {b['baseScore']:.1f}, Δ {b.get('delta', b['score']-b['baseScore']):+.1f})"
             for b in bench_with_base
         )
-        subtitle = (
-            f"**{base_name}** forged through Experiential Plasticity and recovered "
-            f"to within calibration tolerance of the unmodified base via KL-distillation "
-            f"compensation LoRA.\n\n{bench_lines}"
+        # Subtitle: a short factual summary derived from the actual stages.
+        # Crucially do NOT claim "recovered to within calibration tolerance"
+        # unless there is actually a distillation/compensation stage in the
+        # alloy — that text was hard-coded for v2-7B's specific narrative
+        # and would HALLUCINATE compensation on a prune-only artifact.
+        has_distillation = any(
+            s.get("lossType") for s in stages if s.get("type") == "lora"
         )
+        if has_distillation:
+            method_phrase = "recovered to within calibration tolerance of the unmodified base via KL-distillation compensation LoRA"
+        elif expert_stage:
+            method_phrase = "compacted via per-layer-normalized MoE expert pruning against the unmodified teacher"
+        elif prune_stage:
+            method_phrase = "compacted via head pruning against the unmodified teacher"
+        else:
+            method_phrase = "forged via the Continuum methodology"
+        subtitle = f"**{base_name}** {method_phrase}.\n\n{bench_lines}"
         return headline, subtitle
 
     # Context extension is the primary headline when present
@@ -231,16 +256,34 @@ def alloy_to_card(alloy: dict, alloy_hash: str = "", audience: str = "user") -> 
         }
         auto_tags.update(domain_expansion.get(domain, []))
 
-    # Architecture tags
+    # Architecture tags — every concrete family + version that a HF user
+    # might filter by. The goal is for our forge to surface in the same
+    # discovery list as the unmodified base, so users browsing
+    # "Qwen2.5-Coder-7B" or "Qwen3-Coder-30B" see our smaller variant.
     base_lower = base_model.lower()
     if "qwen" in base_lower:
-        auto_tags.add("qwen3.5" if "3.5" in base_lower else "qwen")
-    if "llama" in base_lower: auto_tags.add("llama")
+        auto_tags.add("qwen")
+        if "qwen2.5" in base_lower or "2.5" in base_lower: auto_tags.update(["qwen2", "qwen2.5"])
+        if "qwen3" in base_lower or "3.5" in base_lower:
+            auto_tags.add("qwen3")
+            if "3.5" in base_lower: auto_tags.add("qwen3.5")
+        if "coder" in base_lower: auto_tags.update(["qwen-coder", "qwen2.5-coder" if "2.5" in base_lower else "qwen3-coder"])
+        if "instruct" in base_lower: auto_tags.add("instruct")
+    if "llama" in base_lower:
+        auto_tags.add("llama")
+        if "llama-3" in base_lower or "llama3" in base_lower: auto_tags.add("llama-3")
     if "mistral" in base_lower: auto_tags.add("mistral")
+    if "deepseek" in base_lower: auto_tags.add("deepseek")
 
-    # Stage-derived tags
+    # Stage-derived tags — methodology surface area for forge discovery.
+    # When users search HF for "pruned" or "compacted" or "distillation"
+    # they're looking for exactly the artifacts the forge produces.
     stage_types = {s.get("type") for s in stages}
-    if "prune" in stage_types: auto_tags.update(["pruned", "head-pruning", "neural-plasticity", "efficient", "optimized"])
+    if "prune" in stage_types:
+        auto_tags.update(["pruned", "head-pruning", "compacted",
+                          "neural-plasticity", "efficient", "optimized"])
+    if "expert-prune" in stage_types or any(s.get("type") == "lora" and "expert" in str(s).lower() for s in stages):
+        auto_tags.update(["expert-pruning", "moe", "mixture-of-experts", "sparse-moe"])
     if "context-extend" in stage_types:
         ctx = next((s for s in stages if s.get("type") == "context-extend"), {})
         method = ctx.get("method", "")
@@ -248,52 +291,68 @@ def alloy_to_card(alloy: dict, alloy_hash: str = "", audience: str = "user") -> 
         if method: auto_tags.add(method)
         if target: auto_tags.add(f"{target // 1024}k-context")
         auto_tags.update(["long-context", "extended-context"])
-    if "lora" in stage_types: auto_tags.add("lora")
+    if "lora" in stage_types:
+        auto_tags.add("lora")
+        # Distillation flag — pick up compensation-LoRA / KL distillation stages
+        if any(s.get("lossType") for s in stages if s.get("type") == "lora"):
+            auto_tags.update(["distillation", "knowledge-distillation",
+                              "compensation-lora", "teacher-student"])
     if "compact" in stage_types: auto_tags.update(["compacted", "mixed-precision"])
-    if "quant" in stage_types: auto_tags.update(["quantized"])
+    if "quant" in stage_types:
+        auto_tags.update(["quantized", "gguf", "ggml"])
+        # Pick up specific quant tiers from quant stage's quantTypes
+        for qs in (s for s in stages if s.get("type") == "quant"):
+            for qt in qs.get("quantTypes", []):
+                auto_tags.add(qt.lower().replace("_", "-"))
     if "modality" in stage_types: auto_tags.update(["multimodal"])
+
+    # MoE detection from base model name (catches the case where the base
+    # is MoE but we don't have an explicit expert-prune stage in the alloy)
+    if any(t in base_lower for t in ["a3b", "a17b", "a35b", "moe"]):
+        auto_tags.update(["moe", "mixture-of-experts"])
+
+    # Programming languages — Qwen-Coder targets all of these. Each one
+    # is a distinct HF discovery vector.
+    if domain == "code" or "coder" in base_lower:
+        auto_tags.update(["python", "javascript", "typescript", "java", "c", "cpp",
+                          "rust", "go", "ruby", "php", "swift", "kotlin", "sql",
+                          "bash", "html", "css"])
+        auto_tags.update(["code-generation", "code-completion", "code-infill",
+                          "function-calling", "agentic-coding"])
 
     # Deployment tags — always relevant
     auto_tags.update(["local-inference", "on-device", "edge-inference",
                        "apple-silicon", "macbook", "iphone", "android",
-                       "ollama", "lm-studio", "llama-cpp",
-                       "mobile", "embedded", "raspberry-pi"])
+                       "ollama", "lm-studio", "llama-cpp", "mlx",
+                       "mobile", "embedded", "raspberry-pi", "consumer-gpu"])
 
-    # Language tags
-    auto_tags.update(["English", "Chinese"])
+    # Provenance — the forge-alloy differentiator
+    auto_tags.update(["forge-alloy", "cryptographically-verified", "reproducible",
+                      "chain-of-custody", "attested"])
 
-    # Size tag
+    # Language tags — match the base model's training data
+    auto_tags.update(["english", "chinese", "multilingual"])
+
+    # Size tag — both the parent base size AND the forged size if known.
+    # The "forged size in the parent's listing" is the click magnet:
+    # someone browsing Qwen3-Coder-30B sees a 19B variant and clicks.
     for part in base_model.split("-"):
         if part.lower().endswith("b") and part[:-1].replace(".", "").isdigit():
             auto_tags.add(part.lower())
+    # Forged size from the alloy's hardware estimate, if present
+    forged_size = r.get("forgedParamsB") or r.get("activeParamsB")
+    if forged_size:
+        auto_tags.add(f"{int(forged_size)}b")
 
-    # Cap tags for user-facing card. HF search treats >15 tags as spam and
-    # dilutes discoverability. Researcher card keeps the full set for
-    # provenance/discoverability research.
-    if is_researcher:
-        all_tags = sorted(auto_tags)
-    else:
-        # Priority order for user card: domain + size + base family +
-        # methodology highlights + provenance differentiator.
-        priority = [
-            "text-generation",
-            domain or "general",
-            "code-generation" if domain == "code" else None,
-            "qwen2.5" if "qwen" in base_lower and "2.5" in base_lower else
-            "qwen3.5" if "qwen" in base_lower and "3.5" in base_lower else
-            "qwen" if "qwen" in base_lower else None,
-            next((p.lower() for p in base_model.split("-")
-                  if p.lower().endswith("b") and p[:-1].replace(".", "").isdigit()), None),
-            "pruned" if "prune" in stage_types else None,
-            "lora" if "lora" in stage_types else None,
-            "compensation-lora" if any(s.get("name") == "compensation-lora" for s in stages) else None,
-            "distillation" if any(s.get("lossType") for s in stages) else None,
-            "long-context" if "context-extend" in stage_types else None,
-            "multimodal" if "modality" in stage_types else None,
-            "forge-alloy",
-            "cryptographically-verified",
-        ]
-        all_tags = [t for t in dict.fromkeys(p for p in priority if p)][:10]
+    # Tag policy: both audiences keep all discovery-relevant tags. The
+    # earlier 10-cap was wrong — it dropped vectors like "qwen3-coder",
+    # "moe", programming-language tags, the size tag of the parent base
+    # model, all of which are how users actually find related artifacts
+    # on HF. Strip only obviously-internal labels that aren't discovery
+    # vectors.
+    DROP = {"continuum", "sentinel-ai", "experiential-plasticity",
+            "neural-plasticity", "forged"}
+    all_tags = sorted(t for t in auto_tags if t not in DROP)
 
     # Generate adaptive headline based on what the model actually does
     headline, subtitle = _generate_headline(stages, base_model, domain, improvement, baseline, final, cycles, r.get("benchmarks", []))

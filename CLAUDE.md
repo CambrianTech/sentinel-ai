@@ -1,5 +1,31 @@
 # CLAUDE.md - AI Agent Guidelines
 
+## Forge Methodology Rules (load-bearing — read first when adding any prune-style stage)
+
+**§4.1.3.4 — Importance metrics for prunable units MUST be calibration-aware.** Empirically validated at two structural units:
+- **Dense head pruning** (PLASTICITY-COMPACTION §4.1.3.1–§4.1.3.3): activation-magnitude metric is biased toward local fine-tuning loss; closes only after compensation LoRA against teacher logits.
+- **MoE expert pruning** (PLASTICITY-COMPACTION §4.1.3.4): router-gate row L2 norm is task-misaligned for held-out code generation; replacing with calibration-aware activation counts on a held-out code corpus closed +9.7 HumanEval points on Qwen3-Coder-30B-A3B-Instruct (78.7 → 88.4) on the same prune budget, no additional training. Empirical anchor: `continuum-ai/qwen3-coder-30b-a3b-compacted-19b-256k` v1, alloy hash `aa61c4bdf463847c`.
+
+**The structural rule.** Any importance metric for ANY prunable unit (heads, experts, layers, context bands, vision tower channels, future structural units) MUST be derived from task-conditioned activation profiling on a held-out corpus that reflects the artifact's intended workload. Architectural metrics (weight norms, gate row norms, gate magnitudes) are first-pass shortcuts that systematically underperform task-specific activation metrics. **Default any new prune stage to calibration-aware mode; treat architectural-only modes as legacy/diagnostic, not as the recommended path.**
+
+**Implementation pattern (current canonical form):**
+1. New profile script: load base model in 4/8-bit on GPU, register forward hooks on the prunable units' decision boundary (router gates for MoE, attention output projections for heads, etc), run held-out calibration corpus through inference, dump per-unit activation counts to JSON. See `scripts/expert_activation_profile.py` for the MoE template.
+2. Prune script accepts `--importance-json <path>` and uses the activation counts from the JSON instead of any architectural metric. See `scripts/cpu_expert_prune_v2.py` for the canonical implementation.
+3. Sidecar metadata records both the metric used and the calibration corpus hash for full provenance — no metric switching ever happens silently.
+4. Published alloy carries a `priorMetricBaselines[]` array with at least one architectural-metric run as the negative-baseline empirical control; without it, the §4.1.3.4 claim is unfalsifiable for the published artifact.
+
+**Bug-class verification protocol** (run BEFORE accepting any unexpected prune-quality drop as structural):
+1. Hash shared-component tensors (shared experts, dense skip connections) to confirm bit-identical between base and student. 30s.
+2. Verify gate/router slicing alignment to surviving indices via row-by-row torch.equal check. 2 min.
+3. Per-prunable-unit tensor-trio source consistency check (e.g. expert gate/up/down all from same source expert). 5 min.
+4. GGUF metadata inspection for off-by-one in expert_count / num_active. 1 min.
+5. Quantization compounding check: eval Q8_0 vs Q5_K_M to rule out quantization as the destroyer. 30 min.
+6. Calibration distribution overlap check: re-rank importance under a different (held-out task) corpus, compare top-K overlap to current ranking. If <70% overlap, the metric was task-misaligned (the §4.1.3.4 case).
+
+If checks 1-5 pass and check 6 reveals <70% overlap, the metric is the issue, not the pipeline. Fix is calibration-aware activation profiling per §4.1.3.4, not bug-hunting.
+
+**Memory architecture for big-teacher distillation** (NOT YET IMPLEMENTED, blocks compensation LoRA on 30B+ class on a single 32 GB GPU): transformers' `caching_allocator_warmup` pre-allocates an fp16 buffer equal to the full model size before bnb 4/8-bit quantization takes effect. Loading both teacher and student on the same GPU exceeds VRAM even with both nominally 4-bit. The architecturally correct fix is **offline teacher-logit precomputation**: phase 1 loads teacher alone in 4-bit and dumps `(input_ids, logits)` to disk on the calibration corpus, phase 2 unloads teacher and frees the GPU, phase 3 loads student alone in 4-bit and trains against the on-disk logits. This rewrite is the prerequisite to any compensation LoRA on ≥30B models on a single consumer GPU.
+
 ## Claude Notes - Sentinel-AI Project
 - ALWAYS increment version numbers when fixing bugs (e.g., v0.0.33 → v0.0.34)
 - ALWAYS include full timestamps in version numbers with CURRENT YEAR 2025 (e.g., v0.0.34 (2025-04-19 18:30:00))
