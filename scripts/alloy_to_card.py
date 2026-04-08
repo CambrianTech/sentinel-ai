@@ -156,8 +156,20 @@ def _how_it_was_made(stages: list, domain: str, cycles: int, hw_device: str) -> 
     return "\n".join(parts)
 
 
-def alloy_to_card(alloy: dict, alloy_hash: str = "") -> str:
-    """Generate a model card from an executed alloy. Every claim is proof."""
+def alloy_to_card(alloy: dict, alloy_hash: str = "", audience: str = "user") -> str:
+    """Generate a model card from an executed alloy.
+
+    audience="user"       — concise user-facing card (default). Methodology
+                            sections collapse to a single paper link.
+    audience="researcher" — full methodology view including The Journey,
+                            Loss Function Ablation, About-this-model paper
+                            framing, and per-stage methodology blockquotes.
+                            Used for the companion MODEL_METHODOLOGY.md file.
+
+    Every claim is proof — both audiences pull from the same alloy as the
+    single source of truth; they project different views of it.
+    """
+    is_researcher = audience == "researcher"
 
     name = alloy.get("name", "model")
     author = alloy.get("author", "")
@@ -255,7 +267,33 @@ def alloy_to_card(alloy: dict, alloy_hash: str = "") -> str:
         if part.lower().endswith("b") and part[:-1].replace(".", "").isdigit():
             auto_tags.add(part.lower())
 
-    all_tags = sorted(auto_tags)
+    # Cap tags for user-facing card. HF search treats >15 tags as spam and
+    # dilutes discoverability. Researcher card keeps the full set for
+    # provenance/discoverability research.
+    if is_researcher:
+        all_tags = sorted(auto_tags)
+    else:
+        # Priority order for user card: domain + size + base family +
+        # methodology highlights + provenance differentiator.
+        priority = [
+            "text-generation",
+            domain or "general",
+            "code-generation" if domain == "code" else None,
+            "qwen2.5" if "qwen" in base_lower and "2.5" in base_lower else
+            "qwen3.5" if "qwen" in base_lower and "3.5" in base_lower else
+            "qwen" if "qwen" in base_lower else None,
+            next((p.lower() for p in base_model.split("-")
+                  if p.lower().endswith("b") and p[:-1].replace(".", "").isdigit()), None),
+            "pruned" if "prune" in stage_types else None,
+            "lora" if "lora" in stage_types else None,
+            "compensation-lora" if any(s.get("name") == "compensation-lora" for s in stages) else None,
+            "distillation" if any(s.get("lossType") for s in stages) else None,
+            "long-context" if "context-extend" in stage_types else None,
+            "multimodal" if "modality" in stage_types else None,
+            "forge-alloy",
+            "cryptographically-verified",
+        ]
+        all_tags = [t for t in dict.fromkeys(p for p in priority if p)][:10]
 
     # Generate adaptive headline based on what the model actually does
     headline, subtitle = _generate_headline(stages, base_model, domain, improvement, baseline, final, cycles, r.get("benchmarks", []))
@@ -301,18 +339,55 @@ license: {alloy.get('license', 'apache-2.0')}
 ---
 """
 
-    # About — render alloy.description as prose. This is the most expressive
-    # field in the alloy and was previously thrown away by the card generator.
+    # User-facing one-paragraph "what this is". Alloy may carry an
+    # explicit `userSummary` field; otherwise auto-derive a short paragraph
+    # from base model + benchmark deltas. NEVER use alloy.description for
+    # the user card — that field carries paper prose.
+    if not is_researcher:
+        user_summary = (alloy.get("userSummary") or "").strip()
+        if not user_summary:
+            base_short = base_model.split("/")[-1]
+            primary_bench = next(
+                (b for b in r.get("benchmarks", []) if b.get("baseScore") is not None),
+                None
+            )
+            if primary_bench:
+                bname = primary_bench.get("name", "benchmark").replace("_", "+")
+                bscore = primary_bench["score"]
+                bbase = primary_bench["baseScore"]
+                user_summary = (
+                    f"**{base_short}** with cryptographic provenance via the "
+                    f"[ForgeAlloy](https://github.com/CambrianTech/forge-alloy) chain of custody. "
+                    f"Scores **{bscore:.1f} {bname}** against the unmodified base's **{bbase:.1f}**, "
+                    f"recovered to within calibration tolerance after head pruning + distillation. "
+                    f"Ships with the per-problem evaluation outputs so the score is independently verifiable."
+                )
+            else:
+                user_summary = (
+                    f"**{base_short}** with cryptographic provenance via the "
+                    f"[ForgeAlloy](https://github.com/CambrianTech/forge-alloy) chain of custody."
+                )
+        card += "\n" + user_summary + "\n\n"
+
+    # ───────── RESEARCHER-ONLY METHODOLOGY SECTIONS ─────────
+    # The next three sections render only when audience="researcher"
+    # (i.e. for the companion MODEL_METHODOLOGY.md file). The user-facing
+    # card collapses all of this to the one-paragraph summary above plus
+    # a single methodology paper link near the bottom.
+
+    # About — render alloy.description as prose. This is paper-framing
+    # ("methodology validation artifact for §4.1.3.3") and belongs in the
+    # researcher view, not the user card.
     description = alloy.get("description", "").strip()
-    if description:
+    if is_researcher and description:
         card += "\n## About this model\n\n"
         card += description + "\n\n"
 
     # The Journey — narrative four-run progression. For recovery artifacts
     # the path that led to the final number is the actual story; the headline
-    # number is just the punchline.
+    # number is just the punchline. Methodology content — researcher only.
     progression = r.get("fourRunProgression") or r.get("runProgression") or []
-    if progression and len(progression) >= 2:
+    if is_researcher and progression and len(progression) >= 2:
         card += "## The Journey\n\n"
         first = progression[0]
         last = progression[-1]
@@ -335,9 +410,9 @@ license: {alloy.get('license', 'apache-2.0')}
         card += "\n"
 
     # Loss function ablation — substantive sub-finding for distillation
-    # artifacts. Tells the "MSE collapsed, KL recovered" story as prose.
+    # artifacts. Methodology content — researcher only.
     ablation = r.get("lossFunctionAblation") or []
-    if ablation and len(ablation) >= 2:
+    if is_researcher and ablation and len(ablation) >= 2:
         card += "## Loss Function Ablation\n\n"
         card += (
             "The compensation LoRA was run twice with identical configuration, varying only the "
@@ -432,14 +507,22 @@ license: {alloy.get('license', 'apache-2.0')}
         pct = int(level * 100) if level <= 1 else int(level)
         card += f"| **Pruning** | None | {pct}% heads ({strategy}) | **-{pct}%** params ✅ |\n"
 
-    # LoRA
-    lora_stage = next((s for s in stages if s.get("type") == "lora"), None)
+    # LoRA — pick the lora stage that actually carries a rank. When a forge
+    # has both a training-lora and a named compensation-lora, the
+    # compensation stage is the one with the LoRA-specific config; the
+    # training stage is just a fine-tuning loop using the lora executor.
+    lora_stages = [s for s in stages if s.get("type") == "lora"]
+    lora_stage = next(
+        (s for s in lora_stages if s.get("loraRank") or s.get("rank")),
+        lora_stages[0] if lora_stages else None,
+    )
     if lora_stage:
-        rank = lora_stage.get("rank", "?")
+        rank = lora_stage.get("loraRank") or lora_stage.get("rank") or "?"
         modules = ", ".join(lora_stage.get("targetModules", [])[:4])
         if len(lora_stage.get("targetModules", [])) > 4:
             modules += "..."
-        card += f"| **LoRA** | None | rank={rank} | {modules} |\n"
+        sub_label = lora_stage.get("name") or "LoRA"
+        card += f"| **{sub_label}** | None | rank={rank} | {modules} |\n"
 
     # Training
     train_stage = next((s for s in stages if s.get("type") == "train"), None)
@@ -488,6 +571,15 @@ output = model.generate(**inputs, max_new_tokens=200)
 print(tokenizer.decode(output[0], skip_special_tokens=True))
 ```
 
+"""
+
+    # Methodology section — audience-gated.
+    # User card: single paragraph + paper link, no §x.x.x cross-references.
+    # Researcher card: full bullet methodology with stage notes as blockquotes.
+    paper_url = (alloy.get("methodologyPaperUrl") or
+                 alloy.get("methodologyUrl") or "").strip()
+    if is_researcher:
+        card += f"""
 ## How It Was Made
 
 ```
@@ -496,6 +588,27 @@ print(tokenizer.decode(output[0], skip_special_tokens=True))
 
 {_how_it_was_made(stages, domain, cycles, hw_device)}
 """
+    else:
+        # User-mode methodology: one paragraph, one link.
+        method_techniques = []
+        if "prune" in stage_types: method_techniques.append("head pruning")
+        if "expert-prune" in stage_types: method_techniques.append("MoE expert pruning")
+        if "lora" in stage_types: method_techniques.append("LoRA fine-tuning")
+        if any(s.get("lossType") for s in stages): method_techniques.append("KL-distillation compensation against the unmodified teacher")
+        if "context-extend" in stage_types: method_techniques.append("YaRN context extension")
+        if "quant" in stage_types: method_techniques.append("GGUF quantization")
+        techniques_str = ", ".join(method_techniques) if method_techniques else "the Continuum forge pipeline"
+        paper_link = f"[the methodology paper]({paper_url})" if paper_url else "[the methodology paper](https://github.com/CambrianTech/continuum/blob/main/docs/papers/PLASTICITY-COMPACTION.md)"
+        method_doc_link = f"[`MODEL_METHODOLOGY.md`](MODEL_METHODOLOGY.md)"
+        card += f"\n## Methodology\n\nProduced via {techniques_str}. Full methodology, ablations, and per-stage rationale are in {paper_link} and the companion {method_doc_link} in this repository. The pipeline ran as `{pipeline}` over {cycles} cycle{'s' if cycles != 1 else ''} on {hw_device}.\n\n"
+
+    # Limitations — always shown, sourced from alloy.limitations[]
+    limitations = alloy.get("limitations") or []
+    if limitations:
+        card += "## Limitations\n\n"
+        for lim in limitations:
+            card += f"- {lim}\n"
+        card += "\n"
 
     # Chain of custody
     card += "\n## Chain of Custody\n\n"

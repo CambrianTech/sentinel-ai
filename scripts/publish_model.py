@@ -94,12 +94,16 @@ def generate_qr(verify_url: str, output_path: Path) -> bool:
     return True
 
 
-def generate_card(alloy: dict, alloy_hash: str) -> str:
-    """Generate model card from alloy using alloy_to_card."""
+def generate_card(alloy: dict, alloy_hash: str, audience: str = "user") -> str:
+    """Generate model card from alloy using alloy_to_card.
+
+    audience="user" produces the concise user-facing README.md.
+    audience="researcher" produces the full MODEL_METHODOLOGY.md companion.
+    """
     scripts_dir = Path(__file__).resolve().parent
     sys.path.insert(0, str(scripts_dir))
     from alloy_to_card import alloy_to_card
-    return alloy_to_card(alloy, alloy_hash)
+    return alloy_to_card(alloy, alloy_hash, audience=audience)
 
 
 def publish(output_dir: Path, org: str = "continuum-ai",
@@ -195,11 +199,22 @@ def publish(output_dir: Path, org: str = "continuum-ai",
         qr_ok = generate_qr(verify_url, qr_path)
     print(f"  QR: {verify_url}")
 
-    card = generate_card(alloy, alloy_hash)
+    card = generate_card(alloy, alloy_hash, audience="user")
     card_path = output_dir / "README.md"
     if not dry_run:
         card_path.write_text(card)
     print(f"  Card: {len(card)} chars")
+
+    # Companion researcher view — full methodology, ablation tables, and
+    # per-stage methodology blockquotes. Same alloy as the source of truth,
+    # different projection. Uploaded alongside the user card so the
+    # methodology content stays in the HF repo for reproducibility without
+    # cluttering the headline README.
+    methodology = generate_card(alloy, alloy_hash, audience="researcher")
+    methodology_path = output_dir / "MODEL_METHODOLOGY.md"
+    if not dry_run:
+        methodology_path.write_text(methodology)
+    print(f"  Methodology: {len(methodology)} chars")
 
     if dry_run:
         print("\n  DRY RUN — not uploading. Files prepared in output dir.")
@@ -278,6 +293,11 @@ def publish(output_dir: Path, org: str = "continuum-ai",
     # Upload QR
     if qr_ok and qr_path.exists():
         api.upload_file(path_or_fileobj=str(qr_path), path_in_repo="alloy-qr.png", repo_id=repo_id)
+        files_uploaded += 1
+
+    # Upload methodology companion (researcher view)
+    if methodology_path.exists():
+        api.upload_file(path_or_fileobj=str(methodology_path), path_in_repo="MODEL_METHODOLOGY.md", repo_id=repo_id)
         files_uploaded += 1
 
     # Upload card LAST (references alloy hash which is already uploaded)
