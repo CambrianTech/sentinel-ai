@@ -136,3 +136,6 @@ archive/
 /np_test_output/
 /debug/
 paper/output
+# Local working directory for backfilled alloys before they land on HF.
+# The committed source of truth is tests/reproducibility/_cache/, not this dir.
+backfill_alloys/

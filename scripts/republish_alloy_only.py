@@ -122,44 +122,61 @@ def republish(repo: str, local_alloy_path: Path, confirm: bool) -> int:
     if not alloy_filenames:
         # Fallback: some legacy repos use forge-alloy.json
         alloy_filenames = [f for f in files if f == "forge-alloy.json"]
-    if not alloy_filenames:
-        print(f"ERROR: no .alloy.json or forge-alloy.json in {repo}", file=sys.stderr)
-        return 2
-    alloy_filename = alloy_filenames[0]
-    print(f"  alloy filename: {alloy_filename}")
 
-    # 3. Download current alloy + diff
-    old_local = Path(hf_hub_download(repo, alloy_filename))
-    old_bytes = old_local.read_bytes()
-    old_alloy = json.loads(old_bytes)
-    old_hash = _hash_bytes(old_bytes)
+    # NEW: backfill mode — repo has NO alloy at all. Use the local file's
+    # basename as the in-repo path. Skip the diff-against-current-HF check
+    # because there's nothing to diff.
+    backfill_mode = not alloy_filenames
+    if backfill_mode:
+        alloy_filename = local_alloy_path.name
+        print(f"  no alloy on HF — backfill mode, will upload as: {alloy_filename}")
+        old_alloy: dict = {}
+        old_hash = "0" * 64
+    else:
+        alloy_filename = alloy_filenames[0]
+        print(f"  alloy filename: {alloy_filename}")
+        # 3. Download current alloy + diff
+        old_local = Path(hf_hub_download(repo, alloy_filename))
+        old_bytes = old_local.read_bytes()
+        old_alloy = json.loads(old_bytes)
+        old_hash = _hash_bytes(old_bytes)
 
-    if new_bytes == old_bytes:
-        print("REFUSED: local alloy bytes are identical to current HF alloy.")
-        print("         Nothing to upload.")
-        return 3
+        if new_bytes == old_bytes:
+            print("REFUSED: local alloy bytes are identical to current HF alloy.")
+            print("         Nothing to upload.")
+            return 3
 
     print(f"\n  current alloyHash: {old_hash[:16]}  ({_verify_url(old_hash)})")
     print(f"  new     alloyHash: {new_hash[:16]}  ({_verify_url(new_hash)})")
 
-    # 4. Defensive: refuse if modelHash changes
-    old_mh = ((old_alloy.get("results") or {}).get("integrity") or {}).get("modelHash")
-    new_mh = ((new_alloy.get("results") or {}).get("integrity") or {}).get("modelHash")
-    if old_mh and new_mh and old_mh != new_mh:
-        print(f"\nREFUSED: results.integrity.modelHash changed:")
-        print(f"  old: {old_mh}")
-        print(f"  new: {new_mh}")
-        print(f"  Use publish_model.py for a full re-publish that includes weights.")
-        return 4
+    # 4. Defensive: refuse if modelHash changes (unless we're backfilling — in
+    # which case the old alloy doesn't exist so there's no old modelHash to
+    # compare against)
+    if not backfill_mode:
+        old_mh = ((old_alloy.get("results") or {}).get("integrity") or {}).get("modelHash")
+        new_mh = ((new_alloy.get("results") or {}).get("integrity") or {}).get("modelHash")
+        if old_mh and new_mh and old_mh != new_mh:
+            print(f"\nREFUSED: results.integrity.modelHash changed:")
+            print(f"  old: {old_mh}")
+            print(f"  new: {new_mh}")
+            print(f"  Use publish_model.py for a full re-publish that includes weights.")
+            return 4
 
-    # 5. Show meaningful field diff
-    print("\nDiff summary (corrected fields):")
-    changes = _diff_summary(old_alloy, new_alloy)
-    if not changes:
-        print("  (no recognizable field changes — bytes differ on whitespace/order only)")
+    # 5. Show meaningful field diff (or full benchmark list in backfill mode)
+    if backfill_mode:
+        print("\nBackfill — fields that will land on HF:")
+        for b in (new_alloy.get("results") or {}).get("benchmarks", []):
+            print(f"  results.benchmarks[{b.get('name')}]: {b.get('metrics', {})}")
+        print(f"  source.architecture: {((new_alloy.get('source') or {}).get('architecture'))}")
+        print(f"  source.baseModel:    {((new_alloy.get('source') or {}).get('baseModel'))}")
     else:
-        for c in changes:
-            print(f"  {c}")
+        print("\nDiff summary (corrected fields):")
+        changes = _diff_summary(old_alloy, new_alloy)
+        if not changes:
+            print("  (no recognizable field changes — bytes differ on whitespace/order only)")
+        else:
+            for c in changes:
+                print(f"  {c}")
 
     # 6. Generate the new card via alloy_to_card
     from alloy_to_card import alloy_to_card

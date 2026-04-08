@@ -66,7 +66,14 @@ HF_RESOLVE_BASE = "https://huggingface.co/{repo}/resolve/main/{filename}"
 # the entire list — adding a new entry automatically creates a new test case.
 
 PUBLISHED_ALLOYS: list[tuple[str, str | None, str]] = [
-    # ── Qwen3.5 dense catalog (FIRST priority — fully green is the gate) ─────
+    # ── Qwen2.5 dense general catalog (legacy, alloy backfilled 2026-04-08) ──
+    # Pre-§4.1.3.1 forges — perplexity-only results, hash-pinned modelHash
+    # via per-shard LFS sha256 composition. See scripts/backfill_alloy_from_results.py.
+    ("continuum-ai/qwen2.5-0.5b-general-forged",            None, "active"),
+    ("continuum-ai/qwen2.5-1.5b-general-forged",            None, "active"),
+    ("continuum-ai/qwen2.5-3b-general-forged",              None, "active"),
+
+    # ── Qwen3.5 dense catalog ────────────────────────────────────────────────
     ("continuum-ai/qwen3.5-0.8b-general-forged",            None, "active"),
     ("continuum-ai/qwen3.5-2b-general-forged",              None, "active"),
     ("continuum-ai/qwen3.5-4b-general-forged",              None, "active"),
@@ -74,23 +81,23 @@ PUBLISHED_ALLOYS: list[tuple[str, str | None, str]] = [
     ("continuum-ai/qwen3.5-4b-code-128k-forged",            None, "active"),
     ("continuum-ai/qwen3.5-9b-general-forged",              None, "active"),
 
-    # Variants of parent forges that the publish pipeline failed to write
-    # an alloy.json for. These are real artifacts on HF but they have no
-    # provenance file. Tracked as a separate brand-integrity gap — the fix
-    # is in scripts/publish_model.py / scripts/alloy_to_card.py, not in the
-    # adapter dispatch layer. Skipped here with a clear message.
-    ("continuum-ai/qwen3.5-4b-code-forged-defragged",       None, "no-alloy-file"),
-    ("continuum-ai/qwen3.5-4b-code-forged-GGUF",            None, "no-alloy-file"),
-    ("continuum-ai/qwen3.5-27b-code-forged",                None, "no-alloy-file"),
-    ("continuum-ai/qwen3.5-27b-code-forged-defragged",      None, "no-alloy-file"),
-    ("continuum-ai/qwen3.5-27b-code-forged-mlx-4bit",       None, "no-alloy-file"),
+    # ── Qwen3.5 27B parent forge (alloy backfilled 2026-04-08) ───────────────
+    ("continuum-ai/qwen3.5-27b-code-forged",                None, "active"),
+
+    # ── Downstream variants (alloys derived from parent + derivation stage) ──
+    # Each carries its OWN modelHash via the variant's actual file LFS sha256s,
+    # inherits the parent's source + stages, appends a single derivation stage
+    # (package for defragged, quant for GGUF / MLX). See scripts/derive_alloy_from_parent.py.
+    ("continuum-ai/qwen3.5-4b-code-forged-defragged",       None, "active"),
+    ("continuum-ai/qwen3.5-4b-code-forged-GGUF",            None, "active"),
+    ("continuum-ai/qwen3.5-27b-code-forged-defragged",      None, "active"),
+    ("continuum-ai/qwen3.5-27b-code-forged-mlx-4bit",       None, "active"),
 
     # ── MoE §4.1.3.4 anchor artifacts ────────────────────────────────────────
-    # qwen3_moe adapter landed — this one must dispatch cleanly.
     ("continuum-ai/qwen3-coder-30b-a3b-compacted-19b-256k", None, "active"),
-    # olmoe adapter landed — second §4.1.3.4 cross-architecture anchor.
     ("continuum-ai/olmoe-1b-7b-compacted-5b",               None, "active"),
-    # Dense compensated v2-7B — the §4.1.3.3 anchor (qwen2 architecture).
+
+    # ── Dense compensated v2-7B (qwen2 architecture, §4.1.3.3 anchor) ────────
     ("continuum-ai/qwen2.5-coder-7b-compacted",             None, "active"),
 ]
 

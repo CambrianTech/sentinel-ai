@@ -1,0 +1,138 @@
+{
+  "name": "qwen3.5-27b-code-forged",
+  "version": "1.0.0",
+  "description": "Forged Qwen3.5-27B for code domain via per-layer head pruning + LoRA recovery training. This alloy was retroactively synthesized from forging_results.json on 2026-04-08 \u2014 the forge run itself executed at 2026-03-27T20:29:26-0500. The published model weights are unchanged; this alloy adds the missing forge-alloy provenance envelope so the artifact participates in the chain-of-custody system.",
+  "author": "continuum-ai",
+  "tags": [
+    "code",
+    "forged",
+    "experiential-plasticity",
+    "forge-alloy",
+    "alloy-backfilled"
+  ],
+  "license": "apache-2.0",
+  "source": {
+    "baseModel": "Qwen/Qwen3.5-27B",
+    "architecture": "qwen3_5"
+  },
+  "stages": [
+    {
+      "type": "prune",
+      "strategy": "magnitude",
+      "level": 0.3,
+      "notes": "Legacy strategy name from forging_results.json: 'experiential_plasticity'. Mapped to canonical 'magnitude' for the alloy schema. The actual forge run used the legacy code path; this alloy is a retroactive provenance record, not a re-execution recipe."
+    },
+    {
+      "type": "train",
+      "domain": "code",
+      "steps": 500,
+      "learningRate": "2e-4",
+      "dataset": "m-a-p/CodeFeedback-Filtered-Instruction",
+      "notes": "Legacy training method: LoRA (r=16, alpha=32)"
+    }
+  ],
+  "cycles": 2,
+  "results": {
+    "completedAt": "2026-03-27T20:29:26-0500",
+    "baselinePerplexity": 3.0711,
+    "finalPerplexity": 2.9624,
+    "improvementPct": 3.54,
+    "benchmarks": [
+      {
+        "name": "perplexity",
+        "metrics": {
+          "baseline": 3.0711,
+          "final": 2.9624,
+          "improvement_pct": 3.54,
+          "dataset": "m-a-p/CodeFeedback-Filtered-Instruction"
+        }
+      }
+    ],
+    "hardwareVerified": [
+      {
+        "device": "MacBook Pro 32GB",
+        "format": "fp16",
+        "verified": true
+      },
+      {
+        "device": "RTX 3090 24GB",
+        "format": "fp16",
+        "verified": true
+      }
+    ],
+    "samples": [],
+    "integrity": {
+      "trustLevel": "self-attested",
+      "code": {
+        "runner": "sentinel-ai/forge_model (legacy pre-\u00a74.1.3.1 path)",
+        "version": "2.x",
+        "binaryHash": "sha256:legacy-pre-alloy-schema"
+      },
+      "modelHash": "sha256:4b4c056e252719d09fffd65c7a72aba3a2437240de201d0f99dc6d65f717ed66",
+      "fileHashes": [
+        {
+          "filename": "model-00001-of-00011.safetensors",
+          "sha256": "bd0f731815476c835dcf3bc79c2dc3e80044606c426f3403871303ca7f812c5b",
+          "size": 5230415832
+        },
+        {
+          "filename": "model-00002-of-00011.safetensors",
+          "sha256": "673bb61b7eabee0c6cd134f2e5710d9755992ef296a2bbfe492e2adbd037dc65",
+          "size": 5343799592
+        },
+        {
+          "filename": "model-00003-of-00011.safetensors",
+          "sha256": "1a380fef8582fd3dd78455944365faeda49fbc68c8dc05b94d6ed6c6e3bdd1ad",
+          "size": 5321763472
+        },
+        {
+          "filename": "model-00004-of-00011.safetensors",
+          "sha256": "2b9e7e51477dc17183c25acece6a55e24218847392c409f46f019c3fb5a8be88",
+          "size": 5321763464
+        },
+        {
+          "filename": "model-00005-of-00011.safetensors",
+          "sha256": "a944808298985b40874e00cb950c6bb1673a250df51b469ed12ff8ff3a995899",
+          "size": 5321763464
+        },
+        {
+          "filename": "model-00006-of-00011.safetensors",
+          "sha256": "98d3919dab0a05f676f0e4393468e9c231e4ca0476520759327d9ad01687b23b",
+          "size": 5343799728
+        },
+        {
+          "filename": "model-00007-of-00011.safetensors",
+          "sha256": "b8ccc0d74565edfe7b9b8430c30ca38fa3f03898f60a6a9419135ea15b78b926",
+          "size": 5321763472
+        },
+        {
+          "filename": "model-00008-of-00011.safetensors",
+          "sha256": "bff17af9cf568953b517315d19c1d239a0b9e0f9ccfd5b850e0a9c891d0eae8a",
+          "size": 5321763464
+        },
+        {
+          "filename": "model-00009-of-00011.safetensors",
+          "sha256": "4e23014ff82f8e731ac1c03299487535e4bbd8c2f5e8fb7977cfed5087d52720",
+          "size": 5321763464
+        },
+        {
+          "filename": "model-00010-of-00011.safetensors",
+          "sha256": "b528695a7dba8592e3791cbc23487fe7117c8d6b58326b9073be463fd112ed2c",
+          "size": 3400702832
+        },
+        {
+          "filename": "model-00011-of-00011.safetensors",
+          "sha256": "86df42517669a86ad5aac1c49776c5a97b36ab72ccb796da209ec07bd17c9013",
+          "size": 2542796896
+        }
+      ],
+      "datasets": [
+        {
+          "name": "m-a-p/CodeFeedback-Filtered-Instruction",
+          "hash": "sha256:not-pinned-legacy"
+        }
+      ],
+      "attestedAt": "2026-03-27T20:29:26-0500"
+    }
+  }
+}
