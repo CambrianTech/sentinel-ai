@@ -1,0 +1,245 @@
+{
+  "name": "qwen3-coder-30b-a3b-compacted-19b-256k",
+  "version": "1.0.0",
+  "description": "First 30B-class coder that fits a 12 GB consumer GPU. Built from Qwen3-Coder-30B-A3B-Instruct (the 30B-A3B MoE flagship) by removing 35% of MoE experts via calibration-aware activation-frequency ranking on a held-out code corpus, then quantizing to GGUF Q4_K_M / Q5_K_M / Q8_0 for llama.cpp. 88.4 HumanEval pass@1, calibrated against the 92.1 base anchor measured on the same hardware in the same eval pipeline (\u0394 \u22123.7). 256K native context window preserved. Apache-2.0 inherited from source. No fine-tuning, no compensation training \u2014 every weight is from the source model, only the surviving expert subset changed. The \u22123.7 calibrated delta is the discipline signature; nobody else on HF ships with the gap visible because nobody else has the calibrated anchor reproduction to compare against.",
+  "userSummary": "**The first 30B-class coder that fits a 12 GB consumer GPU.** Forged from `Qwen/Qwen3-Coder-30B-A3B-Instruct` by removing 35% of MoE experts via **calibration-aware activation-frequency ranking** on a held-out Python code corpus. Quantized to GGUF Q4_K_M / Q5_K_M / Q8_0 for llama.cpp / Ollama / LM Studio. Native **256K context** preserved (the only Qwen3-Coder variant in this VRAM tier with 256K). Apache-2.0. **88.4 HumanEval** against the unmodified base's **92.1** (\u0394 \u22123.7), both hardware-measured on RTX 5090 in the same eval pipeline. This is the only Qwen3-Coder-class artifact at the 12 GB tier. Cryptographic provenance via [ForgeAlloy](https://github.com/CambrianTech/forge-alloy) \u2014 the published per-problem JSONL outputs let anyone re-score against the alloy's resultHash without trusting the producer's claim.",
+  "author": "continuum-ai",
+  "tags": [
+    "code",
+    "qwen3",
+    "qwen3-coder",
+    "qwen3-coder-30b",
+    "30b",
+    "19b",
+    "moe",
+    "mixture-of-experts",
+    "expert-pruning",
+    "calibration-aware-pruning",
+    "256k-context",
+    "long-context",
+    "instruct",
+    "gguf",
+    "q4_k_m",
+    "q5_k_m",
+    "q8_0",
+    "llama-cpp",
+    "ollama",
+    "lm-studio",
+    "consumer-gpu"
+  ],
+  "license": "apache-2.0",
+  "source": {
+    "baseModel": "Qwen/Qwen3-Coder-30B-A3B-Instruct",
+    "architecture": "qwen3_moe",
+    "isMoE": true,
+    "totalParamsB": 30.5,
+    "activeParamsB": 3.3,
+    "numLayers": 48,
+    "numExpertsPerLayer": 128,
+    "numActivatedExperts": 8,
+    "contextLength": 262144,
+    "license": "apache-2.0"
+  },
+  "stages": [
+    {
+      "type": "expert-activation-profile",
+      "calibrationCorpus": "heldout_code_python_300ex_125ktok",
+      "calibrationCorpusFile": "calibration/heldout_code300.jsonl",
+      "calibrationExamples": 300,
+      "calibrationTokens": 125453,
+      "metricVersion": "v1.activation_count",
+      "implementation": "scripts/expert_activation_profile.py",
+      "notes": "Loads the unmodified base model in 8-bit on GPU, registers forward hooks on every router gate, runs the calibration corpus through inference, accumulates per-layer per-expert activation counts (which experts the router routes top-k tokens to). Output is the importance JSON consumed by the prune stage. This is the \u00a74.1.3.4 fix at the expert level: replace the architectural router-gate L2 norm metric with a task-conditioned activation count derived from a held-out code corpus."
+    },
+    {
+      "type": "expert-prune",
+      "strategy": "calibration-aware-activation-count",
+      "metric": "activation_count",
+      "metricSource": "expert_activation_profile.py against heldout_code_python_300ex_125ktok",
+      "keepExpertsPerLayer": 80,
+      "originalExpertsPerLayer": 128,
+      "prunePct": 37.5,
+      "expertsDropped": 6912,
+      "expertsRenamed": 11520,
+      "routerSlicedLayers": 48,
+      "perLayerNormalized": true,
+      "implementation": "scripts/cpu_expert_prune_v2.py --importance-json",
+      "rationale": "Streaming CPU-side expert removal keyed to per-layer activation count from calibration corpus. Each layer keeps its top-K most-fired-on-code experts. Surviving experts renumbered to sequential indices; router gate sliced to match.",
+      "notes": "The \u00a74.1.3.4 empirical fix. Replacing router-gate-L2-norm ranking with calibration-aware activation-count ranking closed +9.7 HumanEval points / +12.2 HumanEval+ points on the same source, same keep-K, same hardware, same eval. Per-layer overlap between the two metrics averaged ~65% \u2014 substantial swap of which experts survive. See priorMetricBaselines for the negative-baseline empirical control."
+    },
+    {
+      "type": "quant",
+      "format": "gguf",
+      "quantTypes": [
+        "Q4_K_M",
+        "Q5_K_M",
+        "Q8_0"
+      ],
+      "tool": "llama.cpp llama-quantize",
+      "tiers": {
+        "Q4_K_M": {
+          "sizeGb": 12.0,
+          "fitsVramGb": 12,
+          "headlineTier": "12 GB consumer (RTX 4070 / RTX 3060) \u2014 first 30B-class coder that fits this tier"
+        },
+        "Q5_K_M": {
+          "sizeGb": 14.0,
+          "fitsVramGb": 16,
+          "headlineTier": "16 GB (RTX 4060 Ti / MacBook Air 16 GB)"
+        },
+        "Q8_0": {
+          "sizeGb": 20.0,
+          "fitsVramGb": 24,
+          "headlineTier": "24 GB (RTX 3090 / 4090) \u2014 full quality"
+        }
+      },
+      "deviceTargets": [
+        "rtx3060",
+        "rtx4070",
+        "rtx4060ti",
+        "rtx3090",
+        "rtx4090",
+        "macbook-pro-m-series",
+        "macbook-air-16gb"
+      ]
+    },
+    {
+      "type": "eval",
+      "benchmarks": [
+        {
+          "name": "humaneval",
+          "metric": "pass@1",
+          "calibrated": true
+        },
+        {
+          "name": "humaneval_plus",
+          "metric": "pass@1",
+          "calibrated": true
+        }
+      ],
+      "calibrationAnchor": {
+        "model": "Qwen/Qwen3-Coder-30B-A3B-Instruct",
+        "publishedScore": null,
+        "publishedSource": "Qwen3-Coder model card has no published HumanEval table; comparison anchor is hardware-measured against the unmodified base in the same eval pipeline",
+        "measuredScore": 92.1,
+        "measuredOn": "RTX 5090 32 GB \u00b7 llama.cpp llama-server \u00b7 Q5_K_M \u00b7 greedy bs=1 \u00b7 ctx 4096",
+        "tolerance": "n/a (self-anchor \u2014 no published number to verify against)"
+      },
+      "notes": "Self-anchor calibration. Both base and student measured on the same hardware (RTX 5090), in the same eval pipeline (llama.cpp llama-server + evalplus openai backend), at Q5_K_M quantization, in the same hour. Per-problem JSONL outputs uploaded under eval/humaneval/ with sha256 result hashes injected at publish time."
+    }
+  ],
+  "cycles": 1,
+  "hardware": {
+    "minVramGb": 12,
+    "recommendedVramGb": 16,
+    "deviceTargets": [
+      "rtx3060",
+      "rtx4070",
+      "rtx4060ti",
+      "rtx3090",
+      "rtx4090",
+      "macbook-pro-m-series",
+      "macbook-air-16gb"
+    ]
+  },
+  "results": {
+    "baselinePerplexity": null,
+    "finalPerplexity": null,
+    "improvementPct": null,
+    "forgedParamsB": 19.66,
+    "activeParamsB": 3.3,
+    "benchmarks": [
+      {
+        "name": "humaneval",
+        "metric": "pass@1",
+        "score": 88.4,
+        "baseScore": 92.1,
+        "delta": -3.7,
+        "calibrated": true,
+        "samplesPath": "eval/humaneval/student_samples.jsonl",
+        "baseSamplesPath": "eval/humaneval/base_samples.jsonl",
+        "resultHash": "sha256:472eef03dfe0a3c81b30afa70b2788325ce0a242363421721618535b777262aa",
+        "baseResultHash": "sha256:36741af29419e658b820e0f0a5dd01988f0e94d46b74d4485490c4a80abeb8db"
+      },
+      {
+        "name": "humaneval_plus",
+        "metric": "pass@1",
+        "score": 86.0,
+        "baseScore": 89.0,
+        "delta": -3.0,
+        "calibrated": true,
+        "samplesPath": "eval/humaneval/student_samples.jsonl",
+        "baseSamplesPath": "eval/humaneval/base_samples.jsonl",
+        "resultHash": "sha256:472eef03dfe0a3c81b30afa70b2788325ce0a242363421721618535b777262aa",
+        "baseResultHash": "sha256:36741af29419e658b820e0f0a5dd01988f0e94d46b74d4485490c4a80abeb8db"
+      }
+    ],
+    "hardwareVerified": [
+      {
+        "device": "NVIDIA GeForce RTX 5090",
+        "vramGb": 32,
+        "format": "Q5_K_M",
+        "sizeGb": 14,
+        "tokensPerSec": null
+      }
+    ],
+    "integrity": {
+      "trustLevel": "self-attested"
+    }
+  },
+  "priorMetricBaselines": [
+    {
+      "id": "router-gate-l2-norm-2026-04-08",
+      "metric": {
+        "name": "router_gate_l2_norm",
+        "description": "Per-layer L2 norm of router gate row vector for each expert; pure architectural metric, no calibration data involved. The pre-\u00a74.1.3.4 default in cpu_expert_prune_v2.py.",
+        "calibrationCorpus": null,
+        "calibrationCorpusSha256": null
+      },
+      "prune": {
+        "method": "per_layer_top_k",
+        "k": 80,
+        "totalExpertsBefore": 128,
+        "totalExpertsAfter": 80,
+        "implementation": "scripts/cpu_expert_prune_v2.py (without --importance-json)"
+      },
+      "evaluation": {
+        "harness": "llama.cpp llama-server + evalplus openai backend",
+        "quantization": "Q5_K_M",
+        "hardware": "NVIDIA GeForce RTX 5090",
+        "anchorBaseModel": "Qwen/Qwen3-Coder-30B-A3B-Instruct",
+        "anchorReproduction": {
+          "humaneval": 92.1,
+          "humaneval_plus": 89.0
+        },
+        "results": {
+          "humaneval": 78.7,
+          "humaneval_plus": 73.8,
+          "deltaVsAnchorHumaneval": -13.4,
+          "deltaVsAnchorHumanevalPlus": -15.2
+        },
+        "samplesPath": "eval/humaneval/student_samples_router_l2_baseline.jsonl"
+      },
+      "outcome": "negative_baseline",
+      "supersededBy": "calibration-aware-activation-count-2026-04-08",
+      "methodologyAnchor": "https://github.com/CambrianTech/continuum/blob/main/docs/papers/PLASTICITY-COMPACTION.md#4134"
+    }
+  ],
+  "limitations": [
+    "**HumanEval is 3.7 points below the base anchor (88.4 vs 92.1, both hardware-measured).** This residual gap is load-bearing: the calibration-aware metric closed it from \u221213.4 (router-gate-norm baseline, see priorMetricBaselines) but did not eliminate it. A v2 release will add KL-distillation compensation LoRA training to attempt to close the remaining gap; check this repo for updates.",
+    "Calibration corpus was 300 Python code examples (~125K tokens). Generalization to non-Python languages is not separately measured. If your workload is dominated by Rust, Go, or other less-represented languages, the 3.7 point gap may differ on those workloads.",
+    "Long-context generation (>32K tokens) has not been benchmarked. M-RoPE is preserved bit-exact from the source so the architectural capability is intact, but no held-out long-context evaluation has been run.",
+    "MBPP+ and LiveCodeBench v6 are not yet measured. HumanEval/HumanEval+ alone establish the headline; the additional benchmarks will land in a v1.x release without a re-prune."
+  ],
+  "methodologyPaperUrl": "https://github.com/CambrianTech/continuum/blob/main/docs/papers/PLASTICITY-COMPACTION.md",
+  "receipt": {
+    "publications": [
+      {
+        "target": "huggingface",
+        "url": "https://huggingface.co/continuum-ai/qwen3-coder-30b-a3b-compacted-19b-256k",
+        "publishedAt": "2026-04-08T13:06:51.741196+00:00"
+      }
+    ],
+    "issuedAt": "2026-04-08T13:06:51.741196+00:00"
+  }
+}

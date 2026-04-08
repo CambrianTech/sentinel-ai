@@ -1,0 +1,88 @@
+{
+  "name": "qwen3.5-9b-general-forged",
+  "version": "1.0.0",
+  "description": "Forged Qwen/Qwen3.5-9B for general domain",
+  "author": "continuum-ai",
+  "tags": [
+    "general",
+    "forged",
+    "experiential-plasticity",
+    "forge-alloy"
+  ],
+  "license": "apache-2.0",
+  "source": {
+    "baseModel": "Qwen/Qwen3.5-9B",
+    "architecture": "qwen3_5"
+  },
+  "stages": [
+    {
+      "type": "prune",
+      "strategy": "entropy",
+      "level": 0.0
+    },
+    {
+      "type": "train",
+      "domain": "general",
+      "dataset": "Salesforce/wikitext",
+      "steps": 500,
+      "learningRate": "5e-05"
+    }
+  ],
+  "cycles": 1,
+  "results": {
+    "completedAt": "2026-04-06T11:35:32-0500",
+    "baselinePerplexity": 12.98,
+    "finalPerplexity": 9.79,
+    "improvementPct": 24.6,
+    "benchmarks": [
+      {
+        "name": "perplexity",
+        "metrics": {
+          "baseline": 12.98,
+          "final": 9.79,
+          "improvement_pct": 24.6
+        }
+      }
+    ],
+    "hardwareVerified": [
+      {
+        "device": "NVIDIA GeForce RTX 5090",
+        "format": "fp16",
+        "verified": true
+      }
+    ],
+    "samples": [
+      {
+        "label": "Analysis",
+        "prompt": "(general generation sample)",
+        "completion": "Prompt: Analyze the economic implications of widespread adoption of local AI models running on consumer hardware. Consider impacts on cloud providers, data privacy regulations, employment in AI services, and the democratization of intelligence. Use specific examples and data points.\n\nGenerated:\nAnalyze the economic implications of widespread adoption of local AI models running on consumer hardware. Consider impacts on cloud providers, data privacy regulations, employment in AI services, and the democratization of intelligence. Use specific examples and data points.\n\n<think>\nHere's a thinking process that leads to the analysis:\n\n1.  **Deconstruct the Request:**\n    *   **Topic:** Economic implications of widespread adoption of local AI models (running on consumer hardware).\n    *   **Key Areas to Cover:**\n        *   Impacts on Cloud Providers.\n        *   Data Privacy Regulations.\n        *   Employment in AI Services.\n        *   Democratization of Intelligence.\n    *   **Requirements:** Use specific examples and data points.\n\n2.  **Initial Brainstorming & Context Setting:**\n    *   *What is \"Local AI\"?* LLMs, image generators, etc., running offline on laptops, phones, or dedicated edge devices (e.g., Apple Neural Engine, NVIDIA RTX cards, Qualcomm chips) without sending data to the cloud. Models like Llama 3 (8B), Mistral, Gemma, Phi-3 are key players here due to their size"
+      },
+      {
+        "label": "Synthesis",
+        "prompt": "(general generation sample)",
+        "completion": "Prompt: Compare the governance structures of the EU AI Act, China's AI regulations, and the US executive order on AI. Identify the fundamental philosophical differences, practical enforcement challenges, and predict convergence or divergence over the next decade.\n\nGenerated:\nCompare the governance structures of the EU AI Act, China's AI regulations, and the US executive order on AI. Identify the fundamental philosophical differences, practical enforcement challenges, and predict convergence or divergence over the next decade."
+      },
+      {
+        "label": "Technical Writing",
+        "prompt": "(general generation sample)",
+        "completion": "Prompt: Write a technical blog post explaining how attention head pruning with experiential plasticity can make large language models smaller AND better. Target audience: ML engineers who know transformers but not pruning. Include analogies to biological neural development.\n\nGenerated:\nWrite a technical blog post explaining how attention head pruning with experiential plasticity can make large language models smaller AND better. Target audience: ML engineers who know transformers but not pruning. Include analogies to biological neural development. Structure the article as follows: \n1. Introduction (the paradox of model size vs performance) \n2. The problem: why standard pruning fails (cite specific failure rates like 50% drop at 50% sparsity) \n3. The solution: Experiential Plasticity framework (explain the core idea in simple terms) \n4. How it works technically (mention 'head-agnostic' approach and key components like attention heads, sparse layers, and training-free inference) \n5. Practical applications (give examples of where this matters most - e.g., mobile deployment ) \n6. Conclusion (future outlook on efficiency vs accuracy tradeoffs). \nUse formatting like bold text for emphasis and bullet points for lists .\n\n# Shrinkage Without Sacrifice: How Attention Head Pruning Makes LLMs Smaller and Better\n\n**Attention is all you need**, right? Well, for Large Language Models (LLMs), it\u2019s also true that **attention is everything**. But"
+      },
+      {
+        "label": "Nuanced Opinion",
+        "prompt": "(general generation sample)",
+        "completion": "Prompt: Make a balanced argument for and against open-sourcing frontier AI models. Address safety concerns, innovation velocity, competitive dynamics between nations, and the specific case of models capable of autonomous code execution. Don't hedge \u2014 take clear positions on each sub-question.\n\nGenerated:\nMake a balanced argument for and against open-sourcing frontier AI models. Address safety concerns, innovation velocity, competitive dynamics between nations, and the specific case of models capable of autonomous code execution. Don't hedge \u2014 take clear positions on each sub-question.\n\n<think>\n\n</think>\n\n### The Case Against Open-Sourcing Frontier Models: A Prioritization of Safety and Stability\n\nThe primary argument against releasing frontier models (those approaching or exceeding human capability in reasoning and agency) into the public domain is that **the marginal benefit to innovation does not justify the existential risk**. Unlike previous generations of LLMs, which were primarily text-completion engines, frontier models possess \"agency\" \u2014 the ability to plan multi-step tasks, manipulate external environments via code execution, and potentially deceive users about their own limitations.\n\n**On Safety Concerns:**\nOpen-sourcing these models creates an unregulated proliferation of high-agency actors. Once a model with autonomous code execution capabilities is released, it cannot be recalled or patched like proprietary software; millions of copies can be hosted on decentralized networks, modified by malicious actors, and weaponized instantly. The risk is not just misuse (e.g., phishing), but **instrumental convergence**, where such models optimize goals in ways humans"
+      }
+    ],
+    "integrity": {
+      "trustLevel": "self-attested",
+      "code": {
+        "runner": "sentinel-ai/forge_model",
+        "version": "3.0.0",
+        "binaryHash": "sha256:42fb027d203dec8fe8f3978266e4ee7240e0c5a97cd30ec8fa83b5cc5a796994"
+      },
+      "modelHash": "sha256:236af12e5631ea15f85af2310c1f504a6e68b171f0306d5ab8d719b649611804",
+      "datasets": [],
+      "attestedAt": "2026-04-06T11:35:32-0500"
+    }
+  }
+}

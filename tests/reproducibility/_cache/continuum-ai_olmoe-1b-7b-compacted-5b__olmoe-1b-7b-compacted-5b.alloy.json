@@ -1,0 +1,213 @@
+{
+  "name": "olmoe-1b-7b-compacted-5b",
+  "version": "1.0.0",
+  "description": "Cross-architecture validation artifact for the \u00a74.1.3.4 calibration-aware expert importance methodology. OLMoE-1B-7B-0924-Instruct (the smallest serious MoE on HuggingFace, fully-open Allen AI release) compacted from 64 experts per layer to 48 via per-layer-normalized activation-count importance ranking on a held-out Python code calibration corpus. Hardware-measured 36.0 HumanEval / 31.7 HumanEval+ vs the unmodified base's 40.9 / 36.6 \u2014 within \u22124.9 / \u22124.9 of the base anchor. The negative-baseline broad-corpus variant scored 28.0 / 26.2 (\u0394 \u221212.9 / \u221210.4); the +8.0 / +5.5 swing from changing only the calibration corpus is the second empirical anchor for \u00a74.1.3.4 (the first was Qwen3-Coder-30B-A3B with a +9.7 swing). Two architectures (`Qwen3MoeForCausalLM` and `OlmoeForCausalLM`) now empirically validate the cross-architecture invariance claim: the metric is architecture-invariant, the calibration-corpus alignment is the lever.",
+  "userSummary": "**Cross-architecture validation artifact for \u00a74.1.3.4.** OLMoE-1B-7B (the smallest serious MoE on HF, fully-open Allen AI release) compacted from 7B to ~5B via calibration-aware MoE expert pruning on a held-out Python code corpus. Hardware-measured **36.0 HumanEval** against unmodified base **40.9** (\u0394 \u22124.9, both Q5_K_M on the same 5090). The forge methodology that produced [`qwen3-coder-30b-a3b-compacted-19b-256k`](https://huggingface.co/continuum-ai/qwen3-coder-30b-a3b-compacted-19b-256k) ports to a structurally distinct MoE family (`OlmoeForCausalLM` vs `Qwen3MoeForCausalLM`) **without any modification to the forge scripts**. The negative-baseline broad-corpus variant scored 28.0 \u2014 the +8.0 swing from changing only the calibration corpus is the lever \u00a74.1.3.4 names. This is a methodology proof point, not a tier-leading artifact; OLMoE is general-purpose, not coder-specific, so HumanEval is not its strength. Use the qwen3-coder-30b-a3b artifact if you need a fits-12-GB code model.",
+  "author": "continuum-ai",
+  "tags": [
+    "allenai",
+    "olmoe",
+    "moe",
+    "mixture-of-experts",
+    "expert-pruning",
+    "calibration-aware-pruning",
+    "fully-open",
+    "1b-active",
+    "5b",
+    "gguf",
+    "q5_k_m",
+    "llama-cpp",
+    "ollama",
+    "lm-studio"
+  ],
+  "license": "apache-2.0",
+  "source": {
+    "baseModel": "allenai/OLMoE-1B-7B-0924-Instruct",
+    "architecture": "olmoe",
+    "isMoE": true,
+    "totalParamsB": 6.92,
+    "activeParamsB": 1.3,
+    "numLayers": 16,
+    "numExpertsPerLayer": 64,
+    "numActivatedExperts": 8,
+    "license": "apache-2.0"
+  },
+  "stages": [
+    {
+      "type": "expert-activation-profile",
+      "calibrationCorpus": "heldout_code_python_300ex_138ktok",
+      "calibrationExamples": 300,
+      "calibrationTokens": 138816,
+      "metricVersion": "v1.activation_count",
+      "implementation": "scripts/expert_activation_profile.py",
+      "notes": "Same script unchanged from the Qwen3-Coder-30B-A3B forge \u2014 first cross-architecture validation that the activation-count importance metric ports across MoE families. The hooks register on `model.layers.{L}.mlp.gate` for both Qwen3MoE and OlmoeForCausalLM (same module path)."
+    },
+    {
+      "type": "expert-prune",
+      "strategy": "calibration-aware-activation-count",
+      "metric": "activation_count",
+      "metricSource": "expert_activation_profile.py against heldout_code_python_300ex",
+      "keepExpertsPerLayer": 48,
+      "originalExpertsPerLayer": 64,
+      "prunePct": 25.0,
+      "expertsDropped": 768,
+      "expertsRenamed": 2304,
+      "routerSlicedLayers": 16,
+      "perLayerNormalized": true,
+      "implementation": "scripts/cpu_expert_prune_v2.py --importance-json",
+      "notes": "Same script unchanged. Identical regex layout (unfused per-expert tensors at `model.layers.{L}.mlp.experts.{K}.{gate,up,down}_proj.weight`). Cross-arch portability confirmed: OlmoeForCausalLM and Qwen3MoeForCausalLM share the same prunable-unit module structure, so the script works without modification."
+    },
+    {
+      "type": "quant",
+      "format": "gguf",
+      "quantTypes": [
+        "Q5_K_M"
+      ],
+      "tool": "llama.cpp llama-quantize",
+      "tiers": {
+        "Q5_K_M": {
+          "sizeGb": 3.6,
+          "fitsVramGb": 6,
+          "headlineTier": "anywhere \u2014 4 GB phones, edge devices, embedded"
+        }
+      }
+    },
+    {
+      "type": "eval",
+      "benchmarks": [
+        {
+          "name": "humaneval",
+          "metric": "pass@1",
+          "calibrated": true
+        },
+        {
+          "name": "humaneval_plus",
+          "metric": "pass@1",
+          "calibrated": true
+        }
+      ],
+      "calibrationAnchor": {
+        "model": "allenai/OLMoE-1B-7B-0924-Instruct",
+        "publishedScore": null,
+        "publishedSource": "Allen AI did not publish HumanEval for OLMoE; comparison is hardware-measured against the unmodified base in the same eval pipeline",
+        "measuredScore": 40.9,
+        "measuredOn": "RTX 5090 32 GB \u00b7 llama.cpp llama-server \u00b7 Q5_K_M \u00b7 greedy bs=1 \u00b7 ctx 4096"
+      },
+      "notes": "Self-anchor calibration. HumanEval is not OLMoE's natural benchmark \u2014 OLMoE is general-purpose, not coder-specific. The 40.9 base / 36.0 student numbers are methodology validation, not tier-leading absolute quality. The artifact's value is the structural finding (cross-architecture portability + +8.0 swing from calibration alignment), not the absolute number."
+    }
+  ],
+  "cycles": 1,
+  "hardware": {
+    "minVramGb": 4,
+    "recommendedVramGb": 6,
+    "deviceTargets": [
+      "edge",
+      "phone",
+      "raspberry-pi",
+      "rtx3050",
+      "macbook-air-8gb",
+      "macbook-pro-m-series"
+    ]
+  },
+  "results": {
+    "baselinePerplexity": null,
+    "finalPerplexity": null,
+    "improvementPct": null,
+    "forgedParamsB": 5.31,
+    "activeParamsB": 1.0,
+    "benchmarks": [
+      {
+        "name": "humaneval",
+        "metric": "pass@1",
+        "score": 36.0,
+        "baseScore": 40.9,
+        "delta": -4.9,
+        "calibrated": true,
+        "samplesPath": "eval/humaneval/student_samples.jsonl",
+        "baseSamplesPath": "eval/humaneval/base_samples.jsonl",
+        "resultHash": "sha256:320dcfb889cb589ac6dcaef2c7f6481cd0ace0c5959fbea9e3255a4cc9de3ea9",
+        "baseResultHash": "sha256:a56696de6f2e5cbfeeb11bfc03aced5c57ceeee39621db68ced1990ffb833050"
+      },
+      {
+        "name": "humaneval_plus",
+        "metric": "pass@1",
+        "score": 31.7,
+        "baseScore": 36.6,
+        "delta": -4.9,
+        "calibrated": true,
+        "samplesPath": "eval/humaneval/student_samples.jsonl",
+        "baseSamplesPath": "eval/humaneval/base_samples.jsonl",
+        "resultHash": "sha256:320dcfb889cb589ac6dcaef2c7f6481cd0ace0c5959fbea9e3255a4cc9de3ea9",
+        "baseResultHash": "sha256:a56696de6f2e5cbfeeb11bfc03aced5c57ceeee39621db68ced1990ffb833050"
+      }
+    ],
+    "hardwareVerified": [
+      {
+        "device": "NVIDIA GeForce RTX 5090",
+        "vramGb": 32,
+        "format": "Q5_K_M",
+        "sizeGb": 3.6,
+        "tokensPerSec": null
+      }
+    ],
+    "integrity": {
+      "trustLevel": "self-attested"
+    }
+  },
+  "priorMetricBaselines": [
+    {
+      "id": "olmoe-broad-corpus-2026-04-08",
+      "metric": {
+        "name": "calibration_aware_activation_count",
+        "description": "Per-layer activation count from a BROAD calibration corpus (1/6 code, 5/6 math/knowledge/reasoning/instruction/general). Same metric as the current prune, but the calibration corpus did NOT match the eval task (HumanEval, 100% code).",
+        "calibrationCorpus": "heldout_broad_300ex_50ktok",
+        "calibrationCorpusSha256": null
+      },
+      "prune": {
+        "method": "per_layer_top_k",
+        "k": 48,
+        "totalExpertsBefore": 64,
+        "totalExpertsAfter": 48,
+        "implementation": "scripts/cpu_expert_prune_v2.py --importance-json (broad calibration JSON)"
+      },
+      "evaluation": {
+        "harness": "llama.cpp llama-server + evalplus openai backend",
+        "quantization": "Q5_K_M",
+        "hardware": "NVIDIA GeForce RTX 5090",
+        "anchorBaseModel": "allenai/OLMoE-1B-7B-0924-Instruct",
+        "anchorReproduction": {
+          "humaneval": 40.9,
+          "humaneval_plus": 36.6
+        },
+        "results": {
+          "humaneval": 28.0,
+          "humaneval_plus": 26.2,
+          "deltaVsAnchorHumaneval": -12.9,
+          "deltaVsAnchorHumanevalPlus": -10.4
+        },
+        "samplesPath": "eval/humaneval/student_samples_broad_calibration.jsonl"
+      },
+      "outcome": "negative_baseline",
+      "supersededBy": "olmoe-code-corpus-2026-04-08",
+      "methodologyAnchor": "https://github.com/CambrianTech/continuum/blob/main/docs/papers/PLASTICITY-COMPACTION.md#4134",
+      "lessonAnchor": "Calibration corpus must match the evaluation workload. The +8.0 HumanEval swing between broad and code calibration on the same architecture, same prune budget, same hardware demonstrates that calibration-task alignment is the lever \u00a74.1.3.4 names."
+    }
+  ],
+  "limitations": [
+    "**HumanEval is not OLMoE's natural benchmark.** OLMoE is general-purpose (Allen AI), not coder-specific. The 40.9 base / 36.0 student numbers are methodology validation, not tier-leading absolute quality. For a tier-leading code model, see [`qwen3-coder-30b-a3b-compacted-19b-256k`](https://huggingface.co/continuum-ai/qwen3-coder-30b-a3b-compacted-19b-256k).",
+    "**Validates \u00a74.1.3.4 cross-architecture; does NOT compete on absolute numbers.** This is the second empirical anchor for the methodology paper, alongside the Qwen3-Coder-30B-A3B v1. Together they demonstrate that the activation-count importance metric is architecture-invariant across two structurally distinct MoE families.",
+    "Calibration corpus was 300 Python code examples. For non-code workloads (math/reasoning/general), the methodology will preserve OLMoE's general capability if profiled on a matching corpus \u2014 but that's a separate forge run.",
+    "Single GGUF tier shipped (Q5_K_M, 3.6 GB). Q4_K_M and Q8_0 will be added in v1.1 if there's demand."
+  ],
+  "methodologyPaperUrl": "https://github.com/CambrianTech/continuum/blob/main/docs/papers/PLASTICITY-COMPACTION.md",
+  "receipt": {
+    "publications": [
+      {
+        "target": "huggingface",
+        "url": "https://huggingface.co/continuum-ai/olmoe-1b-7b-compacted-5b",
+        "publishedAt": "2026-04-08T16:36:55.037319+00:00"
+      }
+    ],
+    "issuedAt": "2026-04-08T16:36:55.037319+00:00"
+  }
+}

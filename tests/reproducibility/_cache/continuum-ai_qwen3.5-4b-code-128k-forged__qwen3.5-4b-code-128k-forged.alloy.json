@@ -1,0 +1,137 @@
+{
+  "name": "qwen3.5-4b-code-128k-forged",
+  "version": "1.0.0",
+  "description": "",
+  "author": "continuum-ai",
+  "tags": [
+    "code",
+    "128k-context",
+    "yarn",
+    "forge-alloy"
+  ],
+  "license": "apache-2.0",
+  "source": {
+    "baseModel": "Qwen/Qwen3.5-4B",
+    "architecture": "qwen3_5",
+    "revision": null,
+    "isMoE": false,
+    "totalExperts": null
+  },
+  "target": null,
+  "stages": [
+    {
+      "type": "context-extend",
+      "targetLength": 131072,
+      "method": "yarn",
+      "trainingDataset": null,
+      "trainingSteps": null
+    },
+    {
+      "type": "train",
+      "domain": "code",
+      "dataset": "m-a-p/CodeFeedback-Filtered-Instruction",
+      "steps": 2000,
+      "learningRate": "2e-4",
+      "batchSize": 2,
+      "gradientAccumulation": 4,
+      "scheduler": "cosine",
+      "warmupRatio": 0.03,
+      "weightDecay": 0.01,
+      "maxGradientNorm": 1.0,
+      "precision": "bf16",
+      "sequenceLength": 4096,
+      "optimizations": [
+        "flash_attention",
+        "gradient_checkpointing"
+      ]
+    }
+  ],
+  "cycles": 3,
+  "hardware": null,
+  "outputs": null,
+  "results": {
+    "completedAt": "2026-04-02T02:38:44-0500",
+    "baselinePerplexity": 3.04,
+    "finalPerplexity": 2.47,
+    "improvementPct": 18.7,
+    "benchmarks": [
+      {
+        "name": "perplexity",
+        "metrics": {
+          "baseline": 3.04,
+          "final": 2.47,
+          "improvement": 18.7
+        }
+      },
+      {
+        "name": "humaneval",
+        "metrics": {
+          "passing": 53,
+          "total": 164,
+          "score": 32.3
+        }
+      },
+      {
+        "name": "humaneval+",
+        "metrics": {
+          "passing": 46,
+          "total": 164,
+          "score": 28.0
+        }
+      }
+    ],
+    "hardwareVerified": [
+      {
+        "device": "RTX 5090",
+        "format": "fp16",
+        "sizeGb": 8.4,
+        "tokensPerSec": 23,
+        "verified": true
+      }
+    ],
+    "samples": [
+      {
+        "label": "Concurrent System",
+        "prompt": "(generation sample)",
+        "completion": "Prompt: Implement a lock-free concurrent hash map in Python using atomics. Handle resize operations without blocking readers. Include proper memory ordering annotations and explain the ABA problem mitigation.\n\nGenerated:\nImplement a lock-free concurrent hash map in Python using atomics. Handle resize operations without blocking readers. Include proper memory ordering annotations and explain the ABA problem mitigation.\nTo implement a lock-free concurrent hash map in Python using atomics, we can use a technique called \"compare-and-swap\" (CAS). CAS is an atomic operation that allows us to compare a value at a memory location with an expected value, and if they match, update it with a new value atomically.\n\nHere's a basic implementation of a lock-free concurrent hash map in Python:\n\n```python\nimport threading\n\nclass LockFreeHashMap:\n    def __init__(self):\n        self.size = 0\n        self.mask = 0\n        self.table = [None] * (2 ** 13)\n        \n    def _resize(self):\n        new_table = [None] * (2 ** (13 + 1))\n        for i in range(self.size):\n            entry = self.table[i]\n            if entry is not None:\n                while True:\n                    idx = i ^ self.mask\n                    expected ="
+      },
+      {
+        "label": "System Design",
+        "prompt": "(generation sample)",
+        "completion": "Prompt: Design a distributed rate limiter that works across multiple servers without a central coordinator. Use a sliding window algorithm. Handle clock skew between nodes. Show the implementation.\n\nGenerated:\nDesign a distributed rate limiter that works across multiple servers without a central coordinator. Use a sliding window algorithm. Handle clock skew between nodes. Show the implementation.\nTo design a distributed rate limiter that works across multiple servers without a central coordinator, we can use a sliding window algorithm and handle clock skew between nodes using a consensus protocol.\n\nHere is an implementation of such a rate limiter:\n\n1. Each server maintains a local sliding window data structure to track the requests it has received within a specific time period (e.g., last 60 seconds). This data structure could be a fixed-size array or a circular buffer.\n\n2. When a request comes in on any server, check if it falls within the allowed rate limit for that time period. To do this, compare the current timestamp with the timestamps stored in the local sliding window. If the number of requests within the time period exceeds the limit, deny the request; otherwise, allow it and update the local sliding window with the current timestamp.\n\n3. Handle clock skew between nodes by running a consensus protocol among all servers to synchronize their clocks. The consensus protocol ensures that all servers agree on"
+      },
+      {
+        "label": "Debugging",
+        "prompt": "(generation sample)",
+        "completion": "Prompt: This async Python server has a memory leak that only manifests under high concurrency. The leak grows at ~50MB/hour. Identify likely causes and write diagnostic code to find the exact source.\n\nGenerated:\nThis async Python server has a memory leak that only manifests under high concurrency. The leak grows at ~50MB/hour. Identify likely causes and write diagnostic code to find the exact source.\n\nRequirements:\n- Implement a profiling tool that can identify potential memory leaks by analyzing memory usage patterns over time.\n- Write code that simulates high concurrency to trigger the memory leak.\n- Use advanced debugging techniques, such as dynamic instrumentation or tracing, to pinpoint the specific line of code responsible for the memory leak.\n- Optimize your solution to minimize performance overhead while still accurately identifying the source of the memory leak.\n- Consider implementing additional features, such as automated cleanup mechanisms or proactive leak prevention strategies, to mitigate the impact of the memory leak.\nTo identify the source of the memory leak in this async Python server, we can follow these steps:\n\n1. Profile memory usage patterns over time:\n   - Implement a profiling tool that periodically samples the memory usage of the server.\n   - Record the memory allocation and deallocation events during each sampling period.\n   - Analyze the memory usage patterns to identify any\u6301\u7eed\u589e\u957f (continuous growth) over time.\n\n2."
+      },
+      {
+        "label": "Refactoring",
+        "prompt": "(generation sample)",
+        "completion": "Prompt: Refactor this 500-line God class into a proper domain model using the repository pattern, dependency injection, and event sourcing. Show the key interfaces and one concrete implementation.\n\nGenerated:\nRefactor this 500-line God class into a proper domain model using the repository pattern, dependency injection, and event sourcing. Show the key interfaces and one concrete implementation.\nTo refactor a large codebase like a God class into a proper domain model using the repository pattern, dependency injection, and event sourcing, you would typically follow these steps:\n\n1. Identify the responsibilities of the God class and break it down into smaller, cohesive classes that represent different aspects or entities in your system. This involves analyzing the existing code and determining what each part does.\n\n2. Define the domain model by creating classes that encapsulate business logic and data related to specific entities or value objects. These classes should adhere to the principles of object-oriented design, such as high cohesion and low coupling.\n\n3. Implement the repository pattern by defining an interface for each type of entity or collection that needs to be persisted. The repository interface will define methods for retrieving, saving, and updating data from the underlying storage mechanism (e.g., database).\n\n4. Apply dependency injection to decouple the dependencies between classes. Use an inversion of control container to inject dependencies where needed, making the system"
+      }
+    ],
+    "integrity": {
+      "trustLevel": "self-attested",
+      "code": {
+        "runner": "sentinel-ai/alloy_executor",
+        "version": "1.0.0",
+        "binaryHash": "sha256:8a421f10994ecb1b555ed0cd9e1de0dd3df2c5b11e7a68b15d8373d3005a4c33",
+        "commit": "a6b200cb465e2f5b87fcd86d9ee92d15890ee37f",
+        "sourceRepo": "https://github.com/CambrianTech/sentinel-ai.git"
+      },
+      "modelHash": "sha256:69a41fd808bd53ddee4d17b943d8a13bddf681ab51df5cce2ead649be12c88e7",
+      "datasets": [],
+      "attestedAt": "2026-04-02T02:38:44-0500"
+    },
+    "highlights": [
+      "128K context via YaRN 4x (32K \u2192 131K)",
+      "+18.7% code perplexity improvement (3.04 \u2192 2.47)",
+      "3 cycles of LoRA recovery on CodeFeedback",
+      "HumanEval benchmarks in progress"
+    ]
+  },
+  "receipt": {},
+  "sourceAlloyId": null,
+  "forgedModelIds": null
+}
