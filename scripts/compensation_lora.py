@@ -90,16 +90,32 @@ from harness_checks import assert_explicit_head_dim  # noqa: E402
 # ---------------------------------------------------------------------------
 
 
-def load_teacher(path: str, device: str) -> torch.nn.Module:
-    """Load the unpruned teacher in bnb-8bit, frozen.
+def _bnb_config(quant: str) -> BitsAndBytesConfig | None:
+    """Build a BitsAndBytesConfig for the named quant tier, or None for fp16."""
+    if quant == "8bit":
+        return BitsAndBytesConfig(load_in_8bit=True)
+    if quant == "4bit":
+        return BitsAndBytesConfig(
+            load_in_4bit=True,
+            bnb_4bit_compute_dtype=torch.float16,
+            bnb_4bit_quant_type="nf4",
+            bnb_4bit_use_double_quant=True,
+        )
+    return None
 
-    The teacher is used only for forward passes (no gradients), so bnb-8bit
-    halves its weight memory footprint. On a 32 GB GPU this is what makes it
-    possible to host both the teacher (~7 GB at 8-bit for a 7B model) and the
-    student (~14 GB at fp16 + gradients) simultaneously, plus the LoRA adapter
-    parameters and the activation memory for backprop on the student.
+
+def load_teacher(path: str, device: str, quant: str = "8bit") -> torch.nn.Module:
+    """Load the unpruned teacher, frozen.
+
+    quant ∈ {"8bit","4bit"}. Teacher is forward-pass-only (no gradients) so
+    quantization is essentially free for distillation logits. For 7B-class
+    teachers 8bit fits comfortably alongside an fp16 student on a 32 GB GPU.
+    For 30B-class teachers 4bit is required because the student also has to
+    fit in 4bit + LoRA + activations + KV cache simultaneously.
     """
-    bnb_config = BitsAndBytesConfig(load_in_8bit=True)
+    bnb_config = _bnb_config(quant)
+    if bnb_config is None:
+        raise ValueError(f"unknown teacher quant: {quant!r} (use 8bit or 4bit)")
     teacher = AutoModelForCausalLM.from_pretrained(
         path,
         quantization_config=bnb_config,
@@ -111,20 +127,37 @@ def load_teacher(path: str, device: str) -> torch.nn.Module:
     return teacher
 
 
-def load_student(path: str, device: str) -> torch.nn.Module:
-    """Load the pruned student in fp16 with gradient checkpointing enabled.
+def load_student(path: str, device: str, quant: str = "fp16") -> torch.nn.Module:
+    """Load the pruned student, with gradient checkpointing enabled.
 
-    Gradient checkpointing trades compute for memory: activations are
-    recomputed during backprop instead of being stored. The cost is roughly
-    a 30% slowdown on the backward pass; the benefit is that a 7B model in
-    fp16 with full backprop fits in ~16 GB instead of ~24 GB, leaving room
-    for the teacher in 8-bit alongside it on a 32 GB GPU.
+    quant ∈ {"fp16","4bit"}. fp16 is the default for ≤14B-class students;
+    backprop runs through the full-precision weights and the LoRA is fp16.
+
+    For 30B-class students, fp16 (~40 GB) doesn't fit a 32 GB GPU at all,
+    so 4bit (NF4 + double quant) is required. In 4bit mode the student is
+    QLoRA-style: base weights are frozen 4bit, LoRA adapters are fp16, and
+    only the LoRA parameters are trained. `prepare_model_for_kbit_training`
+    handles the dtype dance and the gradient checkpointing setup.
     """
-    student = AutoModelForCausalLM.from_pretrained(
-        path,
-        torch_dtype=torch.float16,
-        device_map=device,
-    )
+    if quant == "fp16":
+        student = AutoModelForCausalLM.from_pretrained(
+            path,
+            torch_dtype=torch.float16,
+            device_map=device,
+        )
+    elif quant == "4bit":
+        from peft import prepare_model_for_kbit_training
+        bnb_config = _bnb_config("4bit")
+        student = AutoModelForCausalLM.from_pretrained(
+            path,
+            quantization_config=bnb_config,
+            device_map=device,
+        )
+        student = prepare_model_for_kbit_training(
+            student, use_gradient_checkpointing=True
+        )
+    else:
+        raise ValueError(f"unknown student quant: {quant!r} (use fp16 or 4bit)")
     if hasattr(student, "gradient_checkpointing_enable"):
         student.gradient_checkpointing_enable()
         # Some HF model classes need this flag flipped for gradient checkpointing
@@ -372,6 +405,26 @@ def parse_args() -> argparse.Namespace:
         default=25,
         help="print loss every N steps",
     )
+    parser.add_argument(
+        "--teacher-quant",
+        choices=["8bit", "4bit"],
+        default="8bit",
+        help=(
+            "Teacher quantization. Default 8bit fits 7-14B teachers alongside "
+            "an fp16 student on a 32 GB GPU. For 30B+ teachers use 4bit "
+            "(required when student is also 4bit, the QLoRA pattern)."
+        ),
+    )
+    parser.add_argument(
+        "--student-quant",
+        choices=["fp16", "4bit"],
+        default="fp16",
+        help=(
+            "Student quantization. Default fp16 for ≤14B students. For 30B+ "
+            "students use 4bit (NF4 + double quant + QLoRA pattern); base "
+            "weights are frozen 4bit and only the LoRA adapters are trained."
+        ),
+    )
     return parser.parse_args()
 
 
@@ -380,18 +433,24 @@ def main() -> None:
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
     print(f"[compensation_lora] device={device}")
-    print(f"[compensation_lora] loading teacher from {args.teacher} (bnb-8bit, frozen)")
-    teacher = load_teacher(args.teacher, device)
+    print(f"[compensation_lora] loading teacher from {args.teacher} (bnb-{args.teacher_quant}, frozen)")
+    teacher = load_teacher(args.teacher, device, quant=args.teacher_quant)
 
-    print(f"[compensation_lora] loading student from {args.student} (fp16, grad-checkpointed)")
-    student = load_student(args.student, device)
+    print(f"[compensation_lora] loading student from {args.student} ({args.student_quant}, grad-checkpointed)")
+    student = load_student(args.student, device, quant=args.student_quant)
 
-    # Preconditions: both models must carry head_dim explicitly (post-defrag
-    # invariant from §4.1.3 / Finding 6) and must have matching hidden_size +
-    # num_hidden_layers (required for hidden-state distillation).
+    # Preconditions: the STUDENT must carry head_dim explicitly (post-defrag
+    # invariant from §4.1.3 / Finding 6 — the v1 bug we are explicitly
+    # defending against). The TEACHER does NOT need this assertion: an
+    # unmodified base model legitimately has implicit head_dim because no
+    # defrag happened, and `hidden_size / num_attention_heads` is the
+    # ground-truth for the unmodified architecture. The assertion exists to
+    # catch the case where a forge artifact loses head_dim during save_pretrained,
+    # which only applies to artifacts that went through defrag.
     print("[compensation_lora] checking preconditions")
-    assert_explicit_head_dim(teacher.config)
     assert_explicit_head_dim(student.config)
+    # Teacher + student must have matching hidden_size + num_hidden_layers
+    # for hidden-state distillation to be coherent (per-layer alignment).
     if teacher.config.hidden_size != student.config.hidden_size:
         raise AssertionError(
             f"teacher hidden_size={teacher.config.hidden_size} != "
