@@ -252,6 +252,56 @@ def test_auto_cleanup_keeps_calibration_corpus(tmp_path):
 # ── Daemon integration: process_one calls auto_cleanup ──────────────────────
 
 
+def test_auto_cleanup_moves_orphans_to_cold_root_when_set(tmp_path):
+    """When cold_root is provided, evictions MOVE to cold instead of
+    being deleted. The 7200rpm spinner integration."""
+    from factory_queue import FactoryQueue
+    from factory_storage import auto_cleanup
+    q = FactoryQueue(tmp_path)
+    orphan = _write_work_dir(tmp_path / "work", "abandoned")
+    cold = tmp_path / "mnt" / "cold"
+
+    report = auto_cleanup(tmp_path, force=True, cold_root=cold)
+    # Original deleted, copy on cold tier
+    assert not orphan.exists()
+    assert (cold / "abandoned").exists()
+    assert report["evicted_count"] == 1
+    # Throughput log records the action with the cold-tier path
+    log = q.throughput_log_path.read_text().splitlines()
+    cold_entries = [json.loads(line) for line in log if "moved_to_cold" in line]
+    assert len(cold_entries) == 1
+    assert "moved_to_cold" in cold_entries[0]["action"]
+    assert str(cold / "abandoned") in cold_entries[0]["action"]
+
+
+def test_worker_passes_cold_root_to_cleanup_fn(tmp_path):
+    """FactoryWorker.cleanup_cold_root threads through to cleanup_fn."""
+    from factory_queue import FactoryQueue, FactoryWorker
+    q = FactoryQueue(tmp_path)
+    _write_alloy(q.intake_dir / "_seed_a.alloy.json", "a")
+
+    cleanup_kwargs: list[dict] = []
+    def fake_executor(alloy_path, output_dir=None, dry_run=False):
+        out = Path(output_dir or (Path(alloy_path).parent / "out"))
+        out.mkdir(parents=True, exist_ok=True)
+        return out
+
+    def fake_cleanup(root, **kwargs):
+        cleanup_kwargs.append(kwargs)
+        return {"skipped": False, "evicted_count": 0, "bytes_freed": 0}
+
+    cold = tmp_path / "mnt" / "cold"
+    w = FactoryWorker(
+        q, executor=fake_executor,
+        work_root=tmp_path / "work",
+        cleanup_fn=fake_cleanup,
+        cleanup_cold_root=cold,
+    )
+    w.process_one()
+    assert len(cleanup_kwargs) == 1
+    assert cleanup_kwargs[0]["cold_root"] == cold
+
+
 def test_worker_process_one_runs_cleanup_when_pressure_high(tmp_path):
     """The daemon's process_one should auto_cleanup BEFORE starting a
     new part if disk pressure crosses the threshold. Verified via a

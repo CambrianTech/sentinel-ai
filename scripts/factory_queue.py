@@ -410,6 +410,7 @@ class FactoryWorker:
         org: str = "continuum-ai",
         cleanup_fn: Callable[..., dict] | None = None,
         cleanup_threshold_pct: float = 85.0,
+        cleanup_cold_root: str | Path | None = None,
     ) -> None:
         self.queue = queue
         self.executor = executor
@@ -422,6 +423,12 @@ class FactoryWorker:
         # so unit tests don't pull a real disk dependency.
         self.cleanup_fn = cleanup_fn
         self.cleanup_threshold_pct = cleanup_threshold_pct
+        # cleanup_cold_root: when set, evictions MOVE to this directory
+        # (the 7200rpm cold drive) instead of being deleted. Today the
+        # path is just passed through to factory_storage.auto_cleanup;
+        # tomorrow when the drive lands, mounting it and pointing this
+        # at /mnt/cold is the entire wire-up.
+        self.cleanup_cold_root = Path(cleanup_cold_root) if cleanup_cold_root else None
 
     def process_one(self) -> bool:
         """Pop the oldest intake alloy, forge → assay → mark finished.
@@ -441,11 +448,14 @@ class FactoryWorker:
         # Auto-cleanup BEFORE starting a new part — free orphan work
         # dirs from previous forges if disk pressure is high. Conservative:
         # only orphans, never anything referenced by an active alloy.
+        # When cleanup_cold_root is set, evictions MOVE to the cold drive
+        # instead of being deleted (the 7200rpm spinner tier).
         if self.cleanup_fn is not None:
             try:
                 self.cleanup_fn(
                     self.queue.root,
                     threshold_pct=self.cleanup_threshold_pct,
+                    cold_root=self.cleanup_cold_root,
                 )
             except Exception:
                 # Cleanup is best-effort; never fail a forge over it.
@@ -604,6 +614,12 @@ def main():
                     help="seconds to sleep between intake polls when empty")
     ap.add_argument("--cleanup-threshold", type=float, default=85.0,
                     help="auto-cleanup orphan work dirs if disk pct_used > this")
+    ap.add_argument("--cleanup-cold-root", default=None,
+                    help=(
+                        "Cold-tier mount point (e.g. /mnt/cold on the 7200rpm "
+                        "spinner). When set, evictions MOVE here instead of "
+                        "being deleted. Default: delete (re-fetch from HF on demand)."
+                    ))
     ap.add_argument("--max-iters", type=int, default=None,
                     help="testing: process at most N parts then exit")
     ap.add_argument("--once", action="store_true",
@@ -676,6 +692,7 @@ def main():
         org=args.org,
         cleanup_fn=_real_cleanup,
         cleanup_threshold_pct=args.cleanup_threshold,
+        cleanup_cold_root=args.cleanup_cold_root,
     )
 
     print(f"hive node starting at {args.root}")

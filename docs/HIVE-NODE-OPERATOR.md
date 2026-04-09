@@ -188,17 +188,41 @@ python -m factory_storage --root .factory --cleanup --dry-run --force
 python -m factory_storage --root .factory --cleanup --force
 ```
 
-**Cold tier (when the 10TB drive arrives):**
+**Cold tier (the 7200rpm spinner):**
 
 ```bash
 # One-time: format + mount the cold drive at /mnt/cold
 sudo mkfs.ext4 /dev/sdX1 && sudo mount /dev/sdX1 /mnt/cold
+sudo chown $USER:$USER /mnt/cold
 
 # Tell the daemon to MOVE evictions to cold instead of deleting
 python -m factory_queue --root .factory --cleanup-cold-root /mnt/cold
-# (CLI flag wiring still needed; today --cold-root works on the
-#  factory_storage CLI for manual cleanups)
+
+# Or for a one-shot manual cleanup pass via factory_storage:
+python -m factory_storage --root .factory --cleanup --force --cold-root /mnt/cold
 ```
+
+When `--cleanup-cold-root` is set, the daemon's auto-cleanup pass MOVES
+orphan work dirs to the cold drive instead of deleting them. The
+reference set semantics are unchanged; only the destination changes.
+HF re-fetch is still the fallback if both copies are gone (the cold
+drive is the warm cache for things you might re-forge soon, not a
+permanent vault).
+
+Recommended directory layout when cold tier is online:
+
+```
+/mnt/cold/
+├── work-archive/        ← evicted forge work dirs (intermediate state,
+│                          re-fetchable from HF if needed)
+├── source-cache/        ← optional: HF cache mirror so re-downloads
+│                          come from cold instead of the network
+└── published-backup/    ← optional: backup of finished/ artifacts that
+                           already shipped to HF (belt-and-suspenders)
+```
+
+The daemon today only writes `work-archive/`. Source cache and
+published backup are foreman-managed (manual `cp -al` or `rsync`).
 
 When the cold drive lands, evictions become "moved to cold storage"
 instead of "deleted." The reference set is the same; only the
