@@ -253,8 +253,11 @@ class FactoryQueue:
 
         Used by the CLI `--status` command and (eventually) by
         continuum's grid view of the line. Doesn't require the worker
-        to be running — when there's no heartbeat, state is 'offline'
-        and the stats are still accurate.
+        to be running — when there's no heartbeat OR the heartbeat's
+        PID is dead, state is 'offline' and the stats are still
+        accurate. The dead-pid case happens after a hard crash: the
+        heartbeat file is sticky on disk and would otherwise lie about
+        the daemon being alive.
         """
         hb = self.read_heartbeat()
         if hb is None:
@@ -262,6 +265,16 @@ class FactoryQueue:
                 "state": "offline",
                 "stats": self.stats(),
                 "host": os.uname().nodename if hasattr(os, "uname") else "unknown",
+            }
+        # Stale-heartbeat detection: if the recorded pid isn't alive,
+        # the daemon crashed and left the file behind. Don't lie.
+        recorded_pid = hb.get("pid")
+        if isinstance(recorded_pid, int) and not _is_pid_alive(recorded_pid):
+            return {
+                **hb,
+                "state": "offline",
+                "stale_heartbeat": True,
+                "stats": self.stats(),
             }
         return {
             **hb,
@@ -649,8 +662,11 @@ def main():
         if args.once:
             queue.recover_assembly()
             worker.process_one()
+            queue.write_heartbeat(state="offline", current_part=None)
         elif args.max_iters is not None:
+            queue.recover_assembly()
             n = worker.run_loop(max_iters=args.max_iters, sleep_seconds=args.idle_sleep)
+            queue.write_heartbeat(state="offline", current_part=None)
             print(f"processed {n} parts, final stats={queue.stats()}")
         else:
             n = worker.run_forever(idle_sleep_seconds=args.idle_sleep)
