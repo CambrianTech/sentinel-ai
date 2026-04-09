@@ -98,24 +98,32 @@ the result in `.factory/line/finished/`, then run the full daemon.
 ## Operating as the human foreman
 
 You're the foreman until continuum's grid layer ships. The foreman's
-job is exactly what you'd think:
+job is exactly what you'd think — add/reorder/promote/demote/cancel.
+Most of these have CLI shortcuts so you don't need to type `mv`/`cp`.
 
-- **Add work** to the queue: `cp my-recipe.alloy.json .factory/line/intake/`
-- **Reorder work**: bump file mtime via `touch` (oldest mtime is processed first)
-- **Pause the node**: `kill <worker_pid>` (the next startup recovers
-  whatever was mid-build) or stop dropping new parts in `intake/`
-- **Cancel a part mid-build**: `kill <worker_pid>`, `mv assembly/<name>
-  rework/` by hand, then restart the daemon
+- **Add work** to the queue (CLI):
+  `python -m factory_queue --root .factory --enqueue path/to/recipe.alloy.json`
+  Or just `cp my-recipe.alloy.json .factory/line/intake/`
+- **Reorder work**: bump file mtime via `touch` (oldest mtime processes first)
+- **Pause the node**: `kill <worker_pid>` (read pid via `--status --pretty`).
+  Next startup recovers whatever was mid-build automatically.
+- **Cancel a part mid-build**: `kill <worker_pid>`, then `mv assembly/<name>
+  rework/<name>` by hand, then restart the daemon
+- **Promote a rework alloy back to intake** (resets retry counter):
+  `python -m factory_queue --root .factory --retry <alloy_filename>`
 - **Promote a finished artifact to publish**: read
-  `.factory/line/finished/<name>.result.json`, eyeball the assayed
-  scores against the alloy's `acceptanceCriteria`, then run
+  `.factory/line/finished/<name>.result.json` (it now carries
+  `modelHash` + per-shard `fileHashes` recorded by the daemon at
+  forge-time, plus `forged_dir` and the eval results), eyeball the
+  assayed scores against the alloy's `acceptanceCriteria`, then run
   `python scripts/publish_model.py <forged_dir>` if it looks good
 - **Demote a finished artifact**: `mv finished/<name>.alloy.json
   rework/<name>.alloy.json` and write a `.error.json` sidecar saying
-  why
-- **Reset a stuck retry counter**: rename
-  `intake/<alloy>.retry3.alloy.json` → `intake/<alloy>.alloy.json`
-  to give it a fresh attempt
+  why (or just delete the result.json if it'll be re-forged)
+
+The throughput log (`.factory/line/throughput.jsonl`) is the audit
+trail: every state transition lands there. `--tail` reads the last 20
+events for a quick sanity check.
 
 The throughput log (`.factory/line/throughput.jsonl`) is the audit
 trail: every state transition lands there. Reading the tail tells you
@@ -138,32 +146,49 @@ exactly what the line did since the last restart.
     └── heldout_code300.jsonl
 ```
 
-## What's the kick-off command for the loaded queue (12 parts)?
+## What's the kick-off command for the loaded queue (16 parts)?
 
 ```bash
+# 1. Bring the code up to date
 ssh bigmama
 cd ~/sentinel-ai && git pull && source .venv/bin/activate
 
-# Bootstrap the .factory dir if it doesn't exist
+# 2. Bootstrap .factory/ + calibration corpus
 mkdir -p .factory/calibration
-# If the corpus isn't already there, copy it from the morning's forge:
+# Copy the calibration corpus from this morning's forge (or generate fresh):
 cp ~/.continuum/forge-output/qwen3-coder-30b-a3b-compacted-19b-256k/calibration/heldout_code300.jsonl \
    .factory/calibration/
 
-# Seed the queue from the catalog (drops 12 alloys into intake/)
+# 3. Seed the queue from the catalog (drops 16 alloys into intake/)
 python scripts/seed_factory_queue.py --root .factory
 
-# First run: forge ONE part, no publish, check it
-python -m factory_queue --root .factory --once
+# 4. (Optional) Mount the cold drive
+sudo mount /dev/sdX1 /mnt/cold && sudo chown $USER:$USER /mnt/cold
 
-# If it looks good in finished/, run the daemon for the rest
-nohup python -m factory_queue --root .factory > .factory/line/daemon.log 2>&1 &
+# 5. SMOKE TEST: bump the smallest part to oldest mtime, then forge ONCE
+touch -d "1 hour ago" .factory/line/intake/_seed_olmoe-1b-7b-0924-instruct-compacted.alloy.json
+python -m factory_queue --root .factory --once
+# Eyeball the finished/ result:
+python -m factory_queue --root .factory --list-station finished
+python -m factory_queue --root .factory --tail
+
+# 6. If the smoke test looks good, start the long-running daemon
+nohup python -m factory_queue --root .factory \
+   --cleanup-cold-root /mnt/cold \
+   > .factory/line/daemon.log 2>&1 &
 echo "daemon started, pid $!"
 
-# Check status from anywhere on the box
-python scripts/factory_queue.py --root .factory --status
-python scripts/factory_queue.py --root .factory --tail
+# 7. Check status from anywhere on the box (or via SSH from FlashGordon)
+python -m factory_queue --root .factory --status --pretty
+python -m factory_queue --root .factory --tail
+python -m factory_queue --root .factory --list-station finished
 ```
+
+Expected sequence: smoke part finishes in ~30-60 minutes (depends on
+which one you bump). If `--list-station finished` shows it with a
+result.json carrying a non-empty `modelHash`, you're golden — every
+subsequent forge will follow the same pattern. The dashboard
+(`--status --pretty`) updates as the daemon moves through the queue.
 
 That's it. One node, one human foreman, twelve forges queued, no
 continuum dependency. The grid layer ships when it ships.
