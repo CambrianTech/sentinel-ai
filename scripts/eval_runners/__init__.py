@@ -65,6 +65,11 @@ from . import math_hard         # noqa: E402,F401
 from . import gpqa              # noqa: E402,F401
 from . import mmlu_pro          # noqa: E402,F401
 from . import musr              # noqa: E402,F401
+# Open VLM Leaderboard pack (lmms-eval backed)
+from . import mmmu              # noqa: E402,F401
+from . import chartqa           # noqa: E402,F401
+from . import docvqa            # noqa: E402,F401
+from . import ai2d              # noqa: E402,F401
 from . import sota_stubs        # noqa: E402,F401  — remaining frontier-target runner stubs
 
 humaneval.register(_REGISTRY)
@@ -76,6 +81,10 @@ math_hard.register(_REGISTRY)
 gpqa.register(_REGISTRY)
 mmlu_pro.register(_REGISTRY)
 musr.register(_REGISTRY)
+mmmu.register(_REGISTRY)
+chartqa.register(_REGISTRY)
+docvqa.register(_REGISTRY)
+ai2d.register(_REGISTRY)
 sota_stubs.register(_REGISTRY)
 
 

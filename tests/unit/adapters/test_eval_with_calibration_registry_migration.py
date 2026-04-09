@@ -112,10 +112,10 @@ STUB_RUNNERS = [
     "mbpp_plus",
     "gsm8k",
     "aime_2024",
-    "mmmu",
-    "chartqa",
-    "docvqa",
-    "ai2d",
+    # mmmu, chartqa, docvqa, ai2d graduated to real lmms-eval runners
+    # (Open VLM Leaderboard pack). They no longer raise NotImplementedError
+    # from evaluate() — they raise ImportError if lmms_eval isn't installed
+    # and would otherwise actually run inference.
     "covost2",
     "librispeech",
     "gtzan",

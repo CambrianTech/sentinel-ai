@@ -124,47 +124,10 @@ class AIME2024Runner(BenchmarkRunner):
         return _stub_score_raise(self.name, "AIME 2024 problem set", samples_path)
 
 
-# ── Vision benchmarks (Qwen2.5-VL / Qwen3.5-VL targets) ─────────────────────
-
-
-class MMMURunner(BenchmarkRunner):
-    """MMMU — Massive Multi-discipline Multimodal Understanding. The
-    headline VL benchmark for frontier VL targets (Qwen2.5-VL, future
-    Qwen3.5-VL re-forges, GPT-4V, Claude). 11K college-exam-style
-    multimodal questions across art / business / science / medicine /
-    humanities / tech. Protocol: https://mmmu-benchmark.github.io/"""
-    name = "mmmu"
-    def score(self, samples_path):
-        return _stub_score_raise(self.name, "MMMU protocol at https://mmmu-benchmark.github.io/", samples_path)
-
-
-class ChartQARunner(BenchmarkRunner):
-    """ChartQA — visual question answering on charts/graphs. Tests whether
-    the VL model can read structured visual data (bar charts, line graphs,
-    pie charts). Standard VL benchmark. Protocol:
-    https://github.com/vis-nlp/ChartQA"""
-    name = "chartqa"
-    def score(self, samples_path):
-        return _stub_score_raise(self.name, "ChartQA protocol", samples_path)
-
-
-class DocVQARunner(BenchmarkRunner):
-    """DocVQA — document visual question answering. Tests reading text
-    embedded in document images (PDFs, scanned forms, receipts). Standard
-    VL benchmark for OCR + reasoning. Protocol: https://www.docvqa.org/"""
-    name = "docvqa"
-    def score(self, samples_path):
-        return _stub_score_raise(self.name, "DocVQA protocol", samples_path)
-
-
-class AI2DRunner(BenchmarkRunner):
-    """AI2D — Allen Institute Diagrams. Multiple-choice VQA on science
-    diagrams from grade-school textbooks. Standard VL benchmark for
-    diagram understanding. Protocol:
-    https://allenai.org/data/diagrams"""
-    name = "ai2d"
-    def score(self, samples_path):
-        return _stub_score_raise(self.name, "AI2D protocol", samples_path)
+# MMMURunner, ChartQARunner, DocVQARunner, AI2DRunner moved out to
+# their own files (mmmu.py, chartqa.py, docvqa.py, ai2d.py) with real
+# lmms-eval-harness bodies via LmmsEvalHarnessRunner. Open VLM
+# Leaderboard pack — see also lmms_eval_harness_base.py.
 
 
 # ── Audio benchmarks (Qwen2.5-Omni target) ──────────────────────────────────
@@ -207,10 +170,6 @@ REGISTRATIONS = [
     MBPPPlusRunner,
     GSM8KRunner,
     AIME2024Runner,
-    MMMURunner,
-    ChartQARunner,
-    DocVQARunner,
-    AI2DRunner,
     CoVoST2Runner,
     LibriSpeechRunner,
     GTZANRunner,

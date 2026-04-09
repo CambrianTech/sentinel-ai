@@ -72,11 +72,9 @@ SOTA_BENCHMARKS = [
     # in test_open_llm_leaderboard_v2_runners.py.
     "gsm8k",
     "aime_2024",
-    # Vision benchmarks (Qwen2.5-VL / Qwen3.5-VL targets)
-    "mmmu",
-    "chartqa",
-    "docvqa",
-    "ai2d",
+    # Vision benchmarks: mmmu, chartqa, docvqa, ai2d graduated to real
+    # lmms-eval runners (Open VLM Leaderboard pack). See
+    # test_open_vlm_leaderboard_runners.py for coverage.
     # Audio benchmarks (Qwen2.5-Omni target)
     "covost2",
     "librispeech",
@@ -127,6 +125,8 @@ def test_registered_benchmarks_includes_all_sota():
         "humaneval", "humaneval_plus", "livecodebench_v6",
         # Open LLM Leaderboard v2 pack
         "ifeval", "bbh", "math_hard", "gpqa", "mmlu_pro", "musr",
+        # Open VLM Leaderboard pack
+        "mmmu", "chartqa", "docvqa", "ai2d",
     }
     missing = expected - actual
     assert not missing, (
