@@ -1,8 +1,12 @@
 # Plugin Sprint: family-adapter architecture for sentinel-ai
 
-> **Status:** mid-sprint, 2026-04-08. 9 commits landed on `cross-arch-portability-fixes`,
-> 8-step roadmap remaining. Read this entire doc before resuming after a crash —
-> it captures what got built, why, what's still pending, and the order of operations.
+> **Status:** ROADMAP COMPLETE 2026-04-08. All 8 "correct architecture" steps
+> landed across sentinel-ai (`cross-arch-portability-fixes`) + forge-alloy
+> (`domain-extensibility-refactor`). 85 passed / 0 skipped / 0 xfailed across
+> the reproducibility + unit suites. The architecture is "ready for frontier
+> targets" — adding Mixtral 8x22B, Qwen3-Coder-480B, DeepSeek-V3.1, or any
+> other forge is now a one-file family adapter + (if needed) a one-file eval
+> runner. Read this entire doc to recover full context after a crash.
 >
 > **Companion docs:** [`VL-FORGE-DESIGN.md`](VL-FORGE-DESIGN.md) (vision-safety scaffolding),
 > [`COMPENSATION-LORA-DESIGN.md`](COMPENSATION-LORA-DESIGN.md) (§4.1.3.3 distillation),
