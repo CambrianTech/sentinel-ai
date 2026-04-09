@@ -54,6 +54,66 @@ OPENLLM_V2_BENCHMARKS = ["ifeval", "bbh", "math_hard", "gpqa", "mmlu_pro", "musr
 CODE_BENCHMARKS = ["humaneval", "humaneval_plus", "livecodebench_v6"]
 
 
+def _coder_acceptance(*, max_vram_gb: float, anchor_delta_pp: float = -3.0) -> dict:
+    """Acceptance criteria for a coder forge.
+
+    The §4.1.3.4 discipline gate: humaneval_plus must be within
+    `anchor_delta_pp` percentage points of the base anchor measured in
+    the SAME eval pipeline. Negative is the correct sign — we allow the
+    forged score to drop slightly relative to the base. -3.0 is the
+    morning's flagship gate (the qwen3-coder-30b shipped at Δ −3.7
+    against the 92.1 base anchor). Tighter alloys can pass -2.0.
+    """
+    return {
+        "benchmarks": {
+            "humaneval_plus": {
+                "min": 0.55,
+                "anchorDelta": anchor_delta_pp,
+                "anchorBenchmark": "humaneval_plus",
+            },
+            "humaneval": {"min": 0.55},
+            "livecodebench_v6": {"min": 0.20},
+        },
+        "hardware": {"maxVramGb": max_vram_gb},
+        "integrity": {"modelHashRequired": True, "samplesPathRequired": True},
+    }
+
+
+def _general_acceptance(*, max_vram_gb: float) -> dict:
+    """Acceptance criteria for a general-purpose forge — Open LLM Leaderboard v2 floors.
+
+    The min thresholds are set to roughly the median of the current
+    public leaderboard at each model's weight class, so a forge that
+    matches its base on most benchmarks comfortably clears.
+    """
+    return {
+        "benchmarks": {
+            "ifeval":   {"min": 0.45},
+            "bbh":      {"min": 0.40},
+            "math_hard":{"min": 0.10},
+            "gpqa":     {"min": 0.25},
+            "mmlu_pro": {"min": 0.30},
+            "musr":     {"min": 0.30},
+        },
+        "hardware": {"maxVramGb": max_vram_gb},
+        "integrity": {"modelHashRequired": True},
+    }
+
+
+def _vl_acceptance(*, max_vram_gb: float) -> dict:
+    """Acceptance criteria for a vision-language forge."""
+    return {
+        "benchmarks": {
+            "mmmu":    {"min": 0.40},
+            "chartqa": {"min": 0.50},
+            "docvqa":  {"min": 0.55},
+            "ai2d":    {"min": 0.55},
+        },
+        "hardware": {"maxVramGb": max_vram_gb},
+        "integrity": {"modelHashRequired": True},
+    }
+
+
 def _moe_recipe(
     *,
     name: str,
@@ -64,10 +124,11 @@ def _moe_recipe(
     original_experts: int,
     benchmarks: list[str],
     description: str,
+    acceptance: dict | None = None,
 ) -> dict:
-    """Build a minimal MoE expert-prune recipe alloy."""
+    """Build a minimal MoE expert-prune recipe alloy with an acceptance gate."""
     prune_pct = round(100 * (1 - keep_experts / original_experts), 1)
-    return {
+    alloy = {
         "name": name,
         "version": "0.1.0",
         "description": description,
@@ -117,6 +178,9 @@ def _moe_recipe(
             },
         ],
     }
+    if acceptance is not None:
+        alloy["acceptanceCriteria"] = acceptance
+    return alloy
 
 
 def _vl_recipe(
@@ -128,6 +192,7 @@ def _vl_recipe(
     description: str,
     keep_experts: int | None = None,
     original_experts: int | None = None,
+    acceptance: dict | None = None,
 ) -> dict:
     """Vision-language forge recipe. Routes through QwenVLAdapter which
     handles vision_safety. If is_moe, also runs the MoE expert prune."""
@@ -172,7 +237,7 @@ def _vl_recipe(
             "repoName": name,
         },
     ])
-    return {
+    alloy = {
         "name": name,
         "version": "0.1.0",
         "description": description,
@@ -185,6 +250,9 @@ def _vl_recipe(
         },
         "stages": stages,
     }
+    if acceptance is not None:
+        alloy["acceptanceCriteria"] = acceptance
+    return alloy
 
 
 # ── The viral-target catalog ────────────────────────────────────────────────
@@ -200,6 +268,7 @@ CATALOG: list[dict] = [
         keep_experts=4,
         original_experts=8,
         benchmarks=CODE_BENCHMARKS + OPENLLM_V2_BENCHMARKS,
+        acceptance=_coder_acceptance(max_vram_gb=24.0, anchor_delta_pp=-3.0),
         description=(
             "Single-5090 prosumer headline: Mixtral 8x22B compacted from "
             "141B/39B-active to ~70B/39B-active by pruning 8→4 experts per "
@@ -215,6 +284,7 @@ CATALOG: list[dict] = [
         keep_experts=4,
         original_experts=8,
         benchmarks=CODE_BENCHMARKS + OPENLLM_V2_BENCHMARKS,
+        acceptance=_coder_acceptance(max_vram_gb=16.0, anchor_delta_pp=-3.0),
         description=(
             "Mixtral 8x7B compacted from 47B/13B-active to ~24B/13B-active "
             "via 8→4 expert pruning. Smaller sibling of the 8x22B headline; "
@@ -231,6 +301,7 @@ CATALOG: list[dict] = [
         keep_experts=8,
         original_experts=16,
         benchmarks=OPENLLM_V2_BENCHMARKS,
+        acceptance=_general_acceptance(max_vram_gb=14.0),
         description=(
             "Phi-3.5-MoE compacted from 41.9B/6.6B-active to ~22B/6.6B-active "
             "via 16→8 expert pruning. Inherits the entire pruning algorithm "
@@ -247,6 +318,7 @@ CATALOG: list[dict] = [
         keep_experts=32,
         original_experts=64,
         benchmarks=CODE_BENCHMARKS + OPENLLM_V2_BENCHMARKS,
+        acceptance=_coder_acceptance(max_vram_gb=10.0, anchor_delta_pp=-3.0),
         description=(
             "DeepSeek-V2-Lite compacted via DEEPSEEK_V2_LAYOUT — 64→32 routed "
             "experts per layer with the shared expert pathway preserved "
@@ -263,6 +335,7 @@ CATALOG: list[dict] = [
         keep_experts=32,
         original_experts=64,
         benchmarks=OPENLLM_V2_BENCHMARKS,
+        acceptance=_general_acceptance(max_vram_gb=6.0),
         description=(
             "OLMoE-1B-7B compacted via the MoEUnfusedExpertsBase shared base "
             "(same code path as Qwen3MoE, different family discriminator). "
@@ -278,6 +351,7 @@ CATALOG: list[dict] = [
         keep_experts=80,
         original_experts=128,
         benchmarks=CODE_BENCHMARKS + OPENLLM_V2_BENCHMARKS,
+        acceptance=_coder_acceptance(max_vram_gb=12.0, anchor_delta_pp=-3.7),
         description=(
             "Re-forge of the morning's flagship via the new factory pipeline "
             "as a sanity check. Same recipe, same target, but routed through "
@@ -293,6 +367,7 @@ CATALOG: list[dict] = [
         base_model="Qwen/Qwen3-VL-8B-Instruct",
         architecture="qwen3_vl",
         is_moe=False,
+        acceptance=_vl_acceptance(max_vram_gb=10.0),
         description=(
             "Qwen3-VL-8B forged with vision-tower bit-exact preservation via "
             "QwenVLAdapter. The vision encoder is whitelisted; only the LLM "
@@ -306,6 +381,7 @@ CATALOG: list[dict] = [
         is_moe=True,
         keep_experts=80,
         original_experts=128,
+        acceptance=_vl_acceptance(max_vram_gb=14.0),
         description=(
             "Qwen3-VL-30B-A3B is the most architecturally interesting target "
             "in the catalog: vision tower + MoE LLM. Routes through "
@@ -320,6 +396,7 @@ CATALOG: list[dict] = [
         base_model="Qwen/Qwen2.5-Omni-7B",
         architecture="qwen2_5_omni",
         is_moe=False,
+        acceptance=_vl_acceptance(max_vram_gb=10.0),
         description=(
             "Qwen2.5-Omni-7B forged with all 4 encoder/decoder towers "
             "preserved (vision + audio + talker + token2wav) via "
