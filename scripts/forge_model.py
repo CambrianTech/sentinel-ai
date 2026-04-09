@@ -1418,6 +1418,41 @@ def main():
     tokenizer.save_pretrained(str(model_dir))
     print(f"  Saved to {model_dir}")
 
+    # SAVE-THEN-RELOAD SMOKE TEST: load the just-saved model from disk
+    # to verify the shapes in config.json match the actual safetensors.
+    # This catches the entire class of bugs where defrag/prune mutates
+    # tensor shapes but model.config doesn't get updated to match
+    # (the qwen2-5-7b 2026-04-09 incident — model published, but
+    # AutoModelForCausalLM.from_pretrained failed with size mismatch
+    # errors because the slice-mode defrag produced per-layer shape
+    # divergence that the single config.num_attention_heads couldn't
+    # represent). Failing here at FORGE time means we never publish
+    # an artifact that downstream users can't load.
+    print("  [smoke] save-then-reload check...")
+    try:
+        from transformers import AutoModelForCausalLM as _ReloadCls
+        _check = _ReloadCls.from_pretrained(
+            str(model_dir),
+            torch_dtype=torch.float16,
+            device_map="cpu",
+            trust_remote_code=True,
+        )
+        del _check
+        print(f"  [smoke] OK — saved model loads cleanly via from_pretrained")
+    except Exception as _e:
+        # Loud failure — never silently let a non-loadable artifact land.
+        raise RuntimeError(
+            f"SAVE-THEN-RELOAD SMOKE TEST FAILED: the model saved to "
+            f"{model_dir} cannot be loaded via from_pretrained. "
+            f"This means the saved config.json doesn't match the actual "
+            f"safetensors shapes (typically caused by defrag mutating "
+            f"tensors without updating model.config). Original error:\n"
+            f"  {type(_e).__name__}: {_e}\n"
+            f"FIX: ensure defrag_live_model updates model.config to "
+            f"reflect post-defrag dimensions, OR use defrag mode 'pad' "
+            f"which preserves the wire shape."
+        ) from _e
+
     # --- 7. Results ---
     results = {
         "model": args.model,

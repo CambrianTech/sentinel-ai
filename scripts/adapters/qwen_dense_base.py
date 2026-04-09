@@ -118,7 +118,15 @@ class QwenDenseBase(FamilyAdapter):
         try:
             from defrag_inline import defrag_live_model
             self.log("  Defragging pruned heads into surviving structure...")
-            freed = defrag_live_model(ctx.model, dead_heads=heads)
+            # Use 'pad' mode (zeros dead head positions in-place) instead
+            # of 'slice' (physically removes them). Slice causes per-layer
+            # shape divergence — different layers may end up with different
+            # head counts, but model.config.num_attention_heads is a single
+            # scalar that can only describe ONE shape. The saved config
+            # then mismatches all layers except one, and from_pretrained()
+            # fails with size mismatch errors. Pad mode keeps all layers
+            # uniformly shaped and the saved config matches every tensor.
+            freed = defrag_live_model(ctx.model, dead_heads=heads, mode="pad")
             self.log(f"  Freed {freed / 1e6:.0f}MB — model now operates on surviving heads only")
             # Hooks no longer needed — pruned heads are physically gone
             for h in ctx.hooks:
