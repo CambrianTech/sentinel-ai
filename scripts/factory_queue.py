@@ -564,6 +564,21 @@ class FactoryWorker:
             elif isinstance(publish_result, dict):
                 publish_manifest.update(publish_result)
 
+        # Tier 2: compute the modelHash of forged_dir using the canonical
+        # alloy_hashing convention and record it in the manifest. Continuum
+        # (the shipping department) reads this for chain of custody and
+        # determinism verification on re-forges.
+        model_hash = ""
+        file_hashes: list[dict] = []
+        try:
+            from alloy_hashing import compose_model_hash, hash_local_safetensors_dir
+            file_hashes = hash_local_safetensors_dir(forged_dir)
+            model_hash = compose_model_hash(file_hashes)
+        except Exception:
+            # Tier 2 is best-effort recording — never fail a forge
+            # because the hashing helpers tripped on something.
+            pass
+
         # Station 3: mark finished. The manifest tells continuum where the
         # forged artifact lives on disk so the shipping flow there can
         # read the alloy + eval results and apply its release gates.
@@ -571,6 +586,8 @@ class FactoryWorker:
             "forged_dir": str(forged_dir),
             "alloy_path": str(assembly),
             "published": self.publisher is not None,
+            "modelHash": model_hash,
+            "fileHashes": file_hashes,
             **publish_manifest,
         }
         self.queue.mark_finished(assembly, manifest)
