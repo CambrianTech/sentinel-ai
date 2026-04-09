@@ -242,7 +242,8 @@
           "deltaVsAnchorHumaneval": -13.4,
           "deltaVsAnchorHumanevalPlus": -15.2
         },
-        "samplesPath": "eval/humaneval/student_samples_router_l2_baseline.jsonl"
+        "samplesPath": "eval/humaneval/student_samples_router_l2_baseline.jsonl",
+        "samplesHash": "sha256:d401642a75435c77f8b9443b8d0b9a856eff732c19d4968367c333049eeba9fc"
       },
       "outcome": "negative_baseline",
       "supersededBy": "calibration-aware-activation-count-2026-04-08",

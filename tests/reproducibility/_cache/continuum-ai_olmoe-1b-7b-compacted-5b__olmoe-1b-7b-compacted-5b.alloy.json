@@ -193,7 +193,8 @@
           "deltaVsAnchorHumaneval": -12.9,
           "deltaVsAnchorHumanevalPlus": -10.4
         },
-        "samplesPath": "eval/humaneval/student_samples_broad_calibration.jsonl"
+        "samplesPath": "eval/humaneval/student_samples_broad_calibration.jsonl",
+        "samplesHash": "sha256:77bc81ff1f3a2a29b3936c2be1ac27f0cdc87c8028d8987b3742c2c0f41aa550"
       },
       "outcome": "negative_baseline",
       "supersededBy": "olmoe-code-corpus-2026-04-08",
