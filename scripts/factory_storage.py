@@ -39,8 +39,109 @@ from __future__ import annotations
 import json
 import shutil
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Optional
+
+
+# ── factory_node.toml — declarative storage hierarchy ────────────────────────
+
+
+@dataclass
+class ColdTier:
+    """One declared cold storage tier on this node."""
+    name: str
+    path: Path
+    fs_type: str = "unknown"           # ext4 | drvfs | nfs | s3
+    write_mb_per_sec: Optional[int] = None
+    purpose: list[str] = field(default_factory=list)
+
+
+@dataclass
+class FactoryNodeConfig:
+    """Declarative per-node config loaded from factory_node.toml.
+
+    Single source of truth for which storage paths belong to which
+    cache tier on this node. The grid (continuum) eventually reads
+    this same file across all nodes to make routing decisions:
+    'don't push a Mixtral 8x22B forge to a node whose hot tier has
+    only 500GB free; pick the node with the WD Red Pro 16TB cold
+    tier instead.'
+
+    See test_factory_node_config.py for the schema documentation.
+    When the file is missing or invalid, from_file() returns None
+    and the daemon falls back to the auto-detection path.
+    """
+    node_name: str
+    hostname: str
+    roles: list[str] = field(default_factory=list)
+    gpu_count: int = 0
+    gpu_vram_gb: int = 0
+
+    hot_path: Optional[Path] = None
+    hot_min_free_gb: int = 0
+
+    cold_tiers: list[ColdTier] = field(default_factory=list)
+
+    coordinator_url: Optional[str] = None
+    heartbeat_interval_seconds: int = 30
+
+    @classmethod
+    def from_file(cls, path: str | Path) -> Optional["FactoryNodeConfig"]:
+        """Load from a TOML file. Returns None if missing or invalid."""
+        path = Path(path)
+        if not path.exists():
+            return None
+        try:
+            try:
+                import tomllib  # python 3.11+
+            except ImportError:
+                import tomli as tomllib  # type: ignore
+            data = tomllib.loads(path.read_text())
+        except Exception as e:
+            print(f"  WARN: factory_node.toml at {path} is invalid: {e}")
+            return None
+
+        node = data.get("node", {}) or {}
+        storage = data.get("storage", {}) or {}
+        grid = data.get("grid", {}) or {}
+
+        # Parse hot tier
+        hot = storage.get("hot", {}) or {}
+        hot_path = Path(hot["path"]) if "path" in hot else None
+        hot_min_free_gb = int(hot.get("min_free_gb", 0))
+
+        # Parse cold tiers (list of tables)
+        cold_raw = storage.get("cold", []) or []
+        cold_tiers: list[ColdTier] = []
+        for c in cold_raw:
+            if not isinstance(c, dict) or "name" not in c or "path" not in c:
+                continue
+            cold_tiers.append(ColdTier(
+                name=c["name"],
+                path=Path(c["path"]),
+                fs_type=c.get("fs_type", "unknown"),
+                write_mb_per_sec=c.get("write_mb_per_sec"),
+                purpose=list(c.get("purpose", [])),
+            ))
+
+        return cls(
+            node_name=node.get("name", "unknown"),
+            hostname=node.get("hostname", "unknown"),
+            roles=list(node.get("roles", [])),
+            gpu_count=int(node.get("gpu_count", 0)),
+            gpu_vram_gb=int(node.get("gpu_vram_gb", 0)),
+            hot_path=hot_path,
+            hot_min_free_gb=hot_min_free_gb,
+            cold_tiers=cold_tiers,
+            coordinator_url=grid.get("coordinator"),
+            heartbeat_interval_seconds=int(grid.get("heartbeat_interval_seconds", 30)),
+        )
+
+    def first_cold_path(self) -> Optional[Path]:
+        """Convenience: the first cold tier path, or None if no cold tiers
+        are declared. Used by auto_cleanup when config_aware=True."""
+        return self.cold_tiers[0].path if self.cold_tiers else None
 
 
 # ── Reference set ───────────────────────────────────────────────────────────
@@ -275,6 +376,7 @@ def auto_cleanup(
     force: bool = False,
     cold_root: Path | None = None,
     dry_run: bool = False,
+    config_aware: bool = False,
 ) -> dict:
     """Conservative storage cleanup pass.
 
@@ -302,6 +404,16 @@ def auto_cleanup(
         dry_run: report what WOULD be deleted without touching anything
     """
     root = Path(root)
+
+    # config_aware mode: read factory_node.toml and let it OVERRIDE the
+    # explicit cold_root parameter. This is the path the daemon takes
+    # in production — declarative config wins, explicit args are the
+    # bootstrap fallback.
+    if config_aware and cold_root is None:
+        cfg = FactoryNodeConfig.from_file(root / "factory_node.toml")
+        if cfg is not None:
+            cold_root = cfg.first_cold_path()
+
     p = pressure(root)
     if not force and p["pct_used"] < threshold_pct:
         return {

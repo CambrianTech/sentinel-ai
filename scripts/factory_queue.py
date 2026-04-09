@@ -519,10 +519,17 @@ class FactoryWorker:
         # instead of being deleted (the 7200rpm spinner tier).
         if self.cleanup_fn is not None:
             try:
+                # config_aware=True lets factory_node.toml override the
+                # cold_root if the file exists. The CLI --cleanup-cold-root
+                # arg still wins via cold_root=self.cleanup_cold_root if
+                # the operator explicitly set it; config is the fallback
+                # for the unset case. This is the declarative-config-
+                # wins-over-auto-detect pattern.
                 self.cleanup_fn(
                     self.queue.root,
                     threshold_pct=self.cleanup_threshold_pct,
                     cold_root=self.cleanup_cold_root,
+                    config_aware=True,
                 )
             except Exception:
                 # Cleanup is best-effort; never fail a forge over it.

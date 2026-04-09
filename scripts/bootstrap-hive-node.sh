@@ -106,6 +106,58 @@ else
     green "  prepended prelude to ~/.bashrc"
 fi
 
+# ── 3.5. factory_node.toml.example template ────────────────────────────────
+cyan "[3.5/7] factory_node.toml.example template"
+TEMPLATE=~/factory_node.toml.example
+if [ -f "$TEMPLATE" ]; then
+    green "  $TEMPLATE already exists — keeping"
+else
+    cat > "$TEMPLATE" <<TEMPLATE_EOF
+# factory_node.toml — declarative storage hierarchy for this hive node.
+#
+# Place this at <queue_root>/factory_node.toml (typically
+# ~/sentinel-factory/.factory/factory_node.toml). The factory_queue
+# daemon reads it on startup; declarative config wins over auto-detect.
+#
+# The grid (continuum) eventually reads this same file across all nodes
+# to make routing decisions about which node forges which alloy.
+
+[node]
+name        = "$(hostname)"          # display name in heartbeats / grid view
+hostname    = "$(hostname)"          # actual host (for grid coordination)
+roles       = ["forge"]              # forge | ship | both
+gpu_count   = 1                      # adjust per box
+gpu_vram_gb = 32                     # 5090=32, 4090=24, 3090=24, 4060=8
+
+[storage]
+# Hot tier: fast SSD where the .factory/ queue dir lives.
+# min_free_gb is a soft floor — auto-cleanup tries to keep this much free.
+hot = { path = "$HOME/sentinel-factory/.factory", min_free_gb = 30 }
+
+# Cold tiers in PRIORITY ORDER. Evictions fill tier 1 first, spill to
+# tier 2 when tier 1 is full, etc. List as many as you have.
+[[storage.cold]]
+name             = "primary-cold"
+path             = "/mnt/d/cold"     # adjust to your mount point
+fs_type          = "drvfs"           # ext4 | drvfs | nfs | s3
+write_mb_per_sec = 210               # informs the grid scheduler
+purpose          = ["work-archive", "published-backup"]
+
+# [[storage.cold]]
+# name = "secondary-archive"
+# path = "/mnt/e/cold"
+# fs_type = "ext4"
+
+[grid]
+# Future — populated when continuum's grid coordinator is online.
+# coordinator = "tailscale://continuum-coordinator:7100"
+# heartbeat_interval_seconds = 30
+TEMPLATE_EOF
+    green "  installed $TEMPLATE"
+    yellow "  to activate: cp $TEMPLATE ~/sentinel-factory/.factory/factory_node.toml"
+    yellow "               (then edit the paths to match your hardware)"
+fi
+
 # ── 4. start-factory-daemon.sh wrapper ──────────────────────────────────────
 cyan "[4/7] factory daemon recovery wrapper"
 WRAPPER=~/start-factory-daemon.sh
