@@ -176,47 +176,56 @@ python experiments/experiment_self_directed.py --model_name gpt2-medium
 
 ## The Factory Pipeline
 
-Sentinel-AI is the forge. The factory pipeline turns it into a 24/7 model
-production line: drop a recipe alloy in a queue directory, BigMama (or any
-single-GPU box) picks it up, forges it through the family-adapter set,
-scores it against every benchmark it's eligible for, and publishes to
-HuggingFace. No hand-rolled scripts per model — the architecture handles
-dispatch.
+Sentinel-AI is the forge. The factory pipeline turns it into an
+**assembly line** for model production: drop a recipe alloy at the
+intake station, BigMama (or any single-GPU box) builds it through the
+family-adapter set, assays it against every benchmark it's eligible for,
+and parks the finished artifact in the shipping bay. **Continuum is the
+shipping department** — it reads `finished/`, applies its release gates,
+and publishes to HuggingFace. Sentinel never pushes to HF; that's a
+deliberate architectural boundary.
 
 ```
-                                       ┌─────────────────────────┐
-                                       │  .factory/queue/        │
-                  drop alloy here  →   │    pending/             │  ← cp my-recipe.alloy.json here
-                                       │    running/  ← worker   │
-                                       │    done/     ← success  │
-                                       │    failed/   ← traceback│
-                                       └────────────┬────────────┘
+                                       ┌──────────────────────────┐
+                                       │  .factory/line/          │
+                  drop alloy here  →   │    intake/               │  ← cp my-recipe.alloy.json here
+                                       │    assembly/  ← worker   │
+                                       │    finished/  ← shipping │  ← continuum reads here
+                                       │    rework/    ← QA flag  │
+                                       └────────────┬─────────────┘
                                                     │
                                                     ▼
                                        FactoryWorker.process_one()
                                                     │
-                          ┌─────────────────────────┼─────────────────────────┐
-                          ▼                         ▼                         ▼
-                 alloy_executor               eval_runners              publish_model
-                 .execute_alloy()             (registry dispatch)       .publish()
-                          │                         ▲                         │
-                          │                         │                         │
-                  family-adapter              resolve_runner(name)         HF push
-                  dispatch (16 adapters)            │                         │
-                  → MoEUnfusedExpertsBase           │                    model card
-                  → MixtralAdapter                  │                         │
-                  → PhiMoEAdapter (inherits)        │                         ▼
-                  → DeepSeekV2Adapter               │              published continuum-ai/<model>
-                  → QwenVLAdapter                   │              with cryptographically
-                  → ... 11 more                     │              attested alloy hash
-                          │                         │
-                          ▼                         │
-                  forge output dir  ──── eval ──→  9 real benchmark runners:
-                                                    HumanEval, HumanEval+,
-                                                    LCB v6, IFEval, BBH,
-                                                    MATH-Hard, GPQA,
-                                                    MMLU-Pro, MuSR
-                                                    (Open LLM Leaderboard v2 pack)
+                                   ┌────────────────┴────────────────┐
+                                   ▼                                 ▼
+                          alloy_executor                       eval_runners
+                          .execute_alloy()                   (registry dispatch)
+                                   │                                 ▲
+                                   │                                 │
+                            family-adapter                  resolve_runner(name)
+                            dispatch (16 adapters)                   │
+                            → MoEUnfusedExpertsBase                  │
+                            → MixtralAdapter                         │
+                            → PhiMoEAdapter (inherits)               │
+                            → DeepSeekV2Adapter                      │
+                            → QwenVLAdapter                          │
+                            → ... 11 more                            │
+                                   │                                 │
+                                   ▼                                 │
+                            forged artifact  ──── assay (eval) ──→  9 real benchmark runners:
+                                   │                                 HumanEval, HumanEval+,
+                                   │                                 LCB v6, IFEval, BBH,
+                                   │                                 MATH-Hard, GPQA,
+                                   ▼                                 MMLU-Pro, MuSR
+                            mark_finished()                          (Open LLM Leaderboard v2 pack)
+                                   │
+                                   ▼
+                            .factory/line/finished/  ──→  CONTINUUM (shipping department)
+                                                          • reads result manifest
+                                                          • applies release gates
+                                                          • pushes to HF
+                                                          • posts model card
 ```
 
 **Two-axis dispatch:**
@@ -230,23 +239,27 @@ dispatch.
   benchmark is one new file. The §4.1.4.1 anchor-reproduction discipline
   gate routes through the same registry.
 
-**Sending BigMama a task:**
+**Sending BigMama a part to build:**
 
 ```bash
-cp my-recipe.alloy.json /path/to/.factory/queue/pending/
+cp my-recipe.alloy.json /path/to/.factory/line/intake/
 python -m factory_queue --root /path/to/.factory --max-iters 1
 ```
 
-The worker picks the file off pending/, runs `execute_alloy` (which
-dispatches to the right family adapter), executes each stage including
-`eval` (which dispatches via the runner registry), calls `publish` on
-success, writes a `.result.json` next to the alloy in `done/`. On any
-failure: `.error.json` with the full traceback in `failed/` — no silent
-defaults, no retries on broken state.
+The worker picks the part off `intake/`, moves it to `assembly/`, runs
+`execute_alloy` (which dispatches to the right family adapter), executes
+each stage including `eval` (registry-dispatched), and on success moves
+the alloy to `finished/` with a `.result.json` sidecar pointing at the
+on-disk forged artifact and the eval results. On any failure the part
+goes to `rework/` with a `.error.json` sidecar carrying the full
+traceback — no silent defaults, no retries on broken state.
 
-The filesystem IS the queue. No DB, no service, no network coordination.
-Multi-worker safety comes free if you ever need to scale beyond a single
-GPU (atomic `pending → running` rename via `O_EXCL`).
+**The filesystem IS the queue.** No DB, no service, no network
+coordination. Multi-worker safety comes free if you ever need to scale
+beyond a single GPU (atomic `intake → assembly` rename via `O_EXCL`).
+Continuum's shipping department picks parts off `finished/`, applies
+release gates, and publishes — separate from the assembly line, separate
+process, separate auth scope.
 
 ## Papers
 

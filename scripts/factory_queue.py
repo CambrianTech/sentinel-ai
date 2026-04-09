@@ -1,48 +1,59 @@
-"""factory_queue — disk-backed queue + worker loop for the BigMama factory.
+"""factory_queue — disk-backed assembly line for the BigMama factory.
 
-This is the loop that turns "we have alloys + a forge + an eval registry +
-a publisher" into "BigMama cranks models 24/7." The simplest possible
-disk-backed queue, no DB, no service, no network coordination.
+This is the production line that turns "we have alloys + a forge + an
+eval registry" into "BigMama cranks models 24/7." Toyota Production
+System over alchemy: parts enter intake, move down the assembly line,
+get QA'd, and end up in the shipping bay (or rework).
 
-Directory layout (created automatically under <root>/queue/):
+Directory layout (created automatically under <root>/line/):
 
-    pending/    drop alloy files here (cp, mv, generator output)
-    running/    worker moves alloy here while processing
-    done/       success: alloy + .result.json sidecar
-    failed/     failure: alloy + .error.json sidecar (error + traceback)
+    intake/      drop alloy files here (cp, mv, generator output)
+    assembly/    worker moves alloy here while building
+    finished/    built + QA'd, sitting in the shipping bay for continuum
+    rework/      flagged by QA, needs human attention (alloy + traceback)
+
+CONTINUUM IS THE SHIPPING DEPARTMENT. Sentinel is the assembly + QA
+floor. The shipping department reads finished/, applies its release
+gates (alloy-declared minimum eval scores, security review, branding),
+and ships to HuggingFace. Sentinel NEVER pushes to HF — that's a
+deliberate architectural boundary. publisher injection exists only as
+an opt-in for staging-environment integration tests; the production CLI
+default is forge + eval, no push.
 
 The filesystem IS the queue. Atomic moves give multi-worker safety for
-free if we ever need to scale beyond a single 5090. The single-5090
+free if you ever need to scale beyond a single 5090. The single-5090
 case (today) uses one worker that processes one alloy at a time:
-forge → eval → publish → mark done → next.
+intake → assembly → finished → next.
 
 Public API:
 
     FactoryQueue(root)
         Wraps the directory layout. Methods:
-            enqueue(alloy_path)               copy alloy into pending/
-            pop_oldest_pending() → Path|None  atomic move pending → running
-            mark_done(running_path, manifest) move running → done + manifest
-            mark_failed(path, error, tb)      move running → failed + error
-            stats() → dict                    counts of each bucket
+            enqueue(alloy_path)                  copy alloy into intake/
+            pop_oldest_intake() → Path|None      atomic move intake → assembly
+            mark_finished(assembly_path, ...)    move assembly → finished + manifest
+            mark_rework(path, error, tb)         move assembly → rework + error
+            stats() → dict                       counts of each station
 
     FactoryWorker(queue, executor, publisher, work_root)
-        The loop that drains the queue. executor and publisher are injected
-        callables (no GPU/HF dependencies in unit tests). Production wiring:
+        The line operator that drains the queue. executor is injected
+        (the alloy runner). publisher is OPTIONAL and OFF by default —
+        sentinel forges and assays, continuum ships. Production wiring:
             executor  = alloy_executor.execute_alloy
-            publisher = publish_model.publish
+            publisher = None   # default; opt-in via --publish flag
 
         Methods:
-            process_one() → bool           pop, run, publish, mark; True if processed
-            run_loop(max_iters=None) → int drain pending, return count processed
+            process_one() → bool           pop, build, mark; True if processed
+            run_loop(max_iters=None) → int drain intake, return count processed
 
 Production CLI (`python -m factory_queue --root .factory --max-iters 100`):
-    Polls .factory/queue/pending/, processes each alloy end-to-end via the
-    real executor + publisher, exits when pending is empty.
+    Polls .factory/line/intake/, processes each alloy end-to-end via the
+    real executor, marks finished, exits when intake is empty.
 
-Reproducibility contract: this module is the dispatcher, NOT the source
-of truth for forge behavior. The forge logic lives in alloy_executor.py
-and the per-family adapters; this just routes alloys through them.
+Reproducibility contract: this module is the line dispatcher, NOT the
+source of truth for forge behavior. The forge logic lives in
+alloy_executor.py and the per-family adapters; this just routes alloys
+through them and records the assembly outcome.
 """
 
 from __future__ import annotations
@@ -56,48 +67,55 @@ from typing import Any, Callable
 
 
 class FactoryQueue:
-    """Disk-backed queue at <root>/queue/{pending,running,done,failed}."""
+    """Disk-backed assembly line at <root>/line/{intake,assembly,finished,rework}.
 
-    BUCKETS = ("pending", "running", "done", "failed")
+    Stations:
+        intake/    parts entering the line (alloys waiting to be built)
+        assembly/  currently being built by the worker
+        finished/  built + assayed, sitting in the shipping bay for continuum
+        rework/    flagged by QA — alloy + traceback for human inspection
+    """
+
+    STATIONS = ("intake", "assembly", "finished", "rework")
 
     def __init__(self, root: str | Path) -> None:
         self.root = Path(root)
-        self.queue_dir = self.root / "queue"
-        for bucket in self.BUCKETS:
-            (self.queue_dir / bucket).mkdir(parents=True, exist_ok=True)
+        self.line_dir = self.root / "line"
+        for station in self.STATIONS:
+            (self.line_dir / station).mkdir(parents=True, exist_ok=True)
 
     @property
-    def pending_dir(self) -> Path: return self.queue_dir / "pending"
+    def intake_dir(self) -> Path:    return self.line_dir / "intake"
     @property
-    def running_dir(self) -> Path: return self.queue_dir / "running"
+    def assembly_dir(self) -> Path:  return self.line_dir / "assembly"
     @property
-    def done_dir(self) -> Path:    return self.queue_dir / "done"
+    def finished_dir(self) -> Path:  return self.line_dir / "finished"
     @property
-    def failed_dir(self) -> Path:  return self.queue_dir / "failed"
+    def rework_dir(self) -> Path:    return self.line_dir / "rework"
 
     def enqueue(self, alloy_path: str | Path) -> Path:
-        """Copy an alloy file into pending/. Returns the path inside the queue."""
+        """Copy an alloy file into intake/. Returns the path inside the line."""
         src = Path(alloy_path)
         if not src.exists():
             raise FileNotFoundError(f"alloy file does not exist: {src}")
-        dst = self.pending_dir / src.name
+        dst = self.intake_dir / src.name
         shutil.copy2(src, dst)
         return dst
 
-    def pop_oldest_pending(self) -> Path | None:
-        """Atomically move the oldest pending alloy into running/.
+    def pop_oldest_intake(self) -> Path | None:
+        """Atomically move the oldest intake alloy onto the assembly line.
 
-        Returns the new path inside running/, or None if pending is empty.
+        Returns the new path inside assembly/, or None if intake is empty.
         Atomic via rename — multi-worker safe (the worker that wins the
-        rename is the one that processes the alloy; the loser sees
-        FileNotFoundError on the next call and tries the next-oldest).
+        rename is the one that builds it; losers see FileNotFoundError on
+        the next call and try the next-oldest part).
         """
         candidates = sorted(
-            self.pending_dir.glob("*.alloy.json"),
+            self.intake_dir.glob("*.alloy.json"),
             key=lambda p: p.stat().st_mtime,
         )
         for candidate in candidates:
-            target = self.running_dir / candidate.name
+            target = self.assembly_dir / candidate.name
             try:
                 candidate.rename(target)
                 return target
@@ -106,57 +124,72 @@ class FactoryQueue:
                 continue
         return None
 
-    def mark_done(self, running_path: Path, manifest: dict) -> Path:
-        """Move running → done and write the result manifest sidecar."""
-        if running_path.parent != self.running_dir:
+    def mark_finished(self, assembly_path: Path, manifest: dict) -> Path:
+        """Move assembly → finished and write the result manifest sidecar.
+
+        The manifest is what the shipping department (continuum) reads to
+        decide ship/rework. It points at the on-disk forged artifact and
+        carries the eval results so the release gates can fire.
+        """
+        if assembly_path.parent != self.assembly_dir:
             raise ValueError(
-                f"mark_done called on path not in running/: {running_path}"
+                f"mark_finished called on path not in assembly/: {assembly_path}"
             )
-        done_path = self.done_dir / running_path.name
-        running_path.rename(done_path)
-        sidecar = done_path.with_suffix(".result.json")
+        finished_path = self.finished_dir / assembly_path.name
+        assembly_path.rename(finished_path)
+        sidecar = finished_path.with_suffix(".result.json")
         sidecar.write_text(json.dumps({
             "completed_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
             **manifest,
         }, indent=2))
-        return done_path
+        return finished_path
 
-    def mark_failed(
+    def mark_rework(
         self,
-        running_path: Path,
+        assembly_path: Path,
         error: str,
         traceback_text: str = "",
     ) -> Path:
-        """Move running → failed and write the error sidecar."""
-        if running_path.parent != self.running_dir:
+        """Move assembly → rework and write the error sidecar.
+
+        Rework is for parts that failed QA: a human inspects the traceback
+        and either fixes the recipe + re-queues at intake/, or scraps it.
+        """
+        if assembly_path.parent != self.assembly_dir:
             raise ValueError(
-                f"mark_failed called on path not in running/: {running_path}"
+                f"mark_rework called on path not in assembly/: {assembly_path}"
             )
-        failed_path = self.failed_dir / running_path.name
-        running_path.rename(failed_path)
-        sidecar = failed_path.with_suffix(".error.json")
+        rework_path = self.rework_dir / assembly_path.name
+        assembly_path.rename(rework_path)
+        sidecar = rework_path.with_suffix(".error.json")
         sidecar.write_text(json.dumps({
             "failed_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
             "error": error,
             "traceback": traceback_text,
         }, indent=2))
-        return failed_path
+        return rework_path
 
     def stats(self) -> dict[str, int]:
         return {
-            bucket: len(list((self.queue_dir / bucket).glob("*.alloy.json")))
-            for bucket in self.BUCKETS
+            station: len(list((self.line_dir / station).glob("*.alloy.json")))
+            for station in self.STATIONS
         }
 
 
 class FactoryWorker:
     """The loop that drains a FactoryQueue.
 
-    executor and publisher are injected callables so unit tests can pass
-    fakes (no GPU/HF in unit tests). Production wiring is done by the
-    CLI in main():
-        executor  = alloy_executor.execute_alloy
-        publisher = publish_model.publish
+    Sentinel-ai's job is FORGE + EVAL. Publication is continuum's
+    responsibility — the worker writes the forged artifact + score sheet
+    to done/ and stops there. Continuum picks up done/ items, applies
+    quality gates, reviews, and (separately) publishes. Sentinel never
+    pushes to HuggingFace; that's a deliberate architectural boundary.
+
+    executor is the only required callable. publisher exists as an
+    OPTIONAL injected callable for the rare case where a queue is
+    explicitly run with publish enabled (e.g. an integration test that
+    pushes to a private staging repo). Default is None — forge + eval,
+    no push.
     """
 
     def __init__(
@@ -164,7 +197,7 @@ class FactoryWorker:
         queue: FactoryQueue,
         *,
         executor: Callable[..., Any],
-        publisher: Callable[..., Any],
+        publisher: Callable[..., Any] | None = None,
         work_root: str | Path,
         org: str = "continuum-ai",
     ) -> None:
@@ -176,49 +209,65 @@ class FactoryWorker:
         self.org = org
 
     def process_one(self) -> bool:
-        """Pop the oldest pending alloy, forge → publish → mark.
+        """Pop the oldest intake alloy, forge → assay → mark finished.
 
-        Returns True if an alloy was processed (success OR failure),
-        False if pending was empty.
+        On success, the forged artifact dir is written to finished/ with
+        a sidecar manifest pointing at the on-disk artifact and the eval
+        results. Continuum (the shipping department) reads finished/ and
+        applies its release gates.
+
+        Returns True if a part was processed (success OR rework), False
+        if intake was empty.
         """
-        running = self.queue.pop_oldest_pending()
-        if running is None:
+        assembly = self.queue.pop_oldest_intake()
+        if assembly is None:
             return False
 
-        alloy_stem = running.stem.replace(".alloy", "")
-        out_dir = self.work_root / alloy_stem
+        alloy_stem = assembly.stem.replace(".alloy", "")
+        forged_root = self.work_root / alloy_stem
 
-        # Stage 1: forge.
+        # Station 1: forge + assay. The alloy's eval stage runs through
+        # the registered BenchmarkRunner pack as part of execute_alloy.
         try:
-            executor_result = self.executor(str(running), output_dir=str(out_dir))
-            # Some executors return the output dir, some don't; reconcile.
-            forged_dir = Path(executor_result) if executor_result else out_dir
+            executor_result = self.executor(str(assembly), output_dir=str(forged_root))
+            forged_dir = Path(executor_result) if executor_result else forged_root
         except Exception as e:
-            self.queue.mark_failed(
-                running,
+            self.queue.mark_rework(
+                assembly,
                 error=f"executor failed: {e}",
                 traceback_text=traceback.format_exc(),
             )
             return True
 
-        # Stage 2: publish.
-        try:
-            publish_result = self.publisher(forged_dir, org=self.org)
-        except Exception as e:
-            self.queue.mark_failed(
-                running,
-                error=f"publisher failed: {e}",
-                traceback_text=traceback.format_exc(),
-            )
-            return True
+        # Station 2 (OPTIONAL): publish. Default is OFF. Continuum is
+        # the shipping department. The worker only invokes the publisher
+        # if one was explicitly injected (staging-environment test path).
+        publish_manifest: dict = {}
+        if self.publisher is not None:
+            try:
+                publish_result = self.publisher(forged_dir, org=self.org)
+            except Exception as e:
+                self.queue.mark_rework(
+                    assembly,
+                    error=f"publisher failed: {e}",
+                    traceback_text=traceback.format_exc(),
+                )
+                return True
+            if isinstance(publish_result, str):
+                publish_manifest["hf_repo_url"] = publish_result
+            elif isinstance(publish_result, dict):
+                publish_manifest.update(publish_result)
 
-        # Stage 3: mark done with the manifest the publisher returned.
-        manifest: dict = {"output_dir": str(forged_dir)}
-        if isinstance(publish_result, str):
-            manifest["hf_repo_url"] = publish_result
-        elif isinstance(publish_result, dict):
-            manifest.update(publish_result)
-        self.queue.mark_done(running, manifest)
+        # Station 3: mark finished. The manifest tells continuum where the
+        # forged artifact lives on disk so the shipping flow there can
+        # read the alloy + eval results and apply its release gates.
+        manifest: dict = {
+            "forged_dir": str(forged_dir),
+            "alloy_path": str(assembly),
+            "published": self.publisher is not None,
+            **publish_manifest,
+        }
+        self.queue.mark_finished(assembly, manifest)
         return True
 
     def run_loop(
@@ -226,18 +275,18 @@ class FactoryWorker:
         max_iters: int | None = None,
         sleep_seconds: float = 0.0,
     ) -> int:
-        """Drain pending until empty (or max_iters processed).
+        """Drain intake until empty (or max_iters processed).
 
         Args:
-            max_iters: process at most this many alloys before returning.
+            max_iters: process at most this many parts before returning.
                        None = drain completely.
-            sleep_seconds: how long to sleep between iterations when there's
-                           still pending work. 0.0 for tests; production
-                           should pass something small (~5s) so the worker
-                           doesn't spin hot when pending is empty.
+            sleep_seconds: how long to sleep between iterations when intake
+                           is non-empty. 0.0 for tests; production should
+                           pass something small (~5s) so the worker doesn't
+                           spin hot when intake is empty.
 
         Returns:
-            Number of alloys processed (success + failure).
+            Number of parts processed (finished + rework).
         """
         processed = 0
         while True:
@@ -266,16 +315,29 @@ def main():
     ap.add_argument("--org", default="continuum-ai")
     ap.add_argument("--max-iters", type=int, default=None)
     ap.add_argument("--sleep", type=float, default=5.0)
+    ap.add_argument(
+        "--publish",
+        action="store_true",
+        help=(
+            "Opt-in: also push to HuggingFace after forge+eval. Default OFF — "
+            "sentinel forges and evals; continuum is the publication gatekeeper."
+        ),
+    )
     args = ap.parse_args()
 
     from alloy_executor import execute_alloy
-    from publish_model import publish
+
+    publisher = None
+    if args.publish:
+        # Opt-in only. Default is forge + eval, no HF push. Continuum
+        # is the publication gatekeeper for production runs.
+        from publish_model import publish as publisher
 
     queue = FactoryQueue(args.root)
     worker = FactoryWorker(
         queue,
         executor=execute_alloy,
-        publisher=publish,
+        publisher=publisher,
         work_root=args.work_root or (Path(args.root) / "work"),
         org=args.org,
     )

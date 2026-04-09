@@ -9,7 +9,7 @@ For queueing the next batch of forges, we want INTENT recipes: minimal,
 authored once, dispatchable through alloy_executor + the family-adapter
 set + the eval-runner registry. This script is the per-target catalog of
 intent recipes — Kash's frontier-target list materialized as files in
-.factory/queue/pending/.
+.factory/line/intake/.
 
 Each candidate is one Python dict with the four fields the forge needs:
     name              — what continuum-ai/<name> will be on HF
@@ -18,7 +18,7 @@ Each candidate is one Python dict with the four fields the forge needs:
     forge             — the prune target + eval benchmarks for this family
 
 The script renders each candidate to a minimal alloy JSON and copies it
-into .factory/queue/pending/. From there factory_queue.FactoryWorker
+into .factory/line/intake/. From there factory_queue.FactoryWorker
 picks them up.
 
 Usage:
