@@ -200,6 +200,7 @@ def _dense_recipe(
     architecture: str,
     description: str,
     prune_level: float = 0.30,
+    prune_strategy: str = "entropy",
     benchmarks: list[str] | None = None,
     acceptance: dict | None = None,
     source_geometry: dict | None = None,
@@ -232,14 +233,15 @@ def _dense_recipe(
             {
                 "type": "prune",
                 "level": prune_level,
-                "strategy": "combined",
+                "strategy": prune_strategy,
                 "implementation": "scripts/forge_model.py",
             },
             {
+                # Intent only — the family adapter's default_train_params()
+                # hook fills in domain/steps/learningRate at execution time.
+                # Recipe authors override here when they want family-non-default.
                 "type": "train",
                 "method": "lora",
-                "lora_rank": 16,
-                "epochs": 1,
                 "implementation": "scripts/forge_model.py",
             },
             {
@@ -281,6 +283,16 @@ def _vl_recipe(
     """Vision-language forge recipe. Routes through QwenVLAdapter which
     handles vision_safety. If is_moe, also runs the MoE expert prune."""
     stages: list[dict] = []
+    # Dense VL: head prune the LLM side. The vision tower is preserved
+    # bit-exact by QwenVLAdapter via vision_safety.py — automatic, no
+    # explicit modality stage needed.
+    if not is_moe:
+        stages.append({
+            "type": "prune",
+            "level": 0.20,
+            "strategy": "entropy",
+            "implementation": "scripts/forge_model.py",
+        })
     if is_moe and keep_experts is not None and original_experts is not None:
         stages.extend([
             {
@@ -300,11 +312,12 @@ def _vl_recipe(
             },
         ])
     stages.extend([
-        {
-            "type": "modality",
-            "preserveTowers": ["vision"],
-            "verifyBitExact": True,
-        },
+        # NOTE: no 'modality' stage. The modality stage in the schema is
+        # for ADDING a vision/audio tower to a base model, not for
+        # preserving an existing one during a forge. VL preservation is
+        # AUTOMATIC when QwenVLAdapter.prune() runs — the family adapter
+        # whitelists the vision tower via vision_safety.py before the
+        # head pruner touches the LLM side.
         {
             "type": "quant",
             "format": "gguf",
@@ -465,7 +478,7 @@ CATALOG: list[dict] = [
         base_model="allenai/OLMoE-1B-7B-0924-Instruct",
         architecture="olmoe",
         layout="mlp-experts-unfused",
-        keep_experts=32,
+        keep_experts=48,  # was 32; the 50% prune ratio caused Layer 6 to fire
         original_experts=64,
         source_geometry={
             "totalParamsB": 6.9,
@@ -801,6 +814,18 @@ def main():
         flag = "MoE" if is_moe else "dense"
         print(f"  {i}. {name}")
         print(f"     ← {base}  ({arch}, {flag})")
+
+        # Validate via the canonical schema BEFORE writing — catches
+        # seeder bugs at seed time, not 30 seconds later when the
+        # daemon picks the part off intake. (POV #6 from the
+        # autonomous session: tight feedback loop.)
+        try:
+            from forge_alloy.types import ForgeAlloy
+            ForgeAlloy.model_validate(alloy)
+        except Exception as e:
+            print(f"     ✗ schema validation failed: {e}")
+            print(f"       skipping (seeder bug — fix the recipe)")
+            continue
 
         if args.dry_run:
             continue

@@ -173,6 +173,62 @@ class QwenDenseBase(FamilyAdapter):
 
     # ── train ────────────────────────────────────────────────────────────────
 
+    def default_train_params(self, ctx: "ForgeContext") -> dict:
+        """Qwen dense default training profile.
+
+        Smart logic:
+          - Coder source models (name contains 'coder' or 'code') get a
+            code domain + code corpus
+          - General models get wikitext text recovery
+          - Step count and LR scale gently with model size
+
+        Recipe authors override anything they want via stage params.
+        Everything here is a SAFE default, not a hardcoded constant —
+        the right value comes from the model + the source.architecture,
+        not from the seeder.
+        """
+        base_model = (ctx.alloy.get("source") or {}).get("baseModel", "").lower()
+        is_coder = "coder" in base_model or "code" in base_model
+
+        # Total params from source.totalParamsB (set by HF-verified
+        # geometry in the seeder), default to 7 if not declared
+        total_b = (ctx.alloy.get("source") or {}).get("totalParamsB") or 7.0
+
+        # Steps scale: small models need more recovery, big ones less
+        # (the prune surface is bigger but each gradient is more expensive)
+        if total_b < 5:
+            steps = 300
+        elif total_b < 15:
+            steps = 200
+        elif total_b < 35:
+            steps = 150
+        else:
+            steps = 100
+
+        # LR scales inverse to model size — bigger models need smaller LR
+        if total_b < 5:
+            lr = "1e-4"
+        elif total_b < 15:
+            lr = "5e-5"
+        else:
+            lr = "2e-5"
+
+        if is_coder:
+            return {
+                "domain": "code",
+                "dataset": "m-a-p/CodeFeedback-Filtered-Instruction",
+                "steps": steps,
+                "learningRate": lr,
+                "batchSize": 4,
+            }
+        return {
+            "domain": "wikitext",
+            "dataset": "Salesforce/wikitext",
+            "steps": steps,
+            "learningRate": lr,
+            "batchSize": 4,
+        }
+
     def train(self, ctx: "ForgeContext", **params) -> "ForgeContext":
         """LoRA training — dispatches between recovery and compensation.
 

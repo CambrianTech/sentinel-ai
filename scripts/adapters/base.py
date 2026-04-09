@@ -111,8 +111,40 @@ class FamilyAdapter(ABC):
             f"If this is a MoE family, the alloy should use 'expert-prune' not 'prune'."
         )
 
+    def default_train_params(self, ctx: "ForgeContext") -> dict:
+        """Family-default training parameters.
+
+        Called by TrainExecutor before invoking .train() to fill in any
+        train-stage fields the recipe author left blank. Recipes should
+        only specify fields they want to override; everything else comes
+        from here.
+
+        Default implementation: a generic LoRA recovery profile that
+        works for most dense models. Family adapters override to tune
+        for their architecture (e.g. coder families default to a code
+        domain corpus, larger models use bigger LR, etc.).
+
+        Returns a dict with these keys (any subset, all optional):
+            domain: str          — corpus identifier
+            dataset: str         — HF dataset id
+            steps: int           — training step count
+            learningRate: str    — LR as a string (e.g. "5e-5")
+            batchSize: int
+        """
+        return {
+            "domain": "wikitext",
+            "dataset": "Salesforce/wikitext",
+            "steps": 200,
+            "learningRate": "5e-5",
+            "batchSize": 4,
+        }
+
     def train(self, ctx: "ForgeContext", **params) -> "ForgeContext":
         """Recovery / fine-tuning training. Override in families that train.
+
+        TrainExecutor merges default_train_params(ctx) with the alloy
+        stage params before calling here, so this method always sees a
+        fully-populated set even when the recipe omitted fields.
 
         Params (from the alloy's train or lora stage):
             domain: str        — code | general | math | ...

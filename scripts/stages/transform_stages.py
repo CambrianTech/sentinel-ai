@@ -69,8 +69,18 @@ class TrainExecutor(StageExecutor):
 
     def execute(self, ctx: ForgeContext) -> ForgeContext:
         family = _resolve_family_for_ctx(ctx, "TrainExecutor")
-        params = {k: v for k, v in self.config.items() if k != "type"}
-        return family.train(ctx, **params)
+        # Merge family defaults with the stage params: family defaults
+        # provide the baseline (domain/steps/lr/etc.), the stage params
+        # override anything the recipe author explicitly set. This lets
+        # recipes declare INTENT ({"type": "train", "method": "lora"})
+        # and the family adapter fill in the architecture-appropriate
+        # details. No hardcoded seeder defaults.
+        defaults = family.default_train_params(ctx)
+        stage_params = {k: v for k, v in self.config.items() if k != "type"}
+        # Stage values WIN over defaults — recipe-author intent is
+        # always respected when present.
+        merged = {**defaults, **{k: v for k, v in stage_params.items() if v is not None}}
+        return family.train(ctx, **merged)
 
 
 class ExpertActivationProfileExecutor(StageExecutor):
