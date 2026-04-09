@@ -49,11 +49,19 @@ from typing import Optional
 
 @dataclass
 class ColdTier:
-    """One declared cold storage tier on this node."""
+    """One declared cold storage tier on this node.
+
+    Both read_mb_per_sec and write_mb_per_sec matter for the grid
+    scheduler's wall-clock estimates: a forge that does 264GB of
+    sequential read (Mixtral 8x22B source load) takes 21 min on a
+    210 MB/s tier vs 4 min on a 1200 MB/s tier. Without this metadata
+    the scheduler is flying blind.
+    """
     name: str
     path: Path
     fs_type: str = "unknown"           # ext4 | drvfs | nfs | s3
     write_mb_per_sec: Optional[int] = None
+    read_mb_per_sec: Optional[int] = None
     purpose: list[str] = field(default_factory=list)
 
 
@@ -122,6 +130,7 @@ class FactoryNodeConfig:
                 path=Path(c["path"]),
                 fs_type=c.get("fs_type", "unknown"),
                 write_mb_per_sec=c.get("write_mb_per_sec"),
+                read_mb_per_sec=c.get("read_mb_per_sec"),
                 purpose=list(c.get("purpose", [])),
             ))
 
