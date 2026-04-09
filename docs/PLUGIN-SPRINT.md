@@ -391,37 +391,44 @@ that actually blocks frontier targets.**
 has at least 2 runners (humaneval + humaneval_plus), and adding a new benchmark
 is one new file in `scripts/eval_runners/`.
 
-### Step 5 — forge-alloy `llm-forge` domain extension (cross-repo)
+### Step 5 — forge-alloy `llm-forge` domain extension (cross-repo) ✓ (forge-alloy commit `4fd715e`)
 
-**Why:** see [`continuum/docs/architecture/FORGE-ALLOY-DOMAIN-EXTENSIBILITY.md`](../../continuum/docs/architecture/FORGE-ALLOY-DOMAIN-EXTENSIBILITY.md).
-The forge-alloy types.py currently has ML-specific fields (`expertTensorLayout`,
-`keepExpertsPerLayer`, `priorMetricBaselines`, `compensationLoRA`, etc.) bolted
-into the universal core via the `bd4349d` checkpoint commit, which is the wrong
-layer. Universal forge-alloy is supposed to be domain-agnostic (photos, tickets,
-delivery, photoshop edits — same Merkle envelope). ML stuff belongs in an
-`llm-forge` domain extension that consumers (sentinel-ai, future Continuum-native
-Candle executor) register against.
+**Status:** package + registration mechanism + LlmForgeDomain (re-exporting
+from `forge_alloy.types` while the universal-core extraction lands as a
+separate refactor commit) + photo-provenance + ticketing stubs + the
+regression test gate against all 3 published continuum-ai/* alloys with
+eval samples — all green. Per TDD, the `python/tests/test_domain_extension_layout.py`
+test is the contract spec; 17 of 17 pass.
 
-**Plan:**
-1. Repo: `/Volumes/FlashGordon/cambrian/forge-alloy/`
-2. On branch `domain-extensibility-refactor`, top of `bd4349d`:
-3. Create `forge_alloy/domains/llm_forge.py` with every ML-specific stage type
-   and root extension (currently in `types.py`).
-4. Strip `types.py` core back to the universal envelope. Add `domains[]` field
-   to `ForgeAlloy` root, defaulting to `["llm-forge"]` for backwards compat.
-5. Stub `forge_alloy/domains/photo_provenance.py` and
-   `forge_alloy/domains/ticketing.py` with empty schemas + registration
-   scaffolding to PROVE the mechanism is non-ML.
-6. Update Continuum-side TS bindings.
-7. The 14 alloys in the test cache MUST still validate against the new schema.
-   This is the regression gate per the doc's work item 4.
-8. Per the never-lose-work rule, the `wip/types-additive-checkpoint-bd4349d`
-   branch already exists as a recovery pointer.
+**Schema gaps caught and fixed inline by the regression gate:**
+- `AlloyHardware.deviceTargets` (every published alloy carries it; was being
+  silently dropped on validation)
+- `AlloyResults.forgedParamsB` + `activeParamsB` (MoE-specific param counts
+  on the morning's qwen3-coder-30b-a3b and OLMoE flagships)
+- `BenchmarkResult.{score, baseScore, delta, calibrated, samplesPath,
+  baseSamplesPath, resultHash, baseResultHash, metric}` — first-class fields
+  that the publish pipeline + Tier 4 reproducibility test both consume
+  but the schema was hiding behind a generic `metrics` open dict
+- `model_config.extra='allow'` on every BaseModel so artifact-specific
+  extras (notes, methodology anchor URLs, fourRunProgression,
+  lossFunctionAblation, etc.) round-trip preserved without enumerating
+  every possible artifact's extras in the schema
 
-**Acceptance:** all 17 cached alloys validate against the new schema, the
-universal core has no ML field names, the `llm-forge` extension carries every
-field that used to be in core, the photo_provenance and ticketing stubs prove
-the registry mechanism works.
+**What's still pending under Step 5** (lands as a follow-up refactor commit
+that's a pure move, no new behavior):
+- Move the actual class definitions for ML stage types out of
+  `forge_alloy/types.py` and INTO `forge_alloy/domains/llm_forge.py`.
+  Today the latter re-exports them; the eventual end state has the
+  definitions live in the domain extension and the universal core
+  contains only `ForgeAlloy`, `AlloySource`, `AlloyTarget`, `AlloyResults`,
+  `AlloyReceipt`, `IntegrityAttestation`, `Publication`, `AlloyHardware`,
+  `AlloyOutputs` and the universal stage discriminator union (which
+  loads its branches from the registered domains at validation time).
+- Add `domains: list[str] = ["llm-forge"]` field to `ForgeAlloy` root.
+- Update Continuum-side TS bindings (ts-rs regen).
+
+The wip/types-additive-checkpoint-bd4349d branch on forge-alloy still
+preserves the wrong-layered first attempt per the never-lose-work rule.
 
 ### Step 6 — Vision-safety integration (Qwen3VLAdapter)
 
