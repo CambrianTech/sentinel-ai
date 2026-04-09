@@ -146,6 +146,29 @@ def execute_alloy(alloy_path: str, output_dir: str = None, dry_run: bool = False
     ctx.device = torch.cuda.get_device_name(0)
     ctx.model, ctx.tokenizer = load_model(load_path, cfg.load_4bit)
 
+    # Populate ctx.source_model_dir — the absolute on-disk path to the
+    # source model files. Family adapter expert_prune methods need this
+    # for the streaming CPU pruner (it walks safetensors shards directly,
+    # not via the in-memory model object). For HF-cached models, resolve
+    # the snapshot path via huggingface_hub.snapshot_download with
+    # local_files_only=True (no network — just returns the cache path
+    # if the model is already loaded).
+    try:
+        from pathlib import Path as _P
+        if _P(load_path).exists():
+            # Already a local path
+            ctx.source_model_dir = str(_P(load_path).resolve())
+        else:
+            # HF id — resolve snapshot path from the cache
+            from huggingface_hub import snapshot_download
+            ctx.source_model_dir = snapshot_download(
+                repo_id=load_path, local_files_only=True,
+            )
+        print(f"  source_model_dir: {ctx.source_model_dir}")
+    except Exception as e:
+        print(f"  WARN: could not resolve source_model_dir: {e}")
+        ctx.source_model_dir = None
+
     # Input stages
     print("\n[2] Input stages...")
     for stage in input_stages:
