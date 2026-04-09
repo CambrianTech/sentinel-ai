@@ -143,7 +143,12 @@ def execute_alloy(alloy_path: str, output_dir: str = None, dry_run: bool = False
     cfg = ForgeConfig.auto(ctx.info["fp16_gb"], vram_gb)
     ctx.tier = cfg.tier
     ctx.load_4bit = cfg.load_4bit
-    ctx.device = torch.cuda.get_device_name(0)
+    # ctx.device must be a TORCH DEVICE STRING (e.g. "cuda:0"), not the
+    # GPU display name. tensor.to(ctx.device) requires the former.
+    # The display name is only useful for logging — keep it on a
+    # separate field if needed downstream.
+    ctx.device = "cuda:0" if torch.cuda.is_available() else "cpu"
+    ctx.device_name = torch.cuda.get_device_name(0) if torch.cuda.is_available() else "cpu"
     ctx.model, ctx.tokenizer = load_model(load_path, cfg.load_4bit)
 
     # Populate ctx.source_model_dir — the absolute on-disk path to the
