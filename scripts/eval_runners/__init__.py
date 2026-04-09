@@ -57,9 +57,11 @@ def registered_benchmarks() -> list[str]:
 # benchmark name, not by import order. NEW runner = new module here.
 from . import humaneval        # noqa: E402,F401
 from . import humaneval_plus   # noqa: E402,F401
+from . import sota_stubs       # noqa: E402,F401  — frontier-target runner stubs
 
 humaneval.register(_REGISTRY)
 humaneval_plus.register(_REGISTRY)
+sota_stubs.register(_REGISTRY)
 
 
 __all__ = [

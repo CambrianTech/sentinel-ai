@@ -97,8 +97,18 @@ def _diff_summary(old: dict, new: dict) -> list[str]:
     return changes
 
 
-def republish(repo: str, local_alloy_path: Path, confirm: bool) -> int:
-    """Returns 0 on success, non-zero on refusal."""
+def republish(repo: str, local_alloy_path: Path, confirm: bool, allow_modelhash_migration: bool = False) -> int:
+    """Returns 0 on success, non-zero on refusal.
+
+    allow_modelhash_migration: bypass the modelHash-unchanged defensive
+    check ONLY when the local alloy is migrating the modelHash convention
+    (Step 7: legacy concat-and-hash → per-shard list hash) without changing
+    the underlying file bytes. The flag is opt-in because the default
+    refusal is the right protection for the normal case (the weights
+    actually changed, which means the user should use publish_model.py
+    instead). Use this flag for the one-shot Step 7 migration of legacy
+    alloys ONLY.
+    """
     from huggingface_hub import HfApi, hf_hub_download
 
     api = HfApi()
@@ -156,11 +166,20 @@ def republish(repo: str, local_alloy_path: Path, confirm: bool) -> int:
         old_mh = ((old_alloy.get("results") or {}).get("integrity") or {}).get("modelHash")
         new_mh = ((new_alloy.get("results") or {}).get("integrity") or {}).get("modelHash")
         if old_mh and new_mh and old_mh != new_mh:
-            print(f"\nREFUSED: results.integrity.modelHash changed:")
-            print(f"  old: {old_mh}")
-            print(f"  new: {new_mh}")
-            print(f"  Use publish_model.py for a full re-publish that includes weights.")
-            return 4
+            if allow_modelhash_migration:
+                print(f"\n  modelHash convention migration acknowledged:")
+                print(f"    old: {old_mh}")
+                print(f"    new: {new_mh}")
+                print(f"  --allow-modelhash-migration flag is set; proceeding.")
+            else:
+                print(f"\nREFUSED: results.integrity.modelHash changed:")
+                print(f"  old: {old_mh}")
+                print(f"  new: {new_mh}")
+                print(f"  Use publish_model.py for a full re-publish that includes weights,")
+                print(f"  OR pass --allow-modelhash-migration if this is a Step 7 convention")
+                print(f"  migration (the underlying file bytes are unchanged, only the")
+                print(f"  modelHash composition convention changed).")
+                return 4
 
     # 5. Show meaningful field diff (or full benchmark list in backfill mode)
     if backfill_mode:
@@ -253,8 +272,18 @@ def main():
     ap.add_argument("--repo", required=True, help="HF repo id, e.g. continuum-ai/qwen3-coder-30b-a3b-compacted-19b-256k")
     ap.add_argument("--alloy", required=True, type=Path, help="Path to the corrected local .alloy.json")
     ap.add_argument("--confirm", action="store_true", help="Actually push (default is dry-run)")
+    ap.add_argument(
+        "--allow-modelhash-migration",
+        action="store_true",
+        help=(
+            "Bypass the modelHash-unchanged check ONLY for Step 7 convention "
+            "migrations (legacy concat-and-hash → per-shard-list-hash). The "
+            "underlying file bytes must be unchanged; the user is acknowledging "
+            "that the modelHash difference is convention-only, not weight-change."
+        ),
+    )
     args = ap.parse_args()
-    sys.exit(republish(args.repo, args.alloy, args.confirm))
+    sys.exit(republish(args.repo, args.alloy, args.confirm, args.allow_modelhash_migration))
 
 
 if __name__ == "__main__":

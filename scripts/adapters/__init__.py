@@ -25,8 +25,10 @@ from .dispatch import resolve_adapter_chain, DispatchError
 from . import qwen3_dense  # noqa: F401  — registers Qwen3DenseAdapter for qwen3_5
 from . import qwen2_dense  # noqa: F401  — registers Qwen2DenseAdapter for qwen2
 from . import qwen_vl      # noqa: F401  — registers QwenVLAdapter for qwen2_5_vl + qwen3_5_vl
+from . import qwen_omni    # noqa: F401  — registers QwenOmniAdapter for qwen2_5_omni
 from . import qwen3_moe    # noqa: F401  — registers Qwen3MoEAdapter for qwen3_moe
 from . import olmoe        # noqa: F401  — registers OlmoeAdapter for olmoe
+from . import sota_moe     # noqa: F401  — registers Mixtral / Phi-MoE / GraniteMoE / DeepSeek-V2
 
 __all__ = [
     "FamilyAdapter",
