@@ -664,6 +664,64 @@ class FactoryWorker:
         return processed
 
 
+def _print_status_pretty(queue: FactoryQueue, s: dict) -> None:
+    """Render status() as a multi-line dashboard. Used by --status --pretty."""
+    state = s.get("state", "?")
+    stale = s.get("stale_heartbeat", False)
+    state_label = state + (" (stale)" if stale else "")
+
+    # Disk pressure (best-effort import)
+    try:
+        from factory_storage import pressure as _pressure
+        p = _pressure(queue.root)
+        disk = f"{p['free_gb']:.0f}GB free / {p['total_gb']:.0f}GB ({p['pct_used']:.1f}% used)"
+    except Exception:
+        disk = "?"
+
+    stats = s.get("stats", {})
+    print(f"hive node @ {s.get('host', '?')}")
+    print(f"  state:        {state_label}")
+    if s.get("current_part"):
+        print(f"  building:     {s['current_part']}")
+    if s.get("last_beat_at"):
+        print(f"  last beat:    {s['last_beat_at']}")
+    if s.get("pid"):
+        print(f"  pid:          {s['pid']}")
+    print(f"  disk:         {disk}")
+    print()
+    print(f"  intake:    {stats.get('intake', 0)}")
+    print(f"  assembly:  {stats.get('assembly', 0)}")
+    print(f"  finished:  {stats.get('finished', 0)}")
+    print(f"  rework:    {stats.get('rework', 0)}")
+
+    # Next 3 intake parts
+    intake_parts = queue.list_parts("intake")[:3]
+    if intake_parts:
+        print()
+        print("  next up in intake:")
+        for p in intake_parts:
+            retries = f" [retry{p['retries']}]" if p["retries"] else ""
+            print(f"    • {p['name']}{retries}  ←  {p['base_model']}")
+
+    # Last 5 throughput events
+    if queue.throughput_log_path.exists():
+        lines = queue.throughput_log_path.read_text().splitlines()[-5:]
+        if lines:
+            print()
+            print("  last 5 events:")
+            for line in lines:
+                try:
+                    e = json.loads(line)
+                    at = e.get("at", "?").replace("T", " ").rstrip("Z")
+                    outcome = e.get("outcome", "?")
+                    name = e.get("alloy", e.get("path", "?"))
+                    if "/" in name:
+                        name = Path(name).name
+                    print(f"    {at}  {outcome:9s}  {name}")
+                except json.JSONDecodeError:
+                    pass
+
+
 def main():
     """CLI entrypoint — manual controls for one hive node.
 
@@ -710,6 +768,8 @@ def main():
                     help="testing: process exactly one part then exit")
     ap.add_argument("--status", action="store_true",
                     help="print current state + heartbeat and exit")
+    ap.add_argument("--pretty", action="store_true",
+                    help="format --status as a multi-line human-readable dashboard")
     ap.add_argument("--recover", action="store_true",
                     help="one-shot crash recovery: drain assembly/ and exit")
     ap.add_argument("--tail", action="store_true",
@@ -737,7 +797,10 @@ def main():
     # ── Read-only commands (no daemon) ──────────────────────────────────────
     if args.status:
         s = queue.status()
-        print(json.dumps(s, indent=2))
+        if args.pretty:
+            _print_status_pretty(queue, s)
+        else:
+            print(json.dumps(s, indent=2))
         return
 
     if args.tail:

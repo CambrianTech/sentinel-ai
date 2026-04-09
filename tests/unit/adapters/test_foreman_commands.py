@@ -155,3 +155,25 @@ def test_enqueue_raises_on_missing_file(tmp_path):
     q = FactoryQueue(tmp_path)
     with pytest.raises(FileNotFoundError):
         q.enqueue(tmp_path / "nonexistent.alloy.json")
+
+
+# ── Pretty status dashboard ─────────────────────────────────────────────────
+
+
+def test_print_status_pretty_renders_without_crashing(capsys, tmp_path):
+    """The dashboard renderer must work on a real (mostly empty) queue
+    without raising. It pulls from status() + list_parts() + the
+    throughput log + factory_storage.pressure all in one render."""
+    from factory_queue import FactoryQueue, _print_status_pretty
+    q = FactoryQueue(tmp_path)
+    q.enqueue(_write(tmp_path / "a.alloy.json", "alpha"))
+    q.enqueue(_write(tmp_path / "b.alloy.json", "beta"))
+    q.write_heartbeat(state="idle", current_part=None)
+
+    _print_status_pretty(q, q.status())
+    out = capsys.readouterr().out
+    # The dashboard sections we promise
+    assert "hive node" in out
+    assert "intake" in out
+    assert "alpha" in out  # listed in next-up
+    assert "beta" in out

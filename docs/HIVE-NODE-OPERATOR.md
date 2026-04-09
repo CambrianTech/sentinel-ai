@@ -35,6 +35,9 @@ mkdir -p ~/sentinel-ai/.factory/calibration
 # What's the line doing right now?
 python -m factory_queue --root .factory --status
 
+# Same thing, formatted as a one-screen dashboard (recommended)
+python -m factory_queue --root .factory --status --pretty
+
 # Pretty-print the intake station (replaces `ls .factory/line/intake/`)
 python -m factory_queue --root .factory --list
 
