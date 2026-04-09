@@ -85,56 +85,11 @@ def _list_repo_files(repo: str) -> list[str]:
     return [s["rfilename"] for s in meta.get("siblings", [])]
 
 
-def _shard_hashes_via_lfs(repo: str) -> list[dict]:
-    """Pull per-shard sha256 hashes for *.safetensors files from HF's LFS
-    metadata. Returns a list of dicts: [{filename, sha256, size}, ...]
-    sorted by filename.
-
-    Why: avoids downloading the actual shards (~50GB for a 27B model).
-    HF's API exposes the LFS sha256 of the file content (NOT the LFS
-    pointer file's hash) so we can stitch a deterministic modelHash
-    without ever fetching the bytes. Same attestation guarantee as
-    streaming-and-hashing yourself; faster and bandwidth-cheap.
-    """
-    meta = _http_json(f"https://huggingface.co/api/models/{repo}?blobs=true")
-    out = []
-    for s in meta.get("siblings", []):
-        fn = s.get("rfilename", "")
-        if not fn.endswith(".safetensors"):
-            continue
-        lfs = s.get("lfs") or {}
-        sha = lfs.get("sha256")
-        size = lfs.get("size")
-        if sha:
-            out.append({"filename": fn, "sha256": sha, "size": size})
-    out.sort(key=lambda d: d["filename"])
-    return out
-
-
-def _model_hash_from_shard_hashes(shard_hashes: list[dict]) -> str:
-    """Compose a single deterministic modelHash from the per-shard sha256
-    list. The composition is sha256(canonical_json([{filename, sha256}, ...]))
-    so any change to any shard's content (or to the shard set) changes the
-    composed hash. Reproducible from HF metadata alone — no downloads.
-
-    NOTE: this is a DIFFERENT convention than publish_model.hash_model_weights
-    which currently does sha256(concat(shard_bytes)). Both are valid
-    attestation hashes; the per-shard convention is what backfilled alloys
-    use, and the alloy field 'integrity.fileHashes' carries the per-shard
-    list explicitly so anyone can recompute either way. Future publish_model
-    runs SHOULD switch to the per-shard convention so backfilled and freshly-
-    forged alloys use the same modelHash field semantics — that's a separate
-    follow-up commit.
-    """
-    if not shard_hashes:
-        return "sha256:no-shards"
-    canonical = json.dumps(
-        [{"filename": s["filename"], "sha256": s["sha256"]} for s in shard_hashes],
-        separators=(",", ":"),
-        sort_keys=True,
-    )
-    h = hashlib.sha256(canonical.encode()).hexdigest()
-    return f"sha256:{h}"
+# Per-shard hashing + composition lives in scripts/alloy_hashing.py — the
+# single source of truth for the modelHash convention across publish and
+# backfill paths. Roadmap step 7 unified the two paths there; the local
+# duplicates were removed in this commit.
+from alloy_hashing import compose_model_hash, fetch_shard_hashes_from_hf
 
 
 def _detect_architecture(repo: str) -> str:
@@ -237,16 +192,17 @@ def backfill(repo: str) -> dict:
     stages = [prune_stage, train_stage]
 
     # 4. Hash the safetensors via HF's LFS metadata (no downloads).
-    # Pulls per-shard sha256s and composes a deterministic modelHash from
-    # the canonical sorted list. See _model_hash_from_shard_hashes docstring.
+    # Pulls per-shard sha256s from the shared alloy_hashing module and
+    # composes a deterministic modelHash. Same convention as publish_model.py
+    # post-roadmap-step-7 unification.
     print(f"  pulling per-shard LFS sha256s from HF metadata...")
-    shard_hashes = _shard_hashes_via_lfs(repo)
+    shard_hashes = fetch_shard_hashes_from_hf(repo, extensions=(".safetensors",))
     print(f"  shards: {len(shard_hashes)}")
     for s in shard_hashes[:3]:
         print(f"    {s['filename']}: {s['sha256'][:16]}... ({s.get('size','?')} bytes)")
     if len(shard_hashes) > 3:
         print(f"    ... ({len(shard_hashes) - 3} more)")
-    model_hash = _model_hash_from_shard_hashes(shard_hashes)
+    model_hash = compose_model_hash(shard_hashes) if shard_hashes else "sha256:no-shards"
     print(f"  composed modelHash: {model_hash[:30]}...")
 
     # 5. Compose the alloy

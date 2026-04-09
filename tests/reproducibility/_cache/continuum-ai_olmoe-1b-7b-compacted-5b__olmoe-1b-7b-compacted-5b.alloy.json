@@ -151,7 +151,15 @@
       }
     ],
     "integrity": {
-      "trustLevel": "self-attested"
+      "trustLevel": "self-attested",
+      "fileHashes": [
+        {
+          "filename": "olmoe-1b-7b-compacted-5b.Q5_K_M.gguf",
+          "sha256": "0cb7e0fff9997752bb7d150d549627f590ec06ff1adee5744fa6fa596a99bdc3",
+          "size": 3781793632
+        }
+      ],
+      "modelHash": "sha256:7f3b3c31279035cd5226f13cd602875baf8a1dd74b45345ee5ca2f5988169df5"
     }
   },
   "priorMetricBaselines": [

@@ -110,9 +110,16 @@
         "version": "1.0.0",
         "binaryHash": "sha256:4646801cd247660e86449805d8d21cde9392464a52a1c8a7dba84ba2aa788f20"
       },
-      "modelHash": "sha256:f6b77711a883aff78f1570ec020c9f1eae28b546c57ca1e5c33c590ac74fbdd0",
+      "modelHash": "sha256:f85726debfcad516f0addbefb5f709872ff122ae9d7e326f144059267e1efd2e",
       "datasets": [],
-      "attestedAt": "2026-03-31T12:13:43-0500"
+      "attestedAt": "2026-03-31T12:13:43-0500",
+      "fileHashes": [
+        {
+          "filename": "model.safetensors",
+          "sha256": "f6b77711a883aff78f1570ec020c9f1eae28b546c57ca1e5c33c590ac74fbdd0",
+          "size": 8411557976
+        }
+      ]
     }
   },
   "receipt": {

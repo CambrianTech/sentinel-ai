@@ -120,9 +120,16 @@
         "commit": "a6b200cb465e2f5b87fcd86d9ee92d15890ee37f",
         "sourceRepo": "https://github.com/CambrianTech/sentinel-ai.git"
       },
-      "modelHash": "sha256:69a41fd808bd53ddee4d17b943d8a13bddf681ab51df5cce2ead649be12c88e7",
+      "modelHash": "sha256:fef00899cd644c6118c9fc63d1f1e6b6351654270f0fdffb70e8c5ed3935313a",
       "datasets": [],
-      "attestedAt": "2026-04-02T02:38:44-0500"
+      "attestedAt": "2026-04-02T02:38:44-0500",
+      "fileHashes": [
+        {
+          "filename": "model.safetensors",
+          "sha256": "69a41fd808bd53ddee4d17b943d8a13bddf681ab51df5cce2ead649be12c88e7",
+          "size": 8411557976
+        }
+      ]
     },
     "highlights": [
       "128K context via YaRN 4x (32K \u2192 131K)",

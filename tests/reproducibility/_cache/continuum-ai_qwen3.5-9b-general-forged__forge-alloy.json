@@ -80,9 +80,16 @@
         "version": "3.0.0",
         "binaryHash": "sha256:42fb027d203dec8fe8f3978266e4ee7240e0c5a97cd30ec8fa83b5cc5a796994"
       },
-      "modelHash": "sha256:236af12e5631ea15f85af2310c1f504a6e68b171f0306d5ab8d719b649611804",
+      "modelHash": "sha256:bb12672afe8f2727d11cc4418ac191ca2467cfe76f5a14a5b4224de1ccb64935",
       "datasets": [],
-      "attestedAt": "2026-04-06T11:35:32-0500"
+      "attestedAt": "2026-04-06T11:35:32-0500",
+      "fileHashes": [
+        {
+          "filename": "model.safetensors",
+          "sha256": "236af12e5631ea15f85af2310c1f504a6e68b171f0306d5ab8d719b649611804",
+          "size": 17907662584
+        }
+      ]
     }
   }
 }

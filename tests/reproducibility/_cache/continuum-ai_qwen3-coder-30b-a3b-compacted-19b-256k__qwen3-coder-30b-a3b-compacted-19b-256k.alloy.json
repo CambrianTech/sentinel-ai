@@ -190,7 +190,25 @@
       }
     ],
     "integrity": {
-      "trustLevel": "self-attested"
+      "trustLevel": "self-attested",
+      "fileHashes": [
+        {
+          "filename": "qwen3-coder-30b-a3b-compacted-19b-256k.Q4_K_M.gguf",
+          "sha256": "28e705c629bb9cfa2907bf53c3baadd31e6bafad4bb24ea3038dcf4b1dd0a5c8",
+          "size": 11955377760
+        },
+        {
+          "filename": "qwen3-coder-30b-a3b-compacted-19b-256k.Q5_K_M.gguf",
+          "sha256": "0e40e39bb0f052ab6758206678e4192b79370bc3e8534c0f44a50eaa254fe24c",
+          "size": 13991810656
+        },
+        {
+          "filename": "qwen3-coder-30b-a3b-compacted-19b-256k.Q8_0.gguf",
+          "sha256": "2064ffba3ddeb89bf14b1bc5759845181ad72b532db68d473cdc887c627acbe3",
+          "size": 20913946208
+        }
+      ],
+      "modelHash": "sha256:cb345eb6831a9e9412549975a05971cd66e347e3c1f866b4ff0257d9e52a1046"
     }
   },
   "priorMetricBaselines": [

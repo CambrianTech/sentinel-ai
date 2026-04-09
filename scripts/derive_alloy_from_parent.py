@@ -81,39 +81,8 @@ def _list_files(repo: str) -> list[str]:
     return [s["rfilename"] for s in meta.get("siblings", [])]
 
 
-def _shard_hashes_via_lfs(repo: str, extensions: tuple[str, ...]) -> list[dict]:
-    """Pull per-file LFS sha256s for files matching the given extensions.
-
-    For safetensors-based variants (defragged, mlx-4bit) we walk
-    *.safetensors. For GGUF variants we walk *.gguf. Same composition
-    as backfill_alloy_from_results._shard_hashes_via_lfs but parameterized
-    on extensions.
-    """
-    meta = _http_json(f"https://huggingface.co/api/models/{repo}?blobs=true")
-    out = []
-    for s in meta.get("siblings", []):
-        fn = s.get("rfilename", "")
-        if not any(fn.endswith(ext) for ext in extensions):
-            continue
-        lfs = s.get("lfs") or {}
-        sha = lfs.get("sha256")
-        size = lfs.get("size")
-        if sha:
-            out.append({"filename": fn, "sha256": sha, "size": size})
-    out.sort(key=lambda d: d["filename"])
-    return out
-
-
-def _model_hash_from_shard_hashes(shard_hashes: list[dict]) -> str:
-    if not shard_hashes:
-        return "sha256:no-shards"
-    canonical = json.dumps(
-        [{"filename": s["filename"], "sha256": s["sha256"]} for s in shard_hashes],
-        separators=(",", ":"),
-        sort_keys=True,
-    )
-    h = hashlib.sha256(canonical.encode()).hexdigest()
-    return f"sha256:{h}"
+# Shared hashing — see scripts/alloy_hashing.py.
+from alloy_hashing import compose_model_hash, fetch_shard_hashes_from_hf
 
 
 def _fetch_parent_alloy(parent_repo: str) -> dict:
@@ -212,7 +181,7 @@ def derive(child_repo: str, parent_repo: str, kind: str) -> dict:
 
     # Pull THIS variant's per-shard LFS hashes
     extensions = KIND_EXTENSIONS[kind]
-    shard_hashes = _shard_hashes_via_lfs(child_repo, extensions)
+    shard_hashes = fetch_shard_hashes_from_hf(child_repo, extensions=extensions)
     print(f"  variant shards ({extensions}): {len(shard_hashes)}")
     for s in shard_hashes[:3]:
         print(f"    {s['filename']}: {s['sha256'][:16]}... ({s.get('size','?')} bytes)")
@@ -223,7 +192,7 @@ def derive(child_repo: str, parent_repo: str, kind: str) -> dict:
             f"{child_repo} has no files matching {extensions} — cannot compute "
             f"a modelHash. Check the repo file list."
         )
-    new_model_hash = _model_hash_from_shard_hashes(shard_hashes)
+    new_model_hash = compose_model_hash(shard_hashes) if shard_hashes else "sha256:no-shards"
     print(f"  composed modelHash: {new_model_hash[:30]}...")
 
     # Compose: inherit + append derivation stage

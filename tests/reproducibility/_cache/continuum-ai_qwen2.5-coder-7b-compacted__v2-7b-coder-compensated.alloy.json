@@ -176,7 +176,15 @@
       }
     ],
     "integrity": {
-      "trustLevel": "self-attested"
+      "trustLevel": "self-attested",
+      "fileHashes": [
+        {
+          "filename": "model.safetensors",
+          "sha256": "5bc5e7f38b8f44152d711cfcfe18710b7800545756b79280dc1166a027d47c50",
+          "size": 15231271816
+        }
+      ],
+      "modelHash": "sha256:156247b9f9b25d302651e2540f1dad58d57ffacd8cd43ded17ddaefd16300faf"
     }
   },
   "methodologyPaperUrl": "https://github.com/CambrianTech/continuum/blob/main/docs/papers/PLASTICITY-COMPACTION.md",
