@@ -190,9 +190,23 @@ def check_vram(label: str):
 # Loading
 # ---------------------------------------------------------------------------
 
-def load_model(model_name: str, load_4bit: bool, free_cache_after_load: bool = False):
-    """Load model with explicit memory strategy."""
+def load_model(
+    model_name: str,
+    load_4bit: bool,
+    free_cache_after_load: bool = False,
+    auto_class=None,
+):
+    """Load model with explicit memory strategy.
+
+    auto_class is the transformers AutoModel class to use for loading.
+    Default is AutoModelForCausalLM (the dense LLM case). Family
+    adapters can pass their own class (AutoModelForVision2Seq for VL,
+    AutoModel for omni-modal, etc.) via family.model_auto_class().
+    """
     from transformers import AutoModelForCausalLM, AutoTokenizer
+
+    if auto_class is None:
+        auto_class = AutoModelForCausalLM
 
     kwargs = {"low_cpu_mem_usage": True}
     if load_4bit:
@@ -204,16 +218,16 @@ def load_model(model_name: str, load_4bit: bool, free_cache_after_load: bool = F
             bnb_4bit_quant_type="nf4",
         )
         kwargs["device_map"] = "auto"
-        print(f"  Loading 4-bit NF4 (double quant)")
+        print(f"  Loading 4-bit NF4 (double quant) via {auto_class.__name__}")
     else:
         kwargs["dtype"] = torch.float16
         # Load to CPU first, then move to CUDA. This avoids sm_120 kernel errors
         # during _init_weights (Mamba-2 A_log init runs torch.uniform_ on CUDA
         # which fails on RTX 5090 with older PyTorch). CPU init always works.
         kwargs["device_map"] = "cpu"
-        print(f"  Loading fp16 (CPU → CUDA)")
+        print(f"  Loading fp16 (CPU → CUDA) via {auto_class.__name__}")
 
-    model = AutoModelForCausalLM.from_pretrained(model_name, **kwargs)
+    model = auto_class.from_pretrained(model_name, **kwargs)
     if not load_4bit and str(model.device) == "cpu":
         model = model.to("cuda")
     tokenizer = AutoTokenizer.from_pretrained(model_name)

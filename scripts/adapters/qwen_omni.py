@@ -75,6 +75,14 @@ class QwenOmniAdapter(QwenDenseBase):
 
     architectures = ("qwen2_5_omni",)
 
+    def model_auto_class(self):
+        """Omni-modal models (text + vision + audio + speech) load via
+        the generic AutoModel — there's no specific 'AutoModelForOmni'
+        class. The aggregate model has thinker/talker/token2wav
+        sub-modules that the family adapter walks individually."""
+        from transformers import AutoModel
+        return AutoModel
+
     # ── modality — real override for the omni shape ──────────────────────────
 
     def modality(self, ctx: "ForgeContext", **params) -> "ForgeContext":

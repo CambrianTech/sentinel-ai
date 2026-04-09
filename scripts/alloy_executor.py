@@ -149,7 +149,20 @@ def execute_alloy(alloy_path: str, output_dir: str = None, dry_run: bool = False
     # separate field if needed downstream.
     ctx.device = "cuda:0" if torch.cuda.is_available() else "cpu"
     ctx.device_name = torch.cuda.get_device_name(0) if torch.cuda.is_available() else "cpu"
-    ctx.model, ctx.tokenizer = load_model(load_path, cfg.load_4bit)
+
+    # Resolve the family adapter from source.architecture BEFORE loading
+    # the model so we can ask it which transformers AutoModel class to
+    # use. Default is AutoModelForCausalLM (dense LLM); VL families
+    # override to AutoModelForVision2Seq, omni to AutoModel, etc.
+    auto_class = None
+    try:
+        from adapters import resolve_family_adapter
+        family = resolve_family_adapter(alloy["source"]["architecture"])
+        auto_class = family.model_auto_class()
+    except Exception as e:
+        print(f"  WARN: could not resolve family auto_class, falling back to default: {e}")
+
+    ctx.model, ctx.tokenizer = load_model(load_path, cfg.load_4bit, auto_class=auto_class)
 
     # Populate ctx.source_model_dir — the absolute on-disk path to the
     # source model files. Family adapter expert_prune methods need this

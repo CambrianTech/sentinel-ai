@@ -111,6 +111,24 @@ class FamilyAdapter(ABC):
             f"If this is a MoE family, the alloy should use 'expert-prune' not 'prune'."
         )
 
+    def model_auto_class(self):
+        """transformers AutoModel class this family loads with.
+
+        Default: AutoModelForCausalLM (dense decoder-only LLMs).
+        Family adapters override when their architecture needs a
+        different loader:
+
+          QwenVLAdapter         -> AutoModelForVision2Seq
+          QwenOmniAdapter       -> AutoModel  (multi-modal aggregate)
+          (future) QwenAudio    -> AutoModelForSpeechSeq2Seq
+
+        Called by alloy_executor BEFORE load_model so the right
+        transformers class is passed in. Replaces the hardcoded
+        AutoModelForCausalLM in forge_model.load_model.
+        """
+        from transformers import AutoModelForCausalLM
+        return AutoModelForCausalLM
+
     def default_train_params(self, ctx: "ForgeContext") -> dict:
         """Family-default training parameters.
 

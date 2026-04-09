@@ -73,6 +73,13 @@ class QwenVLAdapter(QwenDenseBase):
 
     architectures = ("qwen2_5_vl", "qwen3_5_vl", "qwen3_vl", "qwen3_vl_moe")
 
+    def model_auto_class(self):
+        """Vision-language models load via AutoModelForVision2Seq, NOT
+        AutoModelForCausalLM. The latter rejects Vision/Omni configs
+        with 'Unrecognized configuration class'."""
+        from transformers import AutoModelForVision2Seq
+        return AutoModelForVision2Seq
+
     # ── prune ────────────────────────────────────────────────────────────────
 
     def prune(self, ctx: "ForgeContext", **params) -> "ForgeContext":
