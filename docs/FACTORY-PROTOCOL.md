@@ -210,6 +210,29 @@ purpose          = ["work-archive", "published-backup"]
 # name = "secondary-archive"
 # path = "/mnt/e/cold"
 
+# Network tiers — remote sources the scheduler can stream from.
+# At multi-Gbit symmetric residential (5-8 Gbit Google Fiber tier),
+# HF itself becomes a viable storage tier: Mixtral 8x22B (~260 GB)
+# pulls in ~5-7 min at 8 Gbit vs ~35 min at gigabit. Treat the local
+# cold tier as forge-output archive, not as a mandatory source cache.
+#
+# Peer tiers describe other hive nodes on the mesh. The grid
+# coordinator gossips part hashes; if a peer already has the source
+# weights for a forge target, the scheduler routes the pull to the
+# peer (LAN-speed) instead of re-fetching from HF (WAN-speed).
+[[storage.network]]
+name             = "huggingface"
+kind             = "hf"
+read_mb_per_sec  = 1000              # capped by HF egress, not your pipe
+purpose          = ["source-weights"]
+
+# [[storage.network]]
+# name            = "peer-melmac-2"
+# kind            = "peer"
+# endpoint        = "tailscale://nerd-friend-node:7100"
+# read_mb_per_sec = 950               # 8 Gbit LAN sustained
+# purpose         = ["source-weights", "forged-artifact-mirror"]
+
 [forge]
 # Per-node retry policy. Contract constant — consumers MUST honor this
 # when reading recovered parts. Different node types want different
@@ -220,6 +243,18 @@ max_retries = 3
 coordinator = "tailscale://continuum-coordinator:7100"
 heartbeat_interval_seconds = 30
 ```
+
+### Storage tiers (hot / cold / network)
+
+The cache hierarchy is **L0 GPU VRAM → L1 system RAM → L2 hot SSD → L3 cold HDD → L4 network (peer LAN or HF WAN)**. `factory_node.toml` declares L2/L3/L4 explicitly so the grid scheduler can compute wall-clock estimates.
+
+- **`[storage.hot]`** — single fast SSD where `.factory/` lives. Holds the queue, the in-flight work dir, and recently-finished artifacts. `min_free_gb` is a soft floor; auto-cleanup tries to keep this much free by spilling older artifacts to cold tiers.
+- **`[[storage.cold]]`** — local mounted drives in priority order. Forged-artifact archive + (today) source-weight cache for big-MoE pulls. At gigabit-residential, the cold tier doubles as a source cache because re-pulling 260 GB from HF is slow. At multi-Gbit, the cold tier becomes pure archive.
+- **`[[storage.network]]`** — remote sources the scheduler can stream from. Two `kind`s:
+  - **`hf`** — HuggingFace Hub. Always available, no auth beyond `HF_TOKEN`. Read speed capped by HF egress.
+  - **`peer`** — another hive node on the mesh (Tailscale endpoint). The grid coordinator gossips part hashes; if a peer already has the source weights, the scheduler routes the pull to the peer at LAN speed instead of re-fetching from HF at WAN speed.
+
+**Multi-Gbit unlock**: at 5–8 Gbit symmetric, network tiers become first-class — the bottleneck moves from I/O back to GPU compute, which is the right place for it. The "node affinity" optimization (forge + ship on the same box to avoid 300 GB transfers) becomes irrelevant; nodes split freely.
 
 ### Node roles
 
