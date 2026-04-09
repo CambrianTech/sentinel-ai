@@ -782,17 +782,27 @@ def prune_experts_fused(
                 router_per_layer[layer_idx] = f.get_tensor(k)
 
     # Importance: per-layer per-expert score
-    importance_data: dict | None = None
+    importance_counts: dict[str, list[int]] | None = None
     if importance_json is not None:
         importance_data = json.loads(Path(importance_json).read_text())
+        # The canonical schema written by expert_activation_profile uses
+        # 'activation_counts' as the per-layer counter dict key. Don't
+        # silently fall back if the file exists but the key is missing —
+        # that means the schema changed and we should fail loudly.
+        importance_counts = importance_data.get("activation_counts")
+        if importance_counts is None:
+            raise ValueError(
+                f"importance JSON {importance_json} has no 'activation_counts' key. "
+                f"Top-level keys: {sorted(importance_data.keys())}"
+            )
 
     selected: dict[int, list[int]] = {}
     for layer_idx, gate in router_per_layer.items():
         # gate shape: [num_experts, hidden]
-        if importance_data is not None:
-            layer_importance = importance_data["per_layer"].get(str(layer_idx))
+        if importance_counts is not None:
+            layer_importance = importance_counts.get(str(layer_idx)) or importance_counts.get(layer_idx)
             if layer_importance is None:
-                # Fall back to L2 norm
+                # Fall back to L2 norm — this layer wasn't profiled
                 scores = gate.float().norm(dim=1)
             else:
                 # Per-layer activation count → keep highest
