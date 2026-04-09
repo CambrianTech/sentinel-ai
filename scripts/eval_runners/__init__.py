@@ -55,12 +55,14 @@ def registered_benchmarks() -> list[str]:
 # Importing each concrete runner module triggers its register() call
 # against the singleton. Order doesn't matter; the registry is keyed by
 # benchmark name, not by import order. NEW runner = new module here.
-from . import humaneval        # noqa: E402,F401
-from . import humaneval_plus   # noqa: E402,F401
-from . import sota_stubs       # noqa: E402,F401  — frontier-target runner stubs
+from . import humaneval         # noqa: E402,F401
+from . import humaneval_plus    # noqa: E402,F401
+from . import livecodebench_v6  # noqa: E402,F401  — real LCB v6 scorer (was a stub in sota_stubs)
+from . import sota_stubs        # noqa: E402,F401  — remaining frontier-target runner stubs
 
 humaneval.register(_REGISTRY)
 humaneval_plus.register(_REGISTRY)
+livecodebench_v6.register(_REGISTRY)
 sota_stubs.register(_REGISTRY)
 
 

@@ -71,15 +71,11 @@ class SWEBenchVerifiedRunner(BenchmarkRunner):
         return _stub_score_raise(self.name, "SWE-Bench Verified protocol at https://www.swebench.com/", samples_path)
 
 
-class LiveCodeBenchV6Runner(BenchmarkRunner):
-    """LiveCodeBench v6 — contamination-free competitive programming
-    benchmark. The "v6" suffix is the latest snapshot (problems published
-    after a fixed cutoff date so they can't be in any model's training
-    set). Frontier coder cards (Qwen3-Coder-30B, DeepSeek-V3.1) report
-    against this. Protocol: https://livecodebench.github.io/"""
-    name = "livecodebench_v6"
-    def score(self, samples_path):
-        return _stub_score_raise(self.name, "LiveCodeBench v6 protocol at https://livecodebench.github.io/", samples_path)
+# LiveCodeBenchV6Runner moved out to its own file with a real body —
+# see scripts/eval_runners/livecodebench_v6.py. The frontier coder cards
+# (Qwen3-Coder-30B, Qwen3-Coder-480B, DeepSeek-V3.1, Mixtral 8x22B) all
+# report against LCB v6, so this is the first SOTA stub to graduate to a
+# real implementation per the §4.1.4.1 anchor-reproduction discipline gate.
 
 
 class AiderPolyglotRunner(BenchmarkRunner):
@@ -232,7 +228,6 @@ class GTZANRunner(BenchmarkRunner):
 
 REGISTRATIONS = [
     SWEBenchVerifiedRunner,
-    LiveCodeBenchV6Runner,
     AiderPolyglotRunner,
     MBPPPlusRunner,
     MMLUProRunner,

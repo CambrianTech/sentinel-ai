@@ -58,9 +58,12 @@ sys.path.insert(0, str(REPO_ROOT / "scripts"))
 # the multimodal roadmap. Each entry is the name string the alloy's
 # eval.benchmarks[].name field carries.
 SOTA_BENCHMARKS = [
-    # Code benchmarks (frontier coder targets)
+    # Code benchmarks (frontier coder targets).
+    # NOTE: livecodebench_v6 was previously here as a stub; it graduated to
+    # a real runner in scripts/eval_runners/livecodebench_v6.py per the
+    # §4.1.4.1 anchor-reproduction discipline gate prerequisite work.
+    # Test coverage for it lives in test_livecodebench_v6_runner.py now.
     "swe_bench_verified",
-    "livecodebench_v6",
     "aider_polyglot",
     "mbpp_plus",                 # complement to humaneval+
     # General-purpose benchmarks (frontier general targets)
