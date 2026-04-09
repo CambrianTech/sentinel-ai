@@ -213,17 +213,18 @@ class QwenDenseBase(FamilyAdapter):
         else:
             lr = "2e-5"
 
+        # NOTE: 'domain' is a REGISTRY KEY in forge_model.make_dataloaders
+        # ('code' | 'reasoning' | 'general' | 'chat' | 'science'), not a
+        # dataset name. The actual HF dataset is mapped from the key.
         if is_coder:
             return {
                 "domain": "code",
-                "dataset": "m-a-p/CodeFeedback-Filtered-Instruction",
                 "steps": steps,
                 "learningRate": lr,
                 "batchSize": 4,
             }
         return {
-            "domain": "wikitext",
-            "dataset": "Salesforce/wikitext",
+            "domain": "general",
             "steps": steps,
             "learningRate": lr,
             "batchSize": 4,
