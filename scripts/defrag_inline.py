@@ -36,14 +36,27 @@ def nested_config(config):
 
 
 def detect_dead_heads_live(model, threshold=1e-6):
-    """Detect zeroed-out heads in a live model. Returns {layer_idx: [head_indices]}."""
+    """Detect zeroed-out heads in a live model. Returns {layer_idx: [head_indices]}.
+
+    Strategy A (sentinel-ai#163): for hybrid architectures with a layer_types
+    list (e.g. Qwen3.5), only inspect full_attention layers. Linear-attention
+    (Gated DeltaNet) layers do not have a q_proj in the standard shape and
+    must not be touched by the head-detection or defrag code paths.
+    """
     tc = nested_config(model.config)
     num_heads = getattr(tc, "num_attention_heads", 12)
-    head_dim = getattr(tc, "hidden_size", 768) // num_heads
+    head_dim = getattr(tc, "head_dim", None)
+    if head_dim is None:
+        head_dim = getattr(tc, "hidden_size", 768) // num_heads
     layers = get_layers(model)
+    layer_types = getattr(tc, "layer_types", None)
 
     dead = {}
     for li, layer in enumerate(layers):
+        # Strategy A: skip non-full_attention layers entirely
+        if layer_types is not None and li < len(layer_types):
+            if layer_types[li] != "full_attention":
+                continue
         attn = getattr(layer, "self_attn", getattr(layer, "attn", None))
         if attn is None:
             continue
@@ -74,12 +87,106 @@ def _make_linear(weight_data, bias_data=None):
     return linear
 
 
+def defrag_attention_layer_pad(attn, surviving_q_heads, surviving_kv_heads,
+                               q_head_dim, kv_head_dim, o_head_dim,
+                               orig_num_heads, orig_num_kv_heads):
+    """Pad-mode defrag: zero dead Q/O head positions but preserve original wire shape.
+
+    This is the Finding 6 fix from VALIDATED-TENSOR-SURGERY: defrag in slice-mode
+    produces a model where q_proj.shape[0] == surviving_heads * head_dim, which
+    violates llama.cpp's hardcoded assumption q_proj.shape[0] == hidden_size for
+    any model where surviving_heads * head_dim != hidden_size — i.e. essentially
+    every modern transformer once any heads are removed.
+
+    In pad mode we:
+      - Zero the rows of q_proj.weight (and bias) for dead head positions
+      - Zero the columns of o_proj.weight for dead head positions
+      - Physically slice k_proj and v_proj (KV pruning, llama.cpp does not check
+        these against hidden_size)
+      - Leave num_heads unchanged in the attn module so forward() still reshapes
+        the unchanged-shape q_proj output correctly
+
+    The dead-head positions are computed (uniform attention output, since q is
+    zero so all softmax inputs are zero), but their contribution to the residual
+    stream is killed by o_proj's zero columns. Memory-wise the savings come
+    entirely from KV reduction and from quantization compressing zero blocks;
+    fp16 size of q_proj/o_proj is unchanged. q5_K_S compresses zero blocks to
+    ~5 bytes per 256-element block instead of ~80, so the on-disk savings are
+    real even though the in-memory savings are not.
+
+    Returns: bytes freed (counts only the KV physical reduction)
+    """
+    bytes_before = sum(p.numel() * p.element_size() for p in attn.parameters())
+
+    # Q projection: zero rows belonging to dead heads
+    q = getattr(attn, "q_proj", None)
+    if q is not None and hasattr(q, "weight"):
+        keep_q_rows = torch.zeros(q.weight.shape[0], dtype=torch.bool, device=q.weight.device)
+        for h in surviving_q_heads:
+            s, e = h * q_head_dim, (h + 1) * q_head_dim
+            if e <= q.weight.shape[0]:
+                keep_q_rows[s:e] = True
+        with torch.no_grad():
+            q.weight.data[~keep_q_rows] = 0
+            if q.bias is not None:
+                q.bias.data[~keep_q_rows] = 0
+
+    # O projection: zero columns belonging to dead heads
+    o = getattr(attn, "o_proj", None)
+    if o is not None and hasattr(o, "weight"):
+        keep_o_cols = torch.zeros(o.weight.shape[1], dtype=torch.bool, device=o.weight.device)
+        for h in surviving_q_heads:
+            s, e = h * o_head_dim, (h + 1) * o_head_dim
+            if e <= o.weight.shape[1]:
+                keep_o_cols[s:e] = True
+        with torch.no_grad():
+            o.weight.data[:, ~keep_o_cols] = 0
+
+    # K, V projections: zero rows of dead KV groups (do NOT physically slice).
+    # Per-layer slicing produces heterogeneous num_kv_heads across layers, which
+    # the global model.config cannot represent and which breaks SDPA attention.
+    # Zero-mode keeps num_kv_heads uniform across layers and lets quantization
+    # reclaim the storage from the zero blocks.
+    keep_kv_rows = torch.zeros(kv_head_dim * orig_num_kv_heads, dtype=torch.bool)
+    for h in surviving_kv_heads:
+        s, e = h * kv_head_dim, (h + 1) * kv_head_dim
+        keep_kv_rows[s:e] = True
+
+    for name in ["k_proj", "v_proj"]:
+        proj = getattr(attn, name, None)
+        if proj is None or not hasattr(proj, "weight"):
+            continue
+        if proj.weight.shape[0] != kv_head_dim * orig_num_kv_heads:
+            # Pre-existing shape mismatch (should not happen pre-defrag); skip.
+            continue
+        mask = keep_kv_rows.to(proj.weight.device)
+        with torch.no_grad():
+            proj.weight.data[~mask] = 0
+            if proj.bias is not None:
+                proj.bias.data[~mask] = 0
+
+    # Cached attributes: nothing changes in pad mode. num_heads, num_key_value_heads,
+    # and num_key_value_groups all stay at their original values. The dead positions
+    # are zeroed in-place; the model's structural shape is unchanged.
+    # We do NOT touch attn.num_heads / num_key_value_heads — leaving them at the
+    # original values is the entire point of pad mode.
+
+    bytes_after = sum(p.numel() * p.element_size() for p in attn.parameters())
+    return bytes_before - bytes_after
+
+
 def defrag_attention_layer(attn, surviving_q_heads, surviving_kv_heads,
                            q_head_dim, kv_head_dim, o_head_dim,
                            orig_num_heads, orig_num_kv_heads):
     """
-    Structurally remove dead heads from one attention layer.
+    Structurally remove dead heads from one attention layer (slice mode).
     Uses actual tensor dimensions (not config estimates).
+
+    NOTE: slice mode physically reduces q_proj/o_proj dimensions. This produces
+    a model that loads in transformers/vLLM but FAILS in llama.cpp's GGUF loader
+    for any model where surviving_heads * head_dim != hidden_size. Use
+    defrag_attention_layer_pad() (mode='pad') for runtime-portable artifacts.
+    See VALIDATED-TENSOR-SURGERY Finding 6.
 
     Returns: bytes freed
     """
@@ -141,19 +248,26 @@ def defrag_attention_layer(attn, surviving_q_heads, surviving_kv_heads,
     return bytes_before - bytes_after
 
 
-def defrag_live_model(model, dead_heads=None, threshold=1e-6):
+def defrag_live_model(model, dead_heads=None, threshold=1e-6, mode="slice"):
     """
     Defrag a live model in-place. Detects dead heads (or uses provided mask),
-    slices attention tensors, updates cached config.
+    slices/zeros attention tensors, updates cached config.
 
     Args:
         model: live PyTorch model (on GPU is fine)
         dead_heads: optional pre-computed {layer_idx: [head_indices]}
         threshold: weight norm threshold for dead head detection
+        mode: 'slice' (v1, physically removes q_proj/o_proj rows/cols — breaks
+              llama.cpp on any model where surviving_heads * head_dim !=
+              hidden_size; see VALIDATED-TENSOR-SURGERY Finding 6) or 'pad'
+              (Finding 6 fix: zero dead Q/O positions but preserve original
+              wire shape; KV is still physically reduced).
 
     Returns:
         total bytes freed
     """
+    if mode not in ("slice", "pad"):
+        raise ValueError(f"defrag mode must be 'slice' or 'pad', got {mode!r}")
     if dead_heads is None:
         dead_heads = detect_dead_heads_live(model, threshold)
 
@@ -187,9 +301,32 @@ def defrag_live_model(model, dead_heads=None, threshold=1e-6):
     kv_head_dim = k_proj.weight.shape[0] // num_kv_heads if k_proj else 0
     o_head_dim = o_proj.weight.shape[1] // num_heads if o_proj else 0
 
+    # Strategy A: identify hybrid-architecture layer types so we can skip
+    # non-full_attention layers entirely. The compute_activation_importance
+    # path already marks those layers' importance rows as inf, so dead_heads
+    # SHOULD never contain entries for them — but defensively filter here too,
+    # because direct callers (e.g. test code) may pass dead_heads built from
+    # other sources. Better to halt loud than to corrupt linear-attention layers.
+    layer_types = getattr(tc, "layer_types", None)
+    def _is_full_attn_layer(li: int) -> bool:
+        if layer_types is None:
+            return True
+        if li >= len(layer_types):
+            return True
+        return layer_types[li] == "full_attention"
+
     for li, dead_list in dead_heads.items():
         if li >= len(layers):
             continue
+        if not _is_full_attn_layer(li):
+            raise RuntimeError(
+                f"defrag_live_model: dead_heads contains entries for layer {li} "
+                f"which is type {layer_types[li]!r}, not full_attention. "
+                f"Strategy A requires non-full_attention layers to be skipped "
+                f"by the importance computation. Refusing to defrag a non-attention "
+                f"layer because the tensor shapes are different and slicing them "
+                f"would corrupt model state. See sentinel-ai#163."
+            )
 
         # Compute surviving heads — only remove COMPLETE GQA groups
         # GQA constraint: num_q_heads % num_kv_heads == 0 must hold after defrag
@@ -213,13 +350,73 @@ def defrag_live_model(model, dead_heads=None, threshold=1e-6):
         if attn is None:
             continue
 
-        freed = defrag_attention_layer(
-            attn, surviving_q, surviving_kv,
-            q_head_dim, kv_head_dim, o_head_dim,
-            num_heads, num_kv_heads
-        )
+        if mode == "pad":
+            freed = defrag_attention_layer_pad(
+                attn, surviving_q, surviving_kv,
+                q_head_dim, kv_head_dim, o_head_dim,
+                num_heads, num_kv_heads
+            )
+        else:
+            freed = defrag_attention_layer(
+                attn, surviving_q, surviving_kv,
+                q_head_dim, kv_head_dim, o_head_dim,
+                num_heads, num_kv_heads
+            )
         total_freed += freed
         defragged_layers += 1
+
+    # CRITICAL: Update model.config to match the new tensor shapes.
+    # Without this, save_pretrained() saves the old config (claiming N heads) but
+    # actual tensors have fewer heads. from_pretrained() then fails with size mismatch.
+    # Find the new dims by reading the first defragged layer's actual tensor shapes.
+    if defragged_layers > 0:
+        first_attn = None
+        for layer in layers:
+            attn = getattr(layer, "self_attn", getattr(layer, "attn", None))
+            if attn is not None and hasattr(attn, "q_proj"):
+                first_attn = attn
+                break
+
+        if first_attn is not None:
+            # Read actual current dims from tensors (post-defrag)
+            actual_q_out = first_attn.q_proj.weight.shape[0]
+            actual_kv_out = first_attn.k_proj.weight.shape[0]
+
+            if mode == "pad":
+                # Pad mode preserves q_proj wire shape, so num_attention_heads
+                # stays at the original count (the dead-head positions are
+                # zeroed but still present in the tensor).
+                new_num_heads = num_heads  # unchanged
+            else:
+                new_num_heads = actual_q_out // q_head_dim
+
+            new_num_kv_heads = actual_kv_out // kv_head_dim
+
+            # Update top-level config
+            cfg = model.config
+            if hasattr(cfg, "num_attention_heads"):
+                cfg.num_attention_heads = new_num_heads
+            if hasattr(cfg, "num_key_value_heads"):
+                cfg.num_key_value_heads = new_num_kv_heads
+            if hasattr(cfg, "n_head"):
+                cfg.n_head = new_num_heads
+            if hasattr(cfg, "n_kv_head"):
+                cfg.n_kv_head = new_num_kv_heads
+
+            # CRITICAL: explicitly set head_dim. Without this, HF infers it as
+            # hidden_size / num_heads which is wrong after pruning (we kept
+            # the original head_dim, just removed heads). The Q projection
+            # output is num_heads * head_dim, NOT hidden_size.
+            cfg.head_dim = q_head_dim
+
+            # Also update nested text_config if present (multimodal models)
+            tc = nested_config(cfg)
+            if tc is not cfg:
+                if hasattr(tc, "num_attention_heads"):
+                    tc.num_attention_heads = new_num_heads
+                if hasattr(tc, "num_key_value_heads"):
+                    tc.num_key_value_heads = new_num_kv_heads
+                tc.head_dim = q_head_dim
 
     # Force garbage collection to actually free GPU memory
     import gc

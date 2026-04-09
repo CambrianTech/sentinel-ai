@@ -94,12 +94,16 @@ def generate_qr(verify_url: str, output_path: Path) -> bool:
     return True
 
 
-def generate_card(alloy: dict, alloy_hash: str) -> str:
-    """Generate model card from alloy using alloy_to_card."""
+def generate_card(alloy: dict, alloy_hash: str, audience: str = "user") -> str:
+    """Generate model card from alloy using alloy_to_card.
+
+    audience="user" produces the concise user-facing README.md.
+    audience="researcher" produces the full MODEL_METHODOLOGY.md companion.
+    """
     scripts_dir = Path(__file__).resolve().parent
     sys.path.insert(0, str(scripts_dir))
     from alloy_to_card import alloy_to_card
-    return alloy_to_card(alloy, alloy_hash)
+    return alloy_to_card(alloy, alloy_hash, audience=audience)
 
 
 def publish(output_dir: Path, org: str = "continuum-ai",
@@ -140,6 +144,48 @@ def publish(output_dir: Path, org: str = "continuum-ai",
         print("  WARNING: No model/ directory — publishing metadata only")
 
     # --- PHASE 1: FINALIZE ALLOY (write receipt, then hash) ---
+    # Inject benchmark resultHashes from on-disk sample files BEFORE the
+    # alloy is canonicalized and hashed. Each benchmark in
+    # results.benchmarks may carry a `samplesPath` (relative to output_dir)
+    # pointing at the per-problem evaluation output (e.g. evalplus's
+    # sanitized JSONL). At publish time we compute SHA-256 of that file
+    # and inject it as `resultHash`, which moves the benchmark from
+    # "self-reported" to "attested" on the verify page — a third party can
+    # download the JSONL from the same HF repo, recompute the hash, verify
+    # it matches the alloy, and re-score against the per-problem outputs
+    # without trusting the producer's claim. This is the cheapest concrete
+    # trust upgrade per the forge-alloy attestation roadmap.
+    bench_hashed = 0
+    def _hash_sample(rel_path: str, label: str) -> str | None:
+        if not rel_path:
+            return None
+        abs_path = (output_dir / rel_path).resolve()
+        if not abs_path.exists():
+            print(f"  WARNING: benchmark '{label}' samples {rel_path} not found — skipping resultHash")
+            return None
+        if not str(abs_path).startswith(str(output_dir.resolve())):
+            print(f"  WARNING: benchmark '{label}' samples {rel_path} escapes publish dir — skipping")
+            return None
+        return "sha256:" + hash_file(abs_path)
+
+    for b in alloy.get("results", {}).get("benchmarks", []):
+        bname = b.get("name", "?")
+        # Student samples → resultHash
+        if not b.get("resultHash"):
+            h = _hash_sample(b.get("samplesPath"), bname)
+            if h:
+                b["resultHash"] = h
+                bench_hashed += 1
+        # Base samples → baseResultHash (when the alloy carries a hardware
+        # measurement of the unmodified base for self-anchor calibration)
+        if not b.get("baseResultHash"):
+            h = _hash_sample(b.get("baseSamplesPath"), f"{bname} base")
+            if h:
+                b["baseResultHash"] = h
+                bench_hashed += 1
+    if bench_hashed:
+        print(f"  Result-hashed {bench_hashed} benchmark sample file(s)")
+
     alloy["receipt"] = {
         "publications": [{
             "target": "huggingface",
@@ -167,11 +213,22 @@ def publish(output_dir: Path, org: str = "continuum-ai",
         qr_ok = generate_qr(verify_url, qr_path)
     print(f"  QR: {verify_url}")
 
-    card = generate_card(alloy, alloy_hash)
+    card = generate_card(alloy, alloy_hash, audience="user")
     card_path = output_dir / "README.md"
     if not dry_run:
         card_path.write_text(card)
     print(f"  Card: {len(card)} chars")
+
+    # Companion researcher view — full methodology, ablation tables, and
+    # per-stage methodology blockquotes. Same alloy as the source of truth,
+    # different projection. Uploaded alongside the user card so the
+    # methodology content stays in the HF repo for reproducibility without
+    # cluttering the headline README.
+    methodology = generate_card(alloy, alloy_hash, audience="researcher")
+    methodology_path = output_dir / "MODEL_METHODOLOGY.md"
+    if not dry_run:
+        methodology_path.write_text(methodology)
+    print(f"  Methodology: {len(methodology)} chars")
 
     if dry_run:
         print("\n  DRY RUN — not uploading. Files prepared in output dir.")
@@ -206,7 +263,9 @@ def publish(output_dir: Path, org: str = "continuum-ai",
     except Exception as e:
         raise RuntimeError(f"Failed to create repo: {e}")
 
-    # Upload model weights
+    # Upload model weights — safetensors layout (model/ subdir) OR GGUF
+    # layout (.gguf files at output_dir root, the convention for HF quant
+    # repos). The two layouts are mutually exclusive per repo.
     if model_dir.exists():
         safetensors = list(model_dir.glob("*.safetensors"))
         if safetensors:
@@ -224,6 +283,18 @@ def publish(output_dir: Path, org: str = "continuum-ai",
             if cfg_path.exists():
                 api.upload_file(path_or_fileobj=str(cfg_path), path_in_repo=cfg_name, repo_id=repo_id)
                 files_uploaded += 1
+
+    # GGUF layout — quant tiers at the repo root (HF convention for
+    # llama.cpp / Ollama / LM Studio consumption). Resolves symlinks
+    # so the upload reads the actual file content.
+    gguf_files = sorted(output_dir.glob("*.gguf"))
+    if gguf_files:
+        print(f"  Uploading {len(gguf_files)} GGUF tier(s)...")
+        for gf in gguf_files:
+            real = gf.resolve()
+            api.upload_file(path_or_fileobj=str(real), path_in_repo=gf.name, repo_id=repo_id)
+            total_bytes += real.stat().st_size
+            files_uploaded += 1
 
     # Upload benchmark samples
     bench_dir = output_dir / "benchmark"
@@ -250,6 +321,11 @@ def publish(output_dir: Path, org: str = "continuum-ai",
     # Upload QR
     if qr_ok and qr_path.exists():
         api.upload_file(path_or_fileobj=str(qr_path), path_in_repo="alloy-qr.png", repo_id=repo_id)
+        files_uploaded += 1
+
+    # Upload methodology companion (researcher view)
+    if methodology_path.exists():
+        api.upload_file(path_or_fileobj=str(methodology_path), path_in_repo="MODEL_METHODOLOGY.md", repo_id=repo_id)
         files_uploaded += 1
 
     # Upload card LAST (references alloy hash which is already uploaded)
