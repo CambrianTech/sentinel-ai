@@ -537,7 +537,7 @@ class PublishExecutor(StageExecutor):
     def _verify_integrity(self, ctx: ForgeContext) -> list:
         """Verify alloy hashes match actual files."""
         errors = []
-        integrity = ctx.alloy.get("results", {}).get("integrity", {})
+        integrity = (ctx.alloy.get("results") or {}).get("integrity", {})
         if not integrity:
             return []
 
