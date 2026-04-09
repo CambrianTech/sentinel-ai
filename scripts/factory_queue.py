@@ -77,6 +77,7 @@ import json
 import os
 import re
 import shutil
+import threading
 import time
 import traceback
 from pathlib import Path
@@ -478,6 +479,7 @@ class FactoryWorker:
         cleanup_fn: Callable[..., dict] | None = None,
         cleanup_threshold_pct: float = 85.0,
         cleanup_cold_root: str | Path | None = None,
+        heartbeat_interval_seconds: float = 30.0,
     ) -> None:
         self.queue = queue
         self.executor = executor
@@ -496,6 +498,76 @@ class FactoryWorker:
         # tomorrow when the drive lands, mounting it and pointing this
         # at /mnt/cold is the entire wire-up.
         self.cleanup_cold_root = Path(cleanup_cold_root) if cleanup_cold_root else None
+
+        # ── Out-of-band heartbeat thread ─────────────────────────────────
+        # The heartbeat used to be written inline before/after process_one,
+        # which meant any long-running forge stage left the heartbeat
+        # frozen at "building" while the executor blocked for an hour.
+        # If the daemon then died mid-forge (OOM, SIGKILL, anything),
+        # consumers reading .heartbeat.json would see "building" with a
+        # stale timestamp and a dead PID — exactly the failure mode we
+        # observed on bigmama 2026-04-09 with the Mixtral 8x7B crash.
+        #
+        # Fix: spawn a daemon thread on __init__ that ticks every
+        # heartbeat_interval_seconds and rewrites the heartbeat file with
+        # whatever (state, current_part) the worker has set as the
+        # current values. The thread runs independently of process_one,
+        # so even during a multi-hour forge stage the heartbeat keeps
+        # updating its last_beat_at timestamp. Stale-PID detection on
+        # the consumer side still works the same way.
+        #
+        # The previous inline write_heartbeat calls are kept; they now
+        # update the in-memory state and the thread propagates it on its
+        # next tick. The inline write is retained for the immediate-state-
+        # change case (so consumers reading right after a state transition
+        # see the new state without waiting for the next thread tick).
+        self._heartbeat_state = "starting"
+        self._heartbeat_part: str | None = None
+        self._heartbeat_interval = heartbeat_interval_seconds
+        self._heartbeat_stop = threading.Event()
+        self._heartbeat_thread = threading.Thread(
+            target=self._heartbeat_loop,
+            name="factory-heartbeat",
+            daemon=True,
+        )
+        self._heartbeat_thread.start()
+
+    def _heartbeat_loop(self) -> None:
+        """Background thread: rewrite .heartbeat.json on a wall-clock interval.
+
+        Runs independently of process_one so the heartbeat stays fresh even
+        during long-blocking executor calls. Stops when self._heartbeat_stop
+        is set (clean shutdown) or when the daemon process dies (the thread
+        is daemon=True, so it dies with the process).
+        """
+        while not self._heartbeat_stop.is_set():
+            try:
+                self.queue.write_heartbeat(
+                    state=self._heartbeat_state,
+                    current_part=self._heartbeat_part,
+                )
+            except Exception:
+                # Heartbeat failures are best-effort — never crash the
+                # daemon over a transient disk write hiccup.
+                pass
+            # Sleep with early-exit if stop is signaled
+            self._heartbeat_stop.wait(self._heartbeat_interval)
+
+    def _set_heartbeat(self, *, state: str, current_part: str | None) -> None:
+        """Update the in-memory heartbeat state AND write through immediately.
+
+        The thread will continue refreshing the timestamp on its interval,
+        but consumers reading right after a state transition need to see
+        the new state without waiting for the next tick. So we write
+        through immediately on every state change in addition to the
+        thread's periodic ticks.
+        """
+        self._heartbeat_state = state
+        self._heartbeat_part = current_part
+        try:
+            self.queue.write_heartbeat(state=state, current_part=current_part)
+        except Exception:
+            pass
 
     def process_one(self) -> bool:
         """Pop the oldest intake alloy, forge → assay → mark finished.
@@ -552,7 +624,7 @@ class FactoryWorker:
                 if corpus.is_file() and not (forge_calibration / corpus.name).exists():
                     shutil.copy(corpus, forge_calibration / corpus.name)
 
-        self.queue.write_heartbeat(state="building", current_part=assembly.name)
+        self._set_heartbeat(state="building", current_part=assembly.name)
 
         # Station 1: forge + assay. The alloy's eval stage runs through
         # the registered BenchmarkRunner pack as part of execute_alloy.
@@ -608,6 +680,29 @@ class FactoryWorker:
             # because the hashing helpers tripped on something.
             pass
 
+        # Read the executor-written alloy file from the forged dir to
+        # extract any structured fields the eval stages produced — most
+        # importantly priorMetricBaselines[] (the §4.1.3.4 negative-baseline
+        # discipline anchor, used by Many-Worlds-v0 random-substrate
+        # ablation, by the qwen3-coder-30b-a3b router-gate-L2 baseline,
+        # and by every future calibration-aware empirical contribution).
+        # The field is in the FACTORY-PROTOCOL.md spec but the daemon
+        # didn't propagate it through to result.json until this fix.
+        prior_metric_baselines: list = []
+        try:
+            from pathlib import Path as _P
+            forged_alloy_candidates = list(_P(forged_dir).glob("*.alloy.json"))
+            if forged_alloy_candidates:
+                forged_alloy = json.loads(forged_alloy_candidates[0].read_text())
+                results_block = forged_alloy.get("results") or {}
+                pmb = results_block.get("priorMetricBaselines") or []
+                if isinstance(pmb, list):
+                    prior_metric_baselines = pmb
+        except Exception:
+            # Best-effort — never fail a forge because the sidecar
+            # field couldn't be read.
+            pass
+
         # Station 3: mark finished. The manifest tells continuum where the
         # forged artifact lives on disk so the shipping flow there can
         # read the alloy + eval results and apply its release gates.
@@ -617,6 +712,7 @@ class FactoryWorker:
             "published": self.publisher is not None,
             "modelHash": model_hash,
             "fileHashes": file_hashes,
+            "priorMetricBaselines": prior_metric_baselines,
             **publish_manifest,
         }
         self.queue.mark_finished(assembly, manifest)
@@ -646,20 +742,21 @@ class FactoryWorker:
         (KeyboardInterrupt or SIGTERM).
         """
         self.queue.recover_assembly()
-        self.queue.write_heartbeat(state="idle", current_part=None)
+        self._set_heartbeat(state="idle", current_part=None)
         processed = 0
         try:
             while True:
                 did_work = self.process_one()
                 if did_work:
                     processed += 1
-                    self.queue.write_heartbeat(state="idle", current_part=None)
+                    self._set_heartbeat(state="idle", current_part=None)
                     continue
                 # Intake empty — idle and try again
-                self.queue.write_heartbeat(state="idle", current_part=None)
+                self._set_heartbeat(state="idle", current_part=None)
                 sleep_fn(idle_sleep_seconds)
         except (KeyboardInterrupt, SystemExit):
-            self.queue.write_heartbeat(state="offline", current_part=None)
+            self._set_heartbeat(state="offline", current_part=None)
+            self._heartbeat_stop.set()
         return processed
 
     def run_loop(
@@ -915,10 +1012,12 @@ def main():
         if args.once:
             queue.recover_assembly()
             worker.process_one()
+            worker._heartbeat_stop.set()
             queue.write_heartbeat(state="offline", current_part=None)
         elif args.max_iters is not None:
             queue.recover_assembly()
             n = worker.run_loop(max_iters=args.max_iters, sleep_seconds=args.idle_sleep)
+            worker._heartbeat_stop.set()
             queue.write_heartbeat(state="offline", current_part=None)
             print(f"processed {n} parts, final stats={queue.stats()}")
         else:

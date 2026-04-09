@@ -195,6 +195,10 @@ def load_model(
     load_4bit: bool,
     free_cache_after_load: bool = False,
     auto_class=None,
+    streaming: bool = False,
+    streaming_max_gpu_gb: int = 30,
+    streaming_max_cpu_gb: int = 50,
+    streaming_offload_folder: str = "/mnt/d/cold/hf-offload",
 ):
     """Load model with explicit memory strategy.
 
@@ -202,6 +206,21 @@ def load_model(
     Default is AutoModelForCausalLM (the dense LLM case). Family
     adapters can pass their own class (AutoModelForVision2Seq for VL,
     AutoModel for omni-modal, etc.) via family.model_auto_class().
+
+    streaming=True enables Accelerate's auto-device-map streaming load,
+    required for models too large to fit in CPU RAM all at once
+    (Mixtral 8x7B ~93GB fp16, Mixtral 8x22B ~280GB fp16, etc.). The
+    decision to enable streaming should be made by the caller based on
+    model_fp16_gb vs available CPU RAM. When streaming is enabled,
+    weights are loaded one shard at a time and placed across GPU / CPU
+    / disk per the max_memory constraints, with overflow spilling to
+    streaming_offload_folder (default /mnt/d/cold/hf-offload — the cold
+    tier with plenty of room for big-MoE source weights).
+
+    The non-streaming (CPU-first) path is preserved as the default
+    because of the RTX 5090 + Mamba2 sm_120 kernel workaround — small
+    Mamba-class models still need CPU-first init. Big MoE models that
+    don't have that constraint take the streaming path.
     """
     from transformers import AutoModelForCausalLM, AutoTokenizer
 
@@ -219,6 +238,30 @@ def load_model(
         )
         kwargs["device_map"] = "auto"
         print(f"  Loading 4-bit NF4 (double quant) via {auto_class.__name__}")
+    elif streaming:
+        # Streaming load via Accelerate's auto device map. Used when the
+        # model is too large to fit in CPU RAM all at once (Mixtral 8x7B,
+        # 8x22B, Qwen3-Coder-480B, etc.). Each shard loads, gets placed
+        # on its target device, and the next shard loads. Peak CPU memory
+        # is one shard at a time plus working overhead, NOT the whole
+        # model. Anything that doesn't fit on GPU+CPU spills to disk in
+        # streaming_offload_folder.
+        from pathlib import Path as _P
+        offload_path = _P(streaming_offload_folder)
+        offload_path.mkdir(parents=True, exist_ok=True)
+        kwargs["dtype"] = torch.float16
+        kwargs["device_map"] = "auto"
+        kwargs["max_memory"] = {
+            0: f"{streaming_max_gpu_gb}GiB",
+            "cpu": f"{streaming_max_cpu_gb}GiB",
+        }
+        kwargs["offload_folder"] = str(offload_path)
+        kwargs["offload_state_dict"] = True
+        print(
+            f"  Loading fp16 STREAMING via {auto_class.__name__} "
+            f"(GPU≤{streaming_max_gpu_gb}GiB, CPU≤{streaming_max_cpu_gb}GiB, "
+            f"disk overflow→{streaming_offload_folder})"
+        )
     else:
         kwargs["dtype"] = torch.float16
         # Load to CPU first, then move to CUDA. This avoids sm_120 kernel errors
@@ -228,7 +271,10 @@ def load_model(
         print(f"  Loading fp16 (CPU → CUDA) via {auto_class.__name__}")
 
     model = auto_class.from_pretrained(model_name, **kwargs)
-    if not load_4bit and str(model.device) == "cpu":
+    # Only move to CUDA if we used the CPU-first path. Streaming and 4-bit
+    # paths already placed weights via device_map="auto" — calling .to("cuda")
+    # on a dispatched model breaks the per-layer placement.
+    if not load_4bit and not streaming and str(model.device) == "cpu":
         model = model.to("cuda")
     tokenizer = AutoTokenizer.from_pretrained(model_name)
     if tokenizer.pad_token is None:

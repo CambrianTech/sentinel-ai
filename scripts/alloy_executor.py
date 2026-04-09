@@ -162,7 +162,44 @@ def execute_alloy(alloy_path: str, output_dir: str = None, dry_run: bool = False
     except Exception as e:
         print(f"  WARN: could not resolve family auto_class, falling back to default: {e}")
 
-    ctx.model, ctx.tokenizer = load_model(load_path, cfg.load_4bit, auto_class=auto_class)
+    # Streaming load decision: if the model's fp16 size exceeds the GPU
+    # VRAM AND we're not using 4-bit quant, use Accelerate's streaming
+    # device_map. This is the only path that works for big-MoE models
+    # (Mixtral 8x7B ~93GB, Mixtral 8x22B ~280GB) that exceed CPU RAM if
+    # loaded all at once. The CPU-first path (existing default) is
+    # preserved for smaller models because of the RTX 5090 + Mamba2
+    # sm_120 kernel workaround.
+    #
+    # Heuristic: model_fp16_gb > vram_gb triggers streaming. This catches
+    # every case where the model couldn't fit on GPU directly anyway, and
+    # is conservative enough that small models keep the existing path.
+    model_fp16_gb = ctx.info.get("fp16_gb", 0)
+    use_streaming = (not cfg.load_4bit) and (model_fp16_gb > vram_gb)
+    if use_streaming:
+        # Reserve some headroom on each device — leave 2GiB on GPU for
+        # activations and 12GiB on CPU for working memory + Python.
+        max_gpu = max(int(vram_gb) - 2, 8)
+        # Read total system RAM dynamically; cap CPU usage so Linux
+        # doesn't OOM-kill the daemon during a forge.
+        try:
+            import psutil
+            total_ram_gb = psutil.virtual_memory().total / 1e9
+            max_cpu = max(int(total_ram_gb) - 12, 16)
+        except Exception:
+            max_cpu = 50  # safe default for a 62GiB WSL2 ceiling
+        print(
+            f"  Streaming-load enabled (model={model_fp16_gb:.1f}GB > "
+            f"vram={vram_gb:.1f}GB): GPU≤{max_gpu}GiB, CPU≤{max_cpu}GiB, "
+            f"disk overflow→/mnt/d/cold/hf-offload"
+        )
+        ctx.model, ctx.tokenizer = load_model(
+            load_path, cfg.load_4bit, auto_class=auto_class,
+            streaming=True,
+            streaming_max_gpu_gb=max_gpu,
+            streaming_max_cpu_gb=max_cpu,
+        )
+    else:
+        ctx.model, ctx.tokenizer = load_model(load_path, cfg.load_4bit, auto_class=auto_class)
 
     # Populate ctx.source_model_dir — the absolute on-disk path to the
     # source model files. Family adapter expert_prune methods need this
