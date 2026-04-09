@@ -248,6 +248,73 @@ class FactoryQueue:
                 recovered.append(target)
         return recovered
 
+    # ── Foreman convenience commands ───────────────────────────────────
+
+    def list_parts(self, station: str) -> list[dict]:
+        """Return alloy summaries for one station — for pretty-printing.
+
+        Each entry is a small dict (filename, name, base_model, retries,
+        mtime) suitable for display by --list. The full alloy JSON isn't
+        loaded — just enough to identify the part for the foreman.
+        """
+        if station not in self.STATIONS:
+            raise ValueError(
+                f"unknown station {station!r}; valid: {list(self.STATIONS)}"
+            )
+        d = self.line_dir / station
+        out: list[dict] = []
+        for path in sorted(d.glob("*.alloy.json"), key=lambda p: p.stat().st_mtime):
+            try:
+                alloy = json.loads(path.read_text())
+                out.append({
+                    "filename": path.name,
+                    "name": alloy.get("name", path.stem),
+                    "base_model": alloy.get("source", {}).get("baseModel", "?"),
+                    "architecture": alloy.get("source", {}).get("architecture", "?"),
+                    "retries": _retry_count(path.name),
+                    "mtime": path.stat().st_mtime,
+                })
+            except (OSError, json.JSONDecodeError):
+                # Don't fail the listing on one bad file
+                out.append({
+                    "filename": path.name,
+                    "name": "(unreadable)",
+                    "base_model": "?",
+                    "architecture": "?",
+                    "retries": _retry_count(path.name),
+                    "mtime": 0,
+                })
+        return out
+
+    def retry_rework(self, name: str) -> Path | None:
+        """Promote a rework/<name> alloy back to intake/ with the retry
+        counter RESET to 0. The foreman is explicitly giving the part
+        another chance — typically after fixing whatever caused the
+        original rework (a config bug, a missing dependency, a transient
+        OOM). The error sidecar is preserved by moving it alongside.
+
+        Returns the new intake path, or None if the rework file doesn't exist.
+        """
+        rework_path = self.rework_dir / name
+        if not rework_path.exists():
+            return None
+        # Strip any .retryN marker from the filename so the part starts fresh
+        clean_name = re.sub(r"\.retry\d+\.alloy\.json$", ".alloy.json", name)
+        if not clean_name.endswith(".alloy.json"):
+            clean_name = name  # paranoia
+        target = self.intake_dir / clean_name
+        rework_path.rename(target)
+        # Move sidecar alongside (preserves the error trail in the intake dir)
+        sidecar = self.rework_dir / name.replace(".alloy.json", ".error.json")
+        if sidecar.exists():
+            sidecar.rename(self.intake_dir / clean_name.replace(".alloy.json", ".error.json"))
+        self._append_throughput({
+            "outcome": "promoted_from_rework",
+            "alloy": clean_name,
+            "from": name,
+        })
+        return target
+
     def status(self) -> dict:
         """Read heartbeat + queue stats and return a summary dict.
 
@@ -630,6 +697,14 @@ def main():
                     help="one-shot crash recovery: drain assembly/ and exit")
     ap.add_argument("--tail", action="store_true",
                     help="print the last 20 throughput.jsonl entries and exit")
+    ap.add_argument("--list", dest="list_intake", action="store_true",
+                    help="pretty-print the intake station and exit")
+    ap.add_argument("--list-station", default=None,
+                    help="pretty-print parts in one station (intake|assembly|finished|rework)")
+    ap.add_argument("--retry", default=None,
+                    help="promote a rework alloy back to intake (resets retry counter)")
+    ap.add_argument("--enqueue", default=None,
+                    help="copy an alloy file from <path> into intake/")
     ap.add_argument(
         "--publish",
         action="store_true",
@@ -662,6 +737,33 @@ def main():
         print(f"recovered {len(recovered)} stuck parts")
         for p in recovered:
             print(f"  {p.relative_to(queue.line_dir)}")
+        return
+
+    if args.list_intake or args.list_station:
+        station = args.list_station or "intake"
+        parts = queue.list_parts(station)
+        if not parts:
+            print(f"({station} is empty)")
+            return
+        # Compact, scannable format
+        print(f"{station}/  ({len(parts)} parts)")
+        for i, p in enumerate(parts, 1):
+            retries = f" [retry{p['retries']}]" if p["retries"] else ""
+            print(f"  {i:2d}. {p['name']}{retries}")
+            print(f"      ← {p['base_model']}  ({p['architecture']})")
+        return
+
+    if args.retry:
+        promoted = queue.retry_rework(args.retry)
+        if promoted is None:
+            print(f"no rework alloy named {args.retry!r}")
+        else:
+            print(f"promoted: {promoted.relative_to(queue.line_dir)}")
+        return
+
+    if args.enqueue:
+        enqueued = queue.enqueue(args.enqueue)
+        print(f"enqueued: {enqueued.relative_to(queue.line_dir)}")
         return
 
     # ── Daemon mode ─────────────────────────────────────────────────────────

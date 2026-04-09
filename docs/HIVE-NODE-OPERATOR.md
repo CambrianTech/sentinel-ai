@@ -35,14 +35,24 @@ mkdir -p ~/sentinel-ai/.factory/calibration
 # What's the line doing right now?
 python -m factory_queue --root .factory --status
 
-# What's queued?
-ls .factory/line/intake/
+# Pretty-print the intake station (replaces `ls .factory/line/intake/`)
+python -m factory_queue --root .factory --list
+
+# Pretty-print any station
+python -m factory_queue --root .factory --list-station finished
+python -m factory_queue --root .factory --list-station rework
 
 # Show the last 20 events from the throughput log
 python -m factory_queue --root .factory --tail
 
 # Recover any stuck parts after a hard crash (before relaunching)
 python -m factory_queue --root .factory --recover
+
+# Promote a rework alloy back to intake (resets retry counter)
+python -m factory_queue --root .factory --retry deepseek-v2-lite-chat-compacted.alloy.json
+
+# Drop an alloy file into intake (atomic copy)
+python -m factory_queue --root .factory --enqueue path/to/my-recipe.alloy.json
 ```
 
 ## Three modes of running the daemon
