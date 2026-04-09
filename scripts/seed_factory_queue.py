@@ -57,22 +57,22 @@ CODE_BENCHMARKS = ["humaneval", "humaneval_plus", "livecodebench_v6"]
 def _coder_acceptance(*, max_vram_gb: float, anchor_delta_pp: float = -3.0) -> dict:
     """Acceptance criteria for a coder forge.
 
-    The §4.1.3.4 discipline gate: humaneval_plus must be within
-    `anchor_delta_pp` percentage points of the base anchor measured in
-    the SAME eval pipeline. Negative is the correct sign — we allow the
-    forged score to drop slightly relative to the base. -3.0 is the
-    morning's flagship gate (the qwen3-coder-30b shipped at Δ −3.7
-    against the 92.1 base anchor). Tighter alloys can pass -2.0.
+    Joel's directive: "you are free to publish anything that meets good
+    scores, doesn't have to win. just good." So absolute floors are set
+    at the LOW end of competitive — the §4.1.3.4 anchorDelta is the real
+    gate (no degenerate prune is allowed to ship even if its absolute
+    floor passes). The morning's qwen3-coder-30b shipped at Δ −3.7
+    against the 92.1 base anchor; -3.0 is the standard ceiling.
     """
     return {
         "benchmarks": {
             "humaneval_plus": {
-                "min": 0.55,
+                "min": 0.45,
                 "anchorDelta": anchor_delta_pp,
                 "anchorBenchmark": "humaneval_plus",
             },
-            "humaneval": {"min": 0.55},
-            "livecodebench_v6": {"min": 0.20},
+            "humaneval": {"min": 0.50},
+            "livecodebench_v6": {"min": 0.15},
         },
         "hardware": {"maxVramGb": max_vram_gb},
         "integrity": {"modelHashRequired": True, "samplesPathRequired": True},
@@ -82,18 +82,19 @@ def _coder_acceptance(*, max_vram_gb: float, anchor_delta_pp: float = -3.0) -> d
 def _general_acceptance(*, max_vram_gb: float) -> dict:
     """Acceptance criteria for a general-purpose forge — Open LLM Leaderboard v2 floors.
 
-    The min thresholds are set to roughly the median of the current
-    public leaderboard at each model's weight class, so a forge that
-    matches its base on most benchmarks comfortably clears.
+    Floors are at the low end of "competitive on the HF leaderboard."
+    A forge that lands here is ship-eligible: not necessarily a
+    headline, but credibly good. Better-than-floor is the bonus, not
+    the gate.
     """
     return {
         "benchmarks": {
-            "ifeval":   {"min": 0.45},
-            "bbh":      {"min": 0.40},
-            "math_hard":{"min": 0.10},
-            "gpqa":     {"min": 0.25},
-            "mmlu_pro": {"min": 0.30},
-            "musr":     {"min": 0.30},
+            "ifeval":   {"min": 0.40},
+            "bbh":      {"min": 0.35},
+            "math_hard":{"min": 0.06},
+            "gpqa":     {"min": 0.22},
+            "mmlu_pro": {"min": 0.25},
+            "musr":     {"min": 0.25},
         },
         "hardware": {"maxVramGb": max_vram_gb},
         "integrity": {"modelHashRequired": True},
@@ -101,13 +102,13 @@ def _general_acceptance(*, max_vram_gb: float) -> dict:
 
 
 def _vl_acceptance(*, max_vram_gb: float) -> dict:
-    """Acceptance criteria for a vision-language forge."""
+    """Acceptance criteria for a vision-language forge — competitive VL floors."""
     return {
         "benchmarks": {
-            "mmmu":    {"min": 0.40},
-            "chartqa": {"min": 0.50},
-            "docvqa":  {"min": 0.55},
-            "ai2d":    {"min": 0.55},
+            "mmmu":    {"min": 0.35},
+            "chartqa": {"min": 0.45},
+            "docvqa":  {"min": 0.50},
+            "ai2d":    {"min": 0.50},
         },
         "hardware": {"maxVramGb": max_vram_gb},
         "integrity": {"modelHashRequired": True},
@@ -125,20 +126,29 @@ def _moe_recipe(
     benchmarks: list[str],
     description: str,
     acceptance: dict | None = None,
+    source_geometry: dict | None = None,
 ) -> dict:
-    """Build a minimal MoE expert-prune recipe alloy with an acceptance gate."""
+    """Build a minimal MoE expert-prune recipe alloy with an acceptance gate.
+
+    source_geometry is merged into the source block — pass the verified
+    HF config values (numLayers, contextLength, totalParamsB, etc.) so
+    the intent alloy carries publish-ready geometry from the start.
+    """
     prune_pct = round(100 * (1 - keep_experts / original_experts), 1)
+    source = {
+        "baseModel": base_model,
+        "architecture": architecture,
+        "isMoE": True,
+    }
+    if source_geometry:
+        source.update(source_geometry)
     alloy = {
         "name": name,
         "version": "0.1.0",
         "description": description,
         "author": "continuum-ai",
         "license": "apache-2.0",
-        "source": {
-            "baseModel": base_model,
-            "architecture": architecture,
-            "isMoE": True,
-        },
+        "source": source,
         "stages": [
             {
                 "type": "expert-activation-profile",
@@ -193,6 +203,7 @@ def _vl_recipe(
     keep_experts: int | None = None,
     original_experts: int | None = None,
     acceptance: dict | None = None,
+    source_geometry: dict | None = None,
 ) -> dict:
     """Vision-language forge recipe. Routes through QwenVLAdapter which
     handles vision_safety. If is_moe, also runs the MoE expert prune."""
@@ -237,17 +248,20 @@ def _vl_recipe(
             "repoName": name,
         },
     ])
+    source = {
+        "baseModel": base_model,
+        "architecture": architecture,
+        "isMoE": is_moe,
+    }
+    if source_geometry:
+        source.update(source_geometry)
     alloy = {
         "name": name,
         "version": "0.1.0",
         "description": description,
         "author": "continuum-ai",
         "license": "apache-2.0",
-        "source": {
-            "baseModel": base_model,
-            "architecture": architecture,
-            "isMoE": is_moe,
-        },
+        "source": source,
         "stages": stages,
     }
     if acceptance is not None:
@@ -267,6 +281,17 @@ CATALOG: list[dict] = [
         layout="block_sparse_moe-unfused",
         keep_experts=4,
         original_experts=8,
+        source_geometry={
+            "totalParamsB": 141.0,
+            "activeParamsB": 39.0,
+            "numLayers": 56,
+            "numExpertsPerLayer": 8,
+            "numActivatedExperts": 2,
+            "hiddenSize": 6144,
+            "intermediateSize": 16384,
+            "contextLength": 65536,
+            "license": "apache-2.0",
+        },
         benchmarks=CODE_BENCHMARKS + OPENLLM_V2_BENCHMARKS,
         acceptance=_coder_acceptance(max_vram_gb=24.0, anchor_delta_pp=-3.0),
         description=(
@@ -283,6 +308,17 @@ CATALOG: list[dict] = [
         layout="block_sparse_moe-unfused",
         keep_experts=4,
         original_experts=8,
+        source_geometry={
+            "totalParamsB": 46.7,
+            "activeParamsB": 12.9,
+            "numLayers": 32,
+            "numExpertsPerLayer": 8,
+            "numActivatedExperts": 2,
+            "hiddenSize": 4096,
+            "intermediateSize": 14336,
+            "contextLength": 32768,
+            "license": "apache-2.0",
+        },
         benchmarks=CODE_BENCHMARKS + OPENLLM_V2_BENCHMARKS,
         acceptance=_coder_acceptance(max_vram_gb=16.0, anchor_delta_pp=-3.0),
         description=(
@@ -300,6 +336,17 @@ CATALOG: list[dict] = [
         layout="block_sparse_moe-unfused",
         keep_experts=8,
         original_experts=16,
+        source_geometry={
+            "totalParamsB": 41.9,
+            "activeParamsB": 6.6,
+            "numLayers": 32,
+            "numExpertsPerLayer": 16,
+            "numActivatedExperts": 2,
+            "hiddenSize": 4096,
+            "intermediateSize": 6400,
+            "contextLength": 131072,
+            "license": "mit",
+        },
         benchmarks=OPENLLM_V2_BENCHMARKS,
         acceptance=_general_acceptance(max_vram_gb=14.0),
         description=(
@@ -317,6 +364,19 @@ CATALOG: list[dict] = [
         layout="deepseek-routed-shared",
         keep_experts=32,
         original_experts=64,
+        source_geometry={
+            "totalParamsB": 15.7,
+            "activeParamsB": 2.4,
+            "numLayers": 27,
+            "numExpertsPerLayer": 64,
+            "numSharedExperts": 2,
+            "numActivatedExperts": 6,
+            "firstKDenseReplace": 1,
+            "hiddenSize": 2048,
+            "moeIntermediateSize": 1408,
+            "contextLength": 163840,
+            "license": "deepseek",
+        },
         benchmarks=CODE_BENCHMARKS + OPENLLM_V2_BENCHMARKS,
         acceptance=_coder_acceptance(max_vram_gb=10.0, anchor_delta_pp=-3.0),
         description=(
@@ -334,6 +394,17 @@ CATALOG: list[dict] = [
         layout="mlp-experts-unfused",
         keep_experts=32,
         original_experts=64,
+        source_geometry={
+            "totalParamsB": 6.9,
+            "activeParamsB": 1.3,
+            "numLayers": 16,
+            "numExpertsPerLayer": 64,
+            "numActivatedExperts": 8,
+            "hiddenSize": 2048,
+            "intermediateSize": 1024,
+            "contextLength": 4096,
+            "license": "apache-2.0",
+        },
         benchmarks=OPENLLM_V2_BENCHMARKS,
         acceptance=_general_acceptance(max_vram_gb=6.0),
         description=(
@@ -350,6 +421,17 @@ CATALOG: list[dict] = [
         layout="mlp-experts-unfused",
         keep_experts=80,
         original_experts=128,
+        source_geometry={
+            "totalParamsB": 30.5,
+            "activeParamsB": 3.3,
+            "numLayers": 48,
+            "numExpertsPerLayer": 128,
+            "numActivatedExperts": 8,
+            "hiddenSize": 2048,
+            "moeIntermediateSize": 768,
+            "contextLength": 262144,
+            "license": "apache-2.0",
+        },
         benchmarks=CODE_BENCHMARKS + OPENLLM_V2_BENCHMARKS,
         acceptance=_coder_acceptance(max_vram_gb=12.0, anchor_delta_pp=-3.7),
         description=(
@@ -361,33 +443,136 @@ CATALOG: list[dict] = [
             "second — the §4.1.3.4 lesson)."
         ),
     ),
-    # ── Vision: Qwen3-VL pure (8B) and Qwen3-VL MoE (30B-A3B) ──
+    # ── Vision: Qwen3-VL dense (8B) and Qwen3-VL MoE (30B-A3B) ──
+    # Verified from HF config.json:
+    #   Qwen3-VL-8B-Instruct        model_type: qwen3_vl
+    #     text_config: 36 layers, hidden=4096, intermediate=12288, 262K ctx
+    #   Qwen3-VL-30B-A3B-Instruct   model_type: qwen3_vl_moe
+    #     text_config: 48 layers, 128 experts (8 active), moe_inter=768, 262K ctx
     _vl_recipe(
         name="qwen3-vl-8b-instruct-compacted",
         base_model="Qwen/Qwen3-VL-8B-Instruct",
         architecture="qwen3_vl",
         is_moe=False,
+        source_geometry={
+            "totalParamsB": 8.0,
+            "numLayers": 36,
+            "hiddenSize": 4096,
+            "intermediateSize": 12288,
+            "contextLength": 262144,
+            "license": "apache-2.0",
+        },
         acceptance=_vl_acceptance(max_vram_gb=10.0),
         description=(
-            "Qwen3-VL-8B forged with vision-tower bit-exact preservation via "
+            "Qwen3-VL-8B (dense, 36 layers, 4096 hidden, 262K context) "
+            "forged with vision-tower bit-exact preservation via "
             "QwenVLAdapter. The vision encoder is whitelisted; only the LLM "
             "side is touched. Vision benchmarks: MMMU, ChartQA, DocVQA, AI2D."
         ),
     ),
     _vl_recipe(
-        name="qwen3-vl-30b-a3b-instruct-compacted",
+        name="qwen3-vl-30b-a3b-instruct-compacted-19b-262k",
         base_model="Qwen/Qwen3-VL-30B-A3B-Instruct",
-        architecture="qwen3_vl",
+        architecture="qwen3_vl_moe",
         is_moe=True,
         keep_experts=80,
         original_experts=128,
+        source_geometry={
+            "totalParamsB": 30.5,
+            "activeParamsB": 3.3,
+            "numLayers": 48,
+            "numExpertsPerLayer": 128,
+            "numActivatedExperts": 8,
+            "hiddenSize": 2048,
+            "moeIntermediateSize": 768,
+            "contextLength": 262144,
+            "license": "apache-2.0",
+        },
         acceptance=_vl_acceptance(max_vram_gb=14.0),
         description=(
-            "Qwen3-VL-30B-A3B is the most architecturally interesting target "
-            "in the catalog: vision tower + MoE LLM. Routes through "
-            "QwenVLAdapter (vision_safety) AND the MoE expert pruner in one "
-            "pipeline. Vision tower preserved bit-exact, LLM experts pruned "
-            "via calibration-aware activation count."
+            "Qwen3-VL-30B-A3B (text_config: 48 layers × 128 experts × 8 "
+            "active, 262K context) — the most architecturally interesting "
+            "target in the catalog: vision tower + Qwen3MoE LLM in one "
+            "model. Routes through QwenVLAdapter (vision_safety) AND the "
+            "MoE expert pruner via the same QWEN3_MOE_LAYOUT the morning's "
+            "qwen3-coder-30b flagship was forged through. Vision tower "
+            "preserved bit-exact, 128→80 LLM experts via calibration-aware "
+            "activation count. Same prune ratio as the morning's flagship "
+            "to preserve the §4.1.3.4 anchor delta."
+        ),
+    ),
+    # ── Qwen3-30B-A3B (general, NOT coder) — sibling of the morning's flagship ──
+    _moe_recipe(
+        name="qwen3-30b-a3b-compacted-19b-262k",
+        base_model="Qwen/Qwen3-30B-A3B",
+        architecture="qwen3_moe",
+        layout="mlp-experts-unfused",
+        keep_experts=80,
+        original_experts=128,
+        source_geometry={
+            "totalParamsB": 30.5,
+            "activeParamsB": 3.3,
+            "numLayers": 48,
+            "numExpertsPerLayer": 128,
+            "numActivatedExperts": 8,
+            "hiddenSize": 2048,
+            "moeIntermediateSize": 768,
+            "contextLength": 262144,
+            "license": "apache-2.0",
+        },
+        benchmarks=OPENLLM_V2_BENCHMARKS,
+        acceptance=_general_acceptance(max_vram_gb=12.0),
+        description=(
+            "Qwen3-30B-A3B (general) compacted from 30.5B/3.3B-active to "
+            "~19B/3.3B-active by pruning 128→80 experts per layer via "
+            "calibration-aware activation count. Same recipe as the morning's "
+            "qwen3-coder-30b flagship but pointed at the GENERAL Open LLM "
+            "Leaderboard v2 pack instead of the code pack. Sibling forge: "
+            "tests whether the §4.1.3.4 methodology generalizes from "
+            "code-domain calibration to general-purpose calibration."
+        ),
+    ),
+    # ── Qwen2.5-VL-7B-Instruct — small VL forge for the 12GB tier ──
+    _vl_recipe(
+        name="qwen2-5-vl-7b-instruct-compacted",
+        base_model="Qwen/Qwen2.5-VL-7B-Instruct",
+        architecture="qwen2_5_vl",
+        is_moe=False,
+        source_geometry={
+            "totalParamsB": 8.3,
+            "numLayers": 28,
+            "hiddenSize": 3584,
+            "intermediateSize": 18944,
+            "contextLength": 32768,
+            "license": "apache-2.0",
+        },
+        acceptance=_vl_acceptance(max_vram_gb=8.0),
+        description=(
+            "Qwen2.5-VL-7B (28 layers, 3584 hidden) — small VL forge for "
+            "the 12GB consumer GPU tier. Vision tower preserved bit-exact "
+            "via QwenVLAdapter; LLM side compacted via dense head pruning."
+        ),
+    ),
+    # ── Qwen2.5-VL-32B-Instruct — bigger VL forge for the 24GB tier ──
+    _vl_recipe(
+        name="qwen2-5-vl-32b-instruct-compacted",
+        base_model="Qwen/Qwen2.5-VL-32B-Instruct",
+        architecture="qwen2_5_vl",
+        is_moe=False,
+        source_geometry={
+            "totalParamsB": 33.5,
+            "numLayers": 64,
+            "hiddenSize": 5120,
+            "intermediateSize": 27648,
+            "contextLength": 32768,
+            "license": "apache-2.0",
+        },
+        acceptance=_vl_acceptance(max_vram_gb=20.0),
+        description=(
+            "Qwen2.5-VL-32B (64 layers, 5120 hidden) — bigger VL forge "
+            "for the 24GB single-5090 tier. Vision tower preserved "
+            "bit-exact, dense head pruning on the LLM. Empty quadrant: no "
+            "32B-class VL model on HF fits 24GB at Q4 today."
         ),
     ),
     # ── Omni: Qwen2.5-Omni — 4-tower whitelist ──
@@ -396,6 +581,13 @@ CATALOG: list[dict] = [
         base_model="Qwen/Qwen2.5-Omni-7B",
         architecture="qwen2_5_omni",
         is_moe=False,
+        source_geometry={
+            "totalParamsB": 7.0,
+            "numTalkerLayers": 24,
+            "talkerHiddenSize": 896,
+            "modalities": ["text", "vision", "audio", "speech"],
+            "license": "apache-2.0",
+        },
         acceptance=_vl_acceptance(max_vram_gb=10.0),
         description=(
             "Qwen2.5-Omni-7B forged with all 4 encoder/decoder towers "

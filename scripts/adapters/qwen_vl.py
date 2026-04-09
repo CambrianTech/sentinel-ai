@@ -55,10 +55,23 @@ if TYPE_CHECKING:
 
 @register_family_adapter
 class QwenVLAdapter(QwenDenseBase):
-    """Family adapter for Qwen2.5-VL / Qwen3.5-VL — dense text decoder with
-    vision tower preservation enforced via scripts/vision_safety.py."""
+    """Family adapter for Qwen2.5-VL / Qwen3-VL / Qwen3.5-VL — dense or MoE
+    text decoder with vision tower preservation enforced via
+    scripts/vision_safety.py.
 
-    architectures = ("qwen2_5_vl", "qwen3_5_vl")
+    The architectures tuple covers four discriminator strings:
+        qwen2_5_vl       — Qwen2.5-VL family (3B, 7B, 32B, 72B)
+        qwen3_vl         — Qwen3-VL dense family (2B / 4B / 8B Instruct)
+        qwen3_vl_moe     — Qwen3-VL MoE family (30B-A3B Instruct/Thinking)
+        qwen3_5_vl       — Qwen3.5-VL future family (anticipatory)
+
+    All four use the same vision-tower + text-decoder split. The MoE
+    variant additionally routes through the MoE expert pruner because
+    its text_config carries the standard Qwen3MoE expert layout
+    (mlp.experts.{e}.{gate,up,down}_proj.weight via QWEN3_MOE_LAYOUT).
+    """
+
+    architectures = ("qwen2_5_vl", "qwen3_5_vl", "qwen3_vl", "qwen3_vl_moe")
 
     # ── prune ────────────────────────────────────────────────────────────────
 
