@@ -161,6 +161,49 @@ DEEPSEEK_V2_LAYOUT = LayoutSpec(
 )
 
 
+# ── Fused-tensor layout spec (GraniteMoE family) ────────────────────────────
+#
+# Structurally distinct from the unfused families (Mixtral, Qwen3MoE, OLMoE,
+# DeepSeek-V2). All experts in a layer share THREE big tensors along an
+# expert axis instead of one tensor per expert per projection. To prune k
+# of n experts you SLICE these tensors along axis=0, not delete-and-rename
+# named param entries. Different pattern → different LayoutSpec class.
+
+
+@dataclass(frozen=True)
+class FusedLayoutSpec:
+    """Layout spec for MoE families where experts share fused tensors.
+
+    Fields:
+        family_name: 'granitemoe' (and any future fused-layout family)
+        match_pattern: regex matching ANY of this layer's MoE tensors
+                       (with the layer index as group 1 and tensor kind
+                       as group 2 — input_linear, output_linear, router)
+        fused_tensor_names: tensor kind names that have a per-expert axis
+                            and need slicing on prune (e.g. 'input_linear',
+                            'output_linear')
+        gate_tensor_names: tensor kind names that hold the router gate
+                           (used by Pass 1 to read importance)
+    """
+    family_name: str
+    match_pattern: str
+    fused_tensor_names: tuple[str, ...]
+    gate_tensor_names: tuple[str, ...]
+
+    def match_re(self) -> "re.Pattern":
+        return re.compile(self.match_pattern)
+
+
+GRANITE_MOE_LAYOUT = FusedLayoutSpec(
+    family_name="granitemoe",
+    # Captures: (layer_idx, tensor_kind) where kind is one of
+    # input_linear / output_linear / router
+    match_pattern=r"^model\.layers\.(\d+)\.block_sparse_moe\.(input_linear|output_linear|router)(?:\.layer)?\.weight$",
+    fused_tensor_names=("input_linear", "output_linear"),
+    gate_tensor_names=("router",),
+)
+
+
 # Backward-compat module-level regexes — anything that imported these
 # directly (older internal callers) keeps working. NEW code should use
 # QWEN3_MOE_LAYOUT.gate_re() / .expert_re() instead.
@@ -640,6 +683,207 @@ def prune_experts(
     _log(f"output: {out_dir}")
     _log(f"sidecar: {out_dir}/expert_prune.metadata.v1.json")
 
+    return metadata
+
+
+def prune_experts_fused(
+    model_dir: str | Path,
+    out_dir: str | Path,
+    keep_experts: int,
+    *,
+    layout: FusedLayoutSpec = GRANITE_MOE_LAYOUT,
+    importance_json: str | Path | None = None,
+    shard_bytes: int = 5 * 1024 ** 3,
+) -> dict:
+    """Streaming CPU-side per-layer top-K MoE expert removal — FUSED layout.
+
+    For families like GraniteMoE where all experts in a layer share three
+    fused tensors along an expert axis (axis=0). Pruning slices each fused
+    tensor instead of dropping/renaming named entries.
+
+    Pass 1: read router gates per layer, compute per-expert importance
+    Pass 2: streaming rewrite — for each tensor, slice along axis=0 if it
+            matches a fused/gate tensor name, passthrough otherwise
+
+    The same algorithm as the unfused prune_experts, just with a different
+    per-tensor handling step. Importance JSON, sidecar metadata format,
+    and config update behavior are identical.
+
+    Args:
+        model_dir: source model directory (HF format on disk)
+        out_dir: where to write the pruned shards + sidecar
+        keep_experts: number of experts to keep per layer (≥ active per tok)
+        layout: FusedLayoutSpec for the family (default GRANITE_MOE_LAYOUT)
+        importance_json: optional pre-computed per-layer importance (calibration-aware)
+        shard_bytes: max output shard size (default 5GB, same as unfused)
+
+    Returns:
+        Metadata dict identical in shape to prune_experts() so downstream
+        consumers (publish, sidecar readers) handle both flavors uniformly.
+    """
+    import torch
+    from safetensors import safe_open
+    from safetensors.torch import save_file
+
+    src_dir = Path(model_dir)
+    out_dir = Path(out_dir)
+    if not src_dir.exists():
+        raise ValueError(f"source model dir {src_dir} does not exist")
+
+    cfg_path = src_dir / "config.json"
+    cfg = json.loads(cfg_path.read_text())
+    tc = cfg.get("text_config", cfg)
+    num_experts = tc.get("num_local_experts") or tc.get("num_experts")
+    num_experts_per_tok = tc.get("num_experts_per_tok") or tc.get("num_active_experts")
+    if num_experts is None:
+        raise ValueError("source config has no num_local_experts; not a recognized fused MoE")
+    if keep_experts > num_experts:
+        raise ValueError(f"keep_experts={keep_experts} > num_experts={num_experts}")
+    if num_experts_per_tok is not None and keep_experts < num_experts_per_tok:
+        raise ValueError(
+            f"keep_experts={keep_experts} < num_experts_per_tok={num_experts_per_tok}"
+        )
+
+    out_dir.mkdir(parents=True, exist_ok=True)
+    src_shards = _shards(src_dir)
+    metadata: dict = {
+        "started_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "source": {
+            "model_dir": str(src_dir),
+            "num_experts": num_experts,
+            "num_experts_per_tok": num_experts_per_tok,
+            "num_hidden_layers": tc.get("num_hidden_layers"),
+            "shards": [{"name": s.name, "bytes": s.stat().st_size} for s in src_shards],
+        },
+        "selection": {
+            "layout_family": layout.family_name,
+            "keep_experts_per_layer": keep_experts,
+            "strategy": "calibration-aware-activation-count" if importance_json else "router-gate-l2",
+            "per_layer_kept_indices": {},
+        },
+        "tensors": {"sliced": 0, "kept_unchanged": 0},
+        "shards_out": [],
+    }
+
+    # Pass 1: read router gates per layer + compute per-expert importance
+    _log(f"Pass 1: read router gates (layout={layout.family_name})...")
+    match_re = layout.match_re()
+    router_per_layer: dict[int, "torch.Tensor"] = {}
+    for sp in src_shards:
+        with safe_open(str(sp), framework="pt", device="cpu") as f:
+            for k in f.keys():
+                m = match_re.match(k)
+                if not m:
+                    continue
+                kind = m.group(2)
+                if kind not in layout.gate_tensor_names:
+                    continue
+                layer_idx = int(m.group(1))
+                router_per_layer[layer_idx] = f.get_tensor(k)
+
+    # Importance: per-layer per-expert score
+    importance_data: dict | None = None
+    if importance_json is not None:
+        importance_data = json.loads(Path(importance_json).read_text())
+
+    selected: dict[int, list[int]] = {}
+    for layer_idx, gate in router_per_layer.items():
+        # gate shape: [num_experts, hidden]
+        if importance_data is not None:
+            layer_importance = importance_data["per_layer"].get(str(layer_idx))
+            if layer_importance is None:
+                # Fall back to L2 norm
+                scores = gate.float().norm(dim=1)
+            else:
+                # Per-layer activation count → keep highest
+                scores = torch.tensor(layer_importance, dtype=torch.float32)
+        else:
+            scores = gate.float().norm(dim=1)
+        topk = torch.topk(scores, keep_experts).indices.sort().values.tolist()
+        selected[layer_idx] = topk
+        metadata["selection"]["per_layer_kept_indices"][str(layer_idx)] = topk
+
+    # Pass 2: streaming rewrite. For each tensor, if it matches a fused
+    # name, slice along axis=0; otherwise passthrough unchanged.
+    _log(f"Pass 2: streaming rewrite (layout={layout.family_name})...")
+    out_shard_bytes = 0
+    out_shard_idx = 1
+    out_paths_in_order: list[Path] = []
+    new_weight_map: dict[str, str] = {}
+    current_shard_buffer: dict[str, "torch.Tensor"] = {}
+
+    def flush_shard():
+        nonlocal out_shard_bytes, out_shard_idx, current_shard_buffer
+        if not current_shard_buffer:
+            return
+        out_path = out_dir / f"model-{out_shard_idx:05d}-of-XXXXX.safetensors"
+        save_file(current_shard_buffer, str(out_path))
+        size = out_path.stat().st_size
+        metadata["shards_out"].append({"name": out_path.name, "bytes": size})
+        out_paths_in_order.append(out_path)
+        for k in current_shard_buffer:
+            new_weight_map[k] = out_path.name
+        current_shard_buffer = {}
+        out_shard_bytes = 0
+        out_shard_idx += 1
+
+    def add_to_shard(name: str, tensor: "torch.Tensor"):
+        nonlocal out_shard_bytes
+        size = tensor.element_size() * tensor.numel()
+        if out_shard_bytes + size > shard_bytes and current_shard_buffer:
+            flush_shard()
+        current_shard_buffer[name] = tensor
+        out_shard_bytes += size
+
+    t0 = time.time()
+    for sp in src_shards:
+        with safe_open(str(sp), framework="pt", device="cpu") as f:
+            for k in f.keys():
+                m = match_re.match(k)
+                if m:
+                    layer_idx = int(m.group(1))
+                    kind = m.group(2)
+                    if layer_idx not in selected:
+                        add_to_shard(k, f.get_tensor(k))
+                        metadata["tensors"]["kept_unchanged"] += 1
+                        continue
+                    keep_idx = torch.tensor(selected[layer_idx])
+                    full = f.get_tensor(k)
+                    sliced = full.index_select(0, keep_idx).contiguous()
+                    add_to_shard(k, sliced)
+                    metadata["tensors"]["sliced"] += 1
+                    continue
+                # Passthrough — embeddings, norms, attention, lm_head, etc.
+                add_to_shard(k, f.get_tensor(k))
+                metadata["tensors"]["kept_unchanged"] += 1
+    flush_shard()
+
+    metadata["finished_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    metadata["total_seconds"] = round(time.time() - t0, 2)
+    metadata["total_bytes_out"] = sum(s["bytes"] for s in metadata["shards_out"])
+
+    # Final shard naming with the canonical of-N suffix
+    n = len(out_paths_in_order)
+    final_weight_map: dict[str, str] = {}
+    for i, op in enumerate(out_paths_in_order):
+        new_name = f"model-{i+1:05d}-of-{n:05d}.safetensors"
+        new_path = op.with_name(new_name)
+        op.rename(new_path)
+        for kk, old_name in new_weight_map.items():
+            if old_name == op.name:
+                final_weight_map[kk] = new_name
+
+    (out_dir / "model.safetensors.index.json").write_text(json.dumps({
+        "metadata": {"total_size": metadata["total_bytes_out"]},
+        "weight_map": final_weight_map,
+    }, indent=2))
+
+    sidecar_path = out_dir / "expert_prune.metadata.v1.json"
+    sidecar_path.write_text(json.dumps(metadata, indent=2))
+
+    update_config(out_dir, src_dir, keep_experts)
+    _log(f"Done. tensors: sliced={metadata['tensors']['sliced']} "
+         f"passthrough={metadata['tensors']['kept_unchanged']}")
     return metadata
 
 

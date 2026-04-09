@@ -575,6 +575,45 @@ CATALOG: list[dict] = [
             "32B-class VL model on HF fits 24GB at Q4 today."
         ),
     ),
+    # ── GraniteMoE — fused-tensor pruning (structurally distinct) ──
+    # Verified from HF config.json:
+    #   ibm-granite/granite-3.0-3b-a800m-instruct
+    #   model_type: granitemoe, 32L × 40 experts × 8 active per token
+    #   hidden 1536, intermediate 512, ctx 4096
+    # The fused-tensor layout means all experts share input_linear /
+    # output_linear / router tensors along an expert axis. Pruning
+    # SLICES along axis=0 instead of dropping/renaming named entries.
+    _moe_recipe(
+        name="granite-3-0-3b-a800m-compacted",
+        base_model="ibm-granite/granite-3.0-3b-a800m-instruct",
+        architecture="granitemoe",
+        layout="granite-moe-fused",
+        keep_experts=20,
+        original_experts=40,
+        source_geometry={
+            "totalParamsB": 3.4,
+            "activeParamsB": 0.8,
+            "numLayers": 32,
+            "numExpertsPerLayer": 40,
+            "numActivatedExperts": 8,
+            "hiddenSize": 1536,
+            "intermediateSize": 512,
+            "contextLength": 4096,
+            "license": "apache-2.0",
+        },
+        benchmarks=OPENLLM_V2_BENCHMARKS,
+        acceptance=_general_acceptance(max_vram_gb=4.0),
+        description=(
+            "IBM Granite-3.0-3B-A800M compacted from 3.4B/0.8B-active to "
+            "~1.7B/0.8B-active by pruning 40→20 experts per layer via "
+            "calibration-aware activation count. THE ONLY entry in the "
+            "catalog that uses the fused-tensor layout (granite-moe-fused) "
+            "— Granite stores all experts in one big tensor per layer along "
+            "an expert axis, so pruning SLICES the tensor instead of "
+            "dropping/renaming named entries. First proof point for the "
+            "structurally-distinct pruner path."
+        ),
+    ),
     # ── Omni: Qwen2.5-Omni — 4-tower whitelist ──
     _vl_recipe(
         name="qwen2-5-omni-7b-compacted",

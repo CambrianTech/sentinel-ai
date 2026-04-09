@@ -302,21 +302,157 @@ class GraniteMoEAdapter(FamilyAdapter):
     """IBM Granite-MoE — granite-moe-fused layout. All experts share one
     big input_linear + output_linear tensor; per-expert slicing happens
     at runtime against the router. Pruning means slicing the fused
-    tensors along the expert axis, not dropping named param entries."""
+    tensors along the expert axis (axis=0), not dropping named param
+    entries.
+
+    Tensor layout (verified against ibm-granite/granite-3.0-3b-a800m-instruct):
+
+        model.layers.{L}.block_sparse_moe.input_linear.weight
+            [num_experts, 2 * intermediate, hidden]  ← fused gate+up
+        model.layers.{L}.block_sparse_moe.output_linear.weight
+            [num_experts, hidden, intermediate]      ← down
+        model.layers.{L}.block_sparse_moe.router.layer.weight
+            [num_experts, hidden]                    ← router gate
+
+    Algorithm: same Pass 1 (importance) + Pass 2 (rewrite) shape as the
+    unfused families, but Pass 2 SLICES along axis=0 instead of
+    deleting/renaming named entries. Implementation:
+    cpu_expert_prune_v2.prune_experts_fused(layout=GRANITE_MOE_LAYOUT).
+    """
 
     architectures = ("granitemoe",)
 
     def expert_activation_profile(self, ctx: "ForgeContext", **params) -> "ForgeContext":
+        """§4.1.3.4 calibration-aware MoE expert importance for GraniteMoE.
+
+        Walks the family-specific router gate path
+        'block_sparse_moe.router.layer' (NOT 'mlp.gate') via the
+        gate_attr_path parameter the profiler now accepts.
+        """
+        corpus_file = params.get("calibrationCorpusFile") or params.get("calibrationCorpus")
+        max_length = int(params.get("maxLength", 2048))
+        self.log(f"expert-activation-profile §4.1.3.4 (GraniteMoE) — corpus={corpus_file}")
+
         if ctx.model is None:
-            self.log("GraniteMoE expert-activation-profile (dispatch-only)")
+            self.log("  No model loaded — GraniteMoE profile deferred (dispatch-only path)")
             return ctx
-        _stub_expert_prune_raise(self.name, "granitemoe", "granite-moe-fused", params)
+
+        if not corpus_file:
+            raise ValueError(
+                f"{self.name}.expert_activation_profile: alloy stage missing 'calibrationCorpusFile'."
+            )
+
+        import sys
+        from pathlib import Path
+        sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+        from expert_activation_profile import profile_experts
+
+        corpus_path = Path(corpus_file)
+        if not corpus_path.is_absolute():
+            corpus_path = (ctx.output_dir / corpus_path).resolve()
+        if not corpus_path.exists():
+            raise FileNotFoundError(f"GraniteMoE calibration corpus {corpus_path} does not exist.")
+
+        importance_path = (ctx.output_dir / "importance.activation_count.json").resolve()
+        device = getattr(ctx, "device", None) or "cuda:0"
+
+        result = profile_experts(
+            model=ctx.model,
+            tokenizer=ctx.tokenizer,
+            calibration_data=corpus_path,
+            output=importance_path,
+            max_length=max_length,
+            device=device,
+            model_label=ctx.model_name or type(ctx.model).__name__,
+            gate_attr_path="block_sparse_moe.router.layer",
+        )
+        ctx.importance_json_path = str(importance_path)
+        self.log(
+            f"  GraniteMoE importance written: {importance_path} "
+            f"({result['num_hidden_layers']} layers × {result['num_experts']} experts)"
+        )
+        return ctx
 
     def expert_prune(self, ctx: "ForgeContext", **params) -> "ForgeContext":
+        """Per-layer top-K MoE expert removal for GraniteMoE via the
+        fused-tensor pruner. Real Tier 2 wiring — no stub. Calls
+        cpu_expert_prune_v2.prune_experts_fused(layout=GRANITE_MOE_LAYOUT)
+        which slices the input_linear / output_linear / router tensors
+        along the expert axis. The expertTensorLayout field on the alloy
+        stage MUST be 'granite-moe-fused' (the family discriminator).
+        """
+        keep = params.get("keepExpertsPerLayer") or params.get("keepExperts")
+        original = params.get("originalExpertsPerLayer")
+        strategy = params.get("strategy", "calibration-aware-activation-count")
+        prune_pct = params.get("prunePct")
+        layout_id = params.get("expertTensorLayout", "granite-moe-fused")
+        self.log(
+            f"GraniteMoE expert-prune {original or '?'}→{keep} per layer "
+            f"({prune_pct or '?'}% removed) via {strategy} layout={layout_id}"
+        )
+
         if ctx.model is None:
-            self.log(f"GraniteMoE expert-prune (dispatch-only, layout=granite-moe-fused)")
+            self.log("  No model loaded — GraniteMoE expert-prune deferred (dispatch-only path)")
             return ctx
-        _stub_expert_prune_raise(self.name, "granitemoe", "granite-moe-fused", params)
+
+        if keep is None:
+            raise ValueError(
+                f"{self.name}.expert_prune: alloy stage missing 'keepExpertsPerLayer'."
+            )
+        if layout_id != "granite-moe-fused":
+            raise ValueError(
+                f"{self.name}.expert_prune: expertTensorLayout={layout_id!r} is not "
+                f"the granite-moe-fused layout this adapter handles. The fused-tensor "
+                f"layout is structurally distinct from the unfused families and cannot "
+                f"be pruned via a non-Granite layout spec."
+            )
+
+        import sys
+        from pathlib import Path
+        sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+        from cpu_expert_prune_v2 import prune_experts_fused, GRANITE_MOE_LAYOUT
+
+        src_model_dir = getattr(ctx, "source_model_dir", None)
+        if src_model_dir is None:
+            raise ValueError(f"{self.name}.expert_prune: ctx.source_model_dir is not set.")
+        if not Path(src_model_dir).exists():
+            raise ValueError(
+                f"{self.name}.expert_prune: ctx.source_model_dir={src_model_dir!r} does not exist."
+            )
+
+        pruned_out = (ctx.output_dir / "pruned").resolve()
+        importance_path = getattr(ctx, "importance_json_path", None)
+        if not importance_path and strategy == "calibration-aware-activation-count":
+            raise ValueError(
+                f"{self.name}.expert_prune: alloy strategy is "
+                f"'calibration-aware-activation-count' but ctx.importance_json_path is not set. "
+                f"Run the expert-activation-profile stage first."
+            )
+
+        metadata = prune_experts_fused(
+            model_dir=src_model_dir,
+            out_dir=pruned_out,
+            keep_experts=int(keep),
+            importance_json=importance_path,
+            layout=GRANITE_MOE_LAYOUT,
+        )
+
+        import torch
+        from transformers import AutoModelForCausalLM, AutoTokenizer
+        self.log(f"  reloading pruned GraniteMoE from {pruned_out}")
+        del ctx.model
+        torch.cuda.empty_cache()
+        ctx.model = AutoModelForCausalLM.from_pretrained(
+            str(pruned_out), torch_dtype="auto", device_map="auto", trust_remote_code=True,
+        )
+        ctx.tokenizer = AutoTokenizer.from_pretrained(str(pruned_out), trust_remote_code=True)
+        ctx.dead_heads = None
+        ctx.pruned_model_dir = str(pruned_out)
+        self.log(
+            f"  GraniteMoE prune complete: "
+            f"{metadata.get('total_bytes_out', 0) / 1e9:.1f} GB surviving structure"
+        )
+        return ctx
 
 
 # ── DeepSeek-V2 (deepseek-routed-shared) ────────────────────────────────────

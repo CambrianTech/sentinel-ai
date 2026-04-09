@@ -123,6 +123,17 @@ def _moe_geometry(model) -> tuple[int, int, int]:
     return num_layers, num_experts, num_experts_per_tok
 
 
+def _resolve_attr_path(obj, path: str):
+    """Walk a dotted attribute path on a torch module. Returns None if
+    any segment is missing — caller decides whether that's fatal."""
+    cur = obj
+    for seg in path.split("."):
+        cur = getattr(cur, seg, None)
+        if cur is None:
+            return None
+    return cur
+
+
 def _profile_inner(
     *,
     model,
@@ -133,6 +144,7 @@ def _profile_inner(
     model_label: str,
     corpus_label: str,
     output: Path,
+    gate_attr_path: str = "mlp.gate",
 ) -> dict:
     """The actual profiling work. Caller provides loaded model + tokenizer
     + already-read calibration examples. Both entry points wrap this."""
@@ -158,29 +170,38 @@ def _profile_inner(
             )
         return hook
 
-    # Register hooks on each MoE layer's router gate
+    # Register hooks on each MoE layer's router gate. The gate_attr_path
+    # is family-specific:
+    #   'mlp.gate'                            unfused (Qwen3MoE, OLMoE, DeepSeek-V2)
+    #   'block_sparse_moe.gate'               Mixtral / Phi-MoE
+    #   'block_sparse_moe.router.layer'       GraniteMoE (fused)
+    # The family adapter passes the right path; default is the unfused
+    # layout for backwards compat with the morning's qwen3-coder forge.
     registered = 0
     for li in range(num_layers):
-        try:
-            gate = model.model.layers[li].mlp.gate
-            h = gate.register_forward_hook(make_hook(li))
-            hooks.append(h)
-            registered += 1
-        except AttributeError:
-            _log(f"  WARN: layer {li} has no mlp.gate")
-    _log(f"  hooks registered on {registered}/{num_layers} layers")
+        layer = model.model.layers[li]
+        gate = _resolve_attr_path(layer, gate_attr_path)
+        if gate is None:
+            _log(f"  WARN: layer {li} has no {gate_attr_path}")
+            continue
+        h = gate.register_forward_hook(make_hook(li))
+        hooks.append(h)
+        registered += 1
+    _log(f"  hooks registered on {registered}/{num_layers} layers (path={gate_attr_path})")
     if registered == 0:
         # Loud failure — no silent substitute path. The MoE layout doesn't
         # match what this script knows how to hook; the right answer is to
-        # add the layout's tensor walk, not to silently produce empty counts.
+        # pass the right gate_attr_path from the family adapter, not to
+        # silently produce empty counts.
         for h in hooks:
             h.remove()
         raise RuntimeError(
-            f"no router gates found on {type(model).__name__}. The expected "
-            f"path is model.layers.{{i}}.mlp.gate which is the unfused MoE "
-            f"layout used by Qwen3MoE / OLMoE. Other layouts (Mixtral "
-            f"block_sparse_moe, GraniteMoE fused, DeepSeek-V2 routed+shared) "
-            f"need a layout-specific hook registration site."
+            f"no router gates found on {type(model).__name__} at path "
+            f"{gate_attr_path!r}. Family-specific gate paths:\n"
+            f"  unfused (Qwen3MoE/OLMoE/DeepSeek-V2): 'mlp.gate'\n"
+            f"  Mixtral / Phi-MoE                     : 'block_sparse_moe.gate'\n"
+            f"  GraniteMoE fused                      : 'block_sparse_moe.router.layer'\n"
+            f"Pass gate_attr_path=... from the family adapter."
         )
 
     _log(f"running {len(examples)} calibration examples through base model")
@@ -251,6 +272,7 @@ def profile_experts(
     max_length: int = 2048,
     device: str = "cuda:0",
     model_label: str | None = None,
+    gate_attr_path: str = "mlp.gate",
 ) -> dict:
     """Profile expert activation counts on an ALREADY-LOADED model.
 
@@ -293,6 +315,7 @@ def profile_experts(
         model_label=model_label or type(model).__name__,
         corpus_label=str(calibration_data),
         output=output,
+        gate_attr_path=gate_attr_path,
     )
 
 
