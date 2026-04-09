@@ -193,6 +193,79 @@ def _moe_recipe(
     return alloy
 
 
+def _dense_recipe(
+    *,
+    name: str,
+    base_model: str,
+    architecture: str,
+    description: str,
+    prune_level: float = 0.30,
+    benchmarks: list[str] | None = None,
+    acceptance: dict | None = None,
+    source_geometry: dict | None = None,
+) -> dict:
+    """Build a minimal DENSE forge recipe alloy.
+
+    Dense forges go through PruneExecutor → family_adapter.prune() (head
+    pruning + training-aware structural compaction), not the MoE expert
+    prune path. Stages: prune → train (LoRA recovery) → quant → eval →
+    publish. The family adapter (Qwen2DenseAdapter, Qwen3DenseAdapter)
+    owns the actual prune algorithm; this recipe just declares intent.
+    """
+    if benchmarks is None:
+        benchmarks = OPENLLM_V2_BENCHMARKS
+    source = {
+        "baseModel": base_model,
+        "architecture": architecture,
+        "isMoE": False,
+    }
+    if source_geometry:
+        source.update(source_geometry)
+    alloy = {
+        "name": name,
+        "version": "0.1.0",
+        "description": description,
+        "author": "continuum-ai",
+        "license": "apache-2.0",
+        "source": source,
+        "stages": [
+            {
+                "type": "prune",
+                "level": prune_level,
+                "strategy": "combined",
+                "implementation": "scripts/forge_model.py",
+            },
+            {
+                "type": "train",
+                "method": "lora",
+                "lora_rank": 16,
+                "epochs": 1,
+                "implementation": "scripts/forge_model.py",
+            },
+            {
+                "type": "quant",
+                "format": "gguf",
+                "quantTypes": ["Q4_K_M", "Q5_K_M", "Q8_0"],
+                "tool": "llama.cpp llama-quantize",
+            },
+            {
+                "type": "eval",
+                "benchmarks": [{"name": b} for b in benchmarks],
+                "implementation": "scripts/eval_with_calibration.py",
+            },
+            {
+                "type": "publish",
+                "destination": "huggingface",
+                "org": "continuum-ai",
+                "repoName": name,
+            },
+        ],
+    }
+    if acceptance is not None:
+        alloy["acceptanceCriteria"] = acceptance
+    return alloy
+
+
 def _vl_recipe(
     *,
     name: str,
@@ -573,6 +646,77 @@ CATALOG: list[dict] = [
             "for the 24GB single-5090 tier. Vision tower preserved "
             "bit-exact, dense head pruning on the LLM. Empty quadrant: no "
             "32B-class VL model on HF fits 24GB at Q4 today."
+        ),
+    ),
+    # ── Dense Qwen2.5 forges — variety beyond the MoE empty quadrant ──
+    # Verified from HF config.json:
+    #   Qwen/Qwen2.5-7B-Instruct           model_type: qwen2, 28L × 3584
+    #   Qwen/Qwen2.5-14B-Instruct          model_type: qwen2, 48L × 5120
+    #   Qwen/Qwen2.5-Coder-32B-Instruct    model_type: qwen2, 64L × 5120
+    # Dispatch through Qwen2DenseAdapter via PruneExecutor → prune().
+    _dense_recipe(
+        name="qwen2-5-7b-instruct-compacted",
+        base_model="Qwen/Qwen2.5-7B-Instruct",
+        architecture="qwen2",
+        prune_level=0.25,
+        source_geometry={
+            "totalParamsB": 7.6,
+            "numLayers": 28,
+            "hiddenSize": 3584,
+            "intermediateSize": 18944,
+            "contextLength": 32768,
+            "license": "apache-2.0",
+        },
+        acceptance=_general_acceptance(max_vram_gb=8.0),
+        description=(
+            "Qwen2.5-7B-Instruct compacted via dense head pruning (25% "
+            "removed) + LoRA recovery. Routes through Qwen2DenseAdapter. "
+            "The dense companion to the MoE catalog — proves the same "
+            "factory loop handles both architectures end to end."
+        ),
+    ),
+    _dense_recipe(
+        name="qwen2-5-14b-instruct-compacted",
+        base_model="Qwen/Qwen2.5-14B-Instruct",
+        architecture="qwen2",
+        prune_level=0.30,
+        source_geometry={
+            "totalParamsB": 14.7,
+            "numLayers": 48,
+            "hiddenSize": 5120,
+            "intermediateSize": 13824,
+            "contextLength": 32768,
+            "license": "apache-2.0",
+        },
+        acceptance=_general_acceptance(max_vram_gb=12.0),
+        description=(
+            "Qwen2.5-14B-Instruct compacted via dense head pruning (30% "
+            "removed) + LoRA recovery. Lands in the 12GB VRAM tier "
+            "(above 7B Q4, below the 32B class) — a small empty "
+            "quadrant on HF for the dense Qwen2.5 family."
+        ),
+    ),
+    _dense_recipe(
+        name="qwen2-5-coder-32b-instruct-compacted",
+        base_model="Qwen/Qwen2.5-Coder-32B-Instruct",
+        architecture="qwen2",
+        prune_level=0.30,
+        benchmarks=CODE_BENCHMARKS + OPENLLM_V2_BENCHMARKS,
+        source_geometry={
+            "totalParamsB": 32.5,
+            "numLayers": 64,
+            "hiddenSize": 5120,
+            "intermediateSize": 27648,
+            "contextLength": 131072,
+            "license": "apache-2.0",
+        },
+        acceptance=_coder_acceptance(max_vram_gb=20.0, anchor_delta_pp=-3.0),
+        description=(
+            "Qwen2.5-Coder-32B-Instruct compacted via dense head pruning "
+            "(30% removed) + LoRA recovery on a code corpus. The dense "
+            "coder counterpart to the MoE qwen3-coder-30b-a3b flagship; "
+            "tests whether the §4.1.3.4 calibration-aware methodology "
+            "generalizes from MoE expert ranking to dense head ranking."
         ),
     ),
     # ── GraniteMoE — fused-tensor pruning (structurally distinct) ──
