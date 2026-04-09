@@ -101,35 +101,10 @@ class MBPPPlusRunner(BenchmarkRunner):
 # ── General-purpose benchmarks (frontier general targets) ───────────────────
 
 
-class MMLUProRunner(BenchmarkRunner):
-    """MMLU-Pro — the harder MMLU successor (TIGER-Lab, 2024). 12K
-    multi-domain questions with 10 answer choices each (vs MMLU's 4),
-    explicitly designed to break the original MMLU's saturation. Frontier
-    general-purpose targets (Qwen3-235B-A22B, Qwen3-Coder-480B's general
-    fallback) report against this. Runs via lm-eval-harness."""
-    name = "mmlu_pro"
-    def score(self, samples_path):
-        return _stub_score_raise(self.name, "MMLU-Pro protocol (TIGER-Lab) via lm-eval-harness", samples_path)
-
-
-class GPQADiamondRunner(BenchmarkRunner):
-    """GPQA Diamond — Graduate-level Physics Questions and Answers, the
-    expert-validated subset (198 questions). Tests deep domain reasoning
-    in physics, chemistry, biology. Frontier reasoning targets report
-    here. Protocol: https://arxiv.org/abs/2311.12022"""
-    name = "gpqa_diamond"
-    def score(self, samples_path):
-        return _stub_score_raise(self.name, "GPQA Diamond protocol", samples_path)
-
-
-class IFEvalRunner(BenchmarkRunner):
-    """IFEval — instruction-following evaluation. Verifiable
-    constraint-checking on prompt instructions (e.g. "respond in
-    exactly 3 paragraphs", "include the word 'banana'"). Frontier
-    general-purpose targets report. Runs via lm-eval-harness."""
-    name = "ifeval"
-    def score(self, samples_path):
-        return _stub_score_raise(self.name, "IFEval protocol via lm-eval-harness", samples_path)
+# MMLUProRunner, GPQADiamondRunner, IFEvalRunner moved out to their own
+# files (mmlu_pro.py, gpqa.py, ifeval.py) with real lm-eval-harness bodies
+# via LmEvalHarnessRunner. Open LLM Leaderboard v2 runner pack — see also
+# bbh.py, math_hard.py, musr.py for the other three v2 benchmarks.
 
 
 class GSM8KRunner(BenchmarkRunner):
@@ -230,9 +205,6 @@ REGISTRATIONS = [
     SWEBenchVerifiedRunner,
     AiderPolyglotRunner,
     MBPPPlusRunner,
-    MMLUProRunner,
-    GPQADiamondRunner,
-    IFEvalRunner,
     GSM8KRunner,
     AIME2024Runner,
     MMMURunner,

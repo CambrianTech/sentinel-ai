@@ -281,23 +281,17 @@ class MixtralAdapter(FamilyAdapter):
 
 
 @register_family_adapter
-class PhiMoEAdapter(FamilyAdapter):
+class PhiMoEAdapter(MixtralAdapter):
     """Phi-3.5-MoE — same block_sparse_moe-unfused layout as Mixtral but
-    with 16 experts/layer and a different router gate dimension."""
+    with 16 experts/layer and a different router gate dimension. Inherits
+    expert_activation_profile and expert_prune from MixtralAdapter unchanged:
+    the tensor name patterns are identical, the algorithm is identical, and
+    the pruner reads num_experts from config.json so the geometry difference
+    is invisible to the code path. When a third block_sparse_moe-unfused
+    family ships, rename MixtralAdapter to BlockSparseMoEUnfusedBase and
+    have all three siblings inherit from it."""
 
     architectures = ("phimoe",)
-
-    def expert_activation_profile(self, ctx: "ForgeContext", **params) -> "ForgeContext":
-        if ctx.model is None:
-            self.log("Phi-MoE expert-activation-profile (dispatch-only)")
-            return ctx
-        _stub_expert_prune_raise(self.name, "phimoe", "block_sparse_moe-unfused", params)
-
-    def expert_prune(self, ctx: "ForgeContext", **params) -> "ForgeContext":
-        if ctx.model is None:
-            self.log(f"Phi-MoE expert-prune (dispatch-only, layout=block_sparse_moe-unfused)")
-            return ctx
-        _stub_expert_prune_raise(self.name, "phimoe", "block_sparse_moe-unfused", params)
 
 
 # ── GraniteMoE (granite-moe-fused) ──────────────────────────────────────────
@@ -331,21 +325,146 @@ class GraniteMoEAdapter(FamilyAdapter):
 @register_family_adapter
 class DeepSeekV2Adapter(FamilyAdapter):
     """DeepSeek-V2 / DeepSeek-V2-Lite — deepseek-routed-shared layout.
-    Routed experts under .mlp.experts.{e}.* PLUS a shared expert pathway
-    .mlp.shared_experts.* that fires on every token regardless of routing.
-    Pruning the routed experts MUST preserve the shared expert bit-exact —
-    it carries the always-fires capability that the model relies on."""
+
+    Routed experts under .mlp.experts.{e}.* are pruned via the layout-aware
+    streaming rewriter (DEEPSEEK_V2_LAYOUT). The shared expert pathway
+    .mlp.shared_experts.* fires on every token regardless of routing and is
+    PRESERVED BIT-EXACT — it carries the always-fires capability that the
+    model relies on. The streaming rewriter's passthrough branch handles
+    this automatically because shared_experts tensor names do not match the
+    routed expert regex (no digit after `experts.`).
+
+    Layer 0 is dense in DeepSeek-V2 (no MoE) and also passthroughs bit-exact.
+    """
 
     architectures = ("deepseek_v2",)
 
     def expert_activation_profile(self, ctx: "ForgeContext", **params) -> "ForgeContext":
+        """§4.1.3.4 calibration-aware MoE expert importance profiling for DeepSeek-V2.
+
+        Walks `model.layers.{i}.mlp.gate` for layers where the MoE pathway
+        exists (i.e. i >= first_k_dense_replace). Identical algorithm to
+        every other unfused MoE family — only the module path differs and
+        the script's hook registration handles that via named_modules() walk.
+        """
+        corpus_file = params.get("calibrationCorpusFile") or params.get("calibrationCorpus")
+        max_length = int(params.get("maxLength", 2048))
+        self.log(f"expert-activation-profile §4.1.3.4 (DeepSeek-V2) — corpus={corpus_file}")
+
         if ctx.model is None:
-            self.log("DeepSeek-V2 expert-activation-profile (dispatch-only)")
+            self.log("  No model loaded — DeepSeek-V2 profile deferred (dispatch-only path)")
             return ctx
-        _stub_expert_prune_raise(self.name, "deepseek_v2", "deepseek-routed-shared", params)
+
+        if not corpus_file:
+            raise ValueError(
+                f"{self.name}.expert_activation_profile: alloy stage missing "
+                f"'calibrationCorpusFile'."
+            )
+
+        import sys
+        from pathlib import Path
+        sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+        from expert_activation_profile import profile_experts
+
+        corpus_path = Path(corpus_file)
+        if not corpus_path.is_absolute():
+            corpus_path = (ctx.output_dir / corpus_path).resolve()
+        if not corpus_path.exists():
+            raise FileNotFoundError(f"DeepSeek-V2 calibration corpus {corpus_path} does not exist.")
+
+        importance_path = (ctx.output_dir / "importance.activation_count.json").resolve()
+        device = getattr(ctx, "device", None) or "cuda:0"
+
+        result = profile_experts(
+            model=ctx.model,
+            tokenizer=ctx.tokenizer,
+            calibration_data=corpus_path,
+            output=importance_path,
+            max_length=max_length,
+            device=device,
+            model_label=ctx.model_name or type(ctx.model).__name__,
+        )
+        ctx.importance_json_path = str(importance_path)
+        self.log(
+            f"  DeepSeek-V2 importance written: {importance_path} "
+            f"({result['num_hidden_layers']} layers × {result['num_experts']} experts)"
+        )
+        return ctx
 
     def expert_prune(self, ctx: "ForgeContext", **params) -> "ForgeContext":
+        """Per-layer top-K routed-expert removal via DEEPSEEK_V2_LAYOUT.
+        Shared experts and the dense first layer passthrough bit-exact.
+        """
+        keep = params.get("keepExpertsPerLayer") or params.get("keepExperts")
+        original = params.get("originalExpertsPerLayer")
+        strategy = params.get("strategy", "calibration-aware-activation-count")
+        prune_pct = params.get("prunePct")
+        layout_id = params.get("expertTensorLayout", "deepseek-routed-shared")
+        self.log(
+            f"DeepSeek-V2 expert-prune {original or '?'}→{keep} routed per layer "
+            f"({prune_pct or '?'}% removed) via {strategy} layout={layout_id}"
+        )
+
         if ctx.model is None:
-            self.log(f"DeepSeek-V2 expert-prune (dispatch-only, layout=deepseek-routed-shared)")
+            self.log("  No model loaded — DeepSeek-V2 expert-prune deferred (dispatch-only path)")
             return ctx
-        _stub_expert_prune_raise(self.name, "deepseek_v2", "deepseek-routed-shared", params)
+
+        if keep is None:
+            raise ValueError(
+                f"{self.name}.expert_prune: alloy stage missing 'keepExpertsPerLayer'."
+            )
+        if layout_id != "deepseek-routed-shared":
+            raise ValueError(
+                f"{self.name}.expert_prune: expertTensorLayout={layout_id!r} is not "
+                f"the deepseek-routed-shared layout this adapter handles. The shared "
+                f"expert pathway is structurally distinct and cannot be pruned via "
+                f"a non-deepseek layout spec."
+            )
+
+        import sys
+        from pathlib import Path
+        sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+        from cpu_expert_prune_v2 import prune_experts, DEEPSEEK_V2_LAYOUT
+
+        src_model_dir = getattr(ctx, "source_model_dir", None)
+        if src_model_dir is None:
+            raise ValueError(
+                f"{self.name}.expert_prune: ctx.source_model_dir is not set."
+            )
+        if not Path(src_model_dir).exists():
+            raise ValueError(
+                f"{self.name}.expert_prune: ctx.source_model_dir={src_model_dir!r} does not exist."
+            )
+
+        pruned_out = (ctx.output_dir / "pruned").resolve()
+        importance_path = getattr(ctx, "importance_json_path", None)
+        if not importance_path and strategy == "calibration-aware-activation-count":
+            raise ValueError(
+                f"{self.name}.expert_prune: alloy strategy is "
+                f"'calibration-aware-activation-count' but ctx.importance_json_path is not set."
+            )
+
+        metadata = prune_experts(
+            model_dir=src_model_dir,
+            out_dir=pruned_out,
+            keep_experts=int(keep),
+            importance_json=importance_path,
+            layout=DEEPSEEK_V2_LAYOUT,
+        )
+
+        import torch
+        from transformers import AutoModelForCausalLM, AutoTokenizer
+        self.log(f"  reloading pruned DeepSeek-V2 from {pruned_out}")
+        del ctx.model
+        torch.cuda.empty_cache()
+        ctx.model = AutoModelForCausalLM.from_pretrained(
+            str(pruned_out), torch_dtype="auto", device_map="auto", trust_remote_code=True,
+        )
+        ctx.tokenizer = AutoTokenizer.from_pretrained(str(pruned_out), trust_remote_code=True)
+        ctx.dead_heads = None
+        ctx.pruned_model_dir = str(pruned_out)
+        self.log(
+            f"  DeepSeek-V2 prune complete: "
+            f"{metadata.get('total_bytes_out', 0) / 1e9:.1f} GB surviving structure"
+        )
+        return ctx

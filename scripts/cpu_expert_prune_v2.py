@@ -142,6 +142,24 @@ MIXTRAL_LAYOUT = LayoutSpec(
     expert_rename_template="model.layers.{layer}.block_sparse_moe.experts.{new_idx}.{proj_name}.weight",
 )
 
+# DeepSeek-V2 routed experts. Tensor name shape is identical to QWEN3_MOE_LAYOUT
+# (mlp.experts.{e}.{proj}_proj.weight); the family_name differs because:
+#   1. DeepSeek-V2 also carries shared_experts.* tensors that MUST passthrough
+#      bit-exact (the always-fires capability). The expert_re below intentionally
+#      requires a digit after `experts.` so `shared_experts.gate_proj.weight`
+#      does NOT match and falls through to the streaming rewriter's passthrough
+#      branch unchanged.
+#   2. Layer 0 in DeepSeek-V2 is dense (no MoE) — those `mlp.gate_proj.weight`
+#      tensors also fall through to passthrough since they don't carry an
+#      `experts.{digit}` segment.
+#   3. config.json field is `n_routed_experts` (handled in update_config below).
+DEEPSEEK_V2_LAYOUT = LayoutSpec(
+    family_name="deepseek_v2",
+    gate_pattern=r"^model\.layers\.(\d+)\.mlp\.gate\.weight$",
+    expert_pattern=r"^model\.layers\.(\d+)\.mlp\.experts\.(\d+)\.([a-z_]+)\.weight$",
+    expert_rename_template="model.layers.{layer}.mlp.experts.{new_idx}.{proj_name}.weight",
+)
+
 
 # Backward-compat module-level regexes — anything that imported these
 # directly (older internal callers) keeps working. NEW code should use
@@ -463,7 +481,7 @@ def update_config(out_dir: Path, src_dir: Path, new_num_experts: int) -> None:
             continue
         # The Qwen3MoE config uses "num_experts"; some other MoE configs
         # use "num_local_experts". Update both if present.
-        for key in ("num_experts", "num_local_experts"):
+        for key in ("num_experts", "num_local_experts", "n_routed_experts"):
             if key in container:
                 container[key] = new_num_experts
 
@@ -532,10 +550,13 @@ def prune_experts(
         raise ValueError(f"no config.json in {src_dir}")
     cfg = json.loads(cfg_path.read_text())
     tc = cfg.get("text_config", cfg)
-    num_experts = tc.get("num_experts") or tc.get("num_local_experts")
+    num_experts = tc.get("num_experts") or tc.get("num_local_experts") or tc.get("n_routed_experts")
     num_experts_per_tok = tc.get("num_experts_per_tok") or tc.get("num_active_experts")
     if num_experts is None:
-        raise ValueError("source config has no num_experts / num_local_experts; not a recognized MoE")
+        raise ValueError(
+            "source config has no num_experts / num_local_experts / n_routed_experts; "
+            "not a recognized MoE"
+        )
     if num_experts_per_tok is None:
         raise ValueError("source config has no num_experts_per_tok / num_active_experts")
 

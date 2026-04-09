@@ -51,6 +51,42 @@ class HumanEvalRunner(BenchmarkRunner):
             samples_path=str(samples_path),
         )
 
+    def evaluate(
+        self,
+        model_dir: str | Path,
+        output_dir: str | Path,
+        **kwargs: Any,
+    ) -> ScoreResult:
+        """Run evalplus.codegen + sanitize + evaluate on a model directory.
+
+        Delegates to eval_with_calibration.run_humaneval (the canonical
+        subprocess wrapper that has the working evalplus CLI invocation
+        baked in). Returns a ScoreResult with both humaneval and humaneval+
+        scores — humaneval+ lives in extras['humaneval_plus_pass_at_1']
+        because evalplus emits both in one pass.
+
+        kwargs:
+            force_base_prompt: bool — pass --force-base-prompt to evalplus
+                                       (use for base models, not instruct).
+        """
+        from eval_with_calibration import run_humaneval as _run
+        result_dict = _run(
+            Path(model_dir),
+            Path(output_dir),
+            force_base_prompt=bool(kwargs.get("force_base_prompt", False)),
+        )
+        scores = result_dict.get("scores", {})
+        return ScoreResult(
+            benchmark_name=self.name,
+            pass_at_1=float(scores.get("humaneval", 0.0)) / 100.0,
+            metric="pass@1",
+            extras={
+                "humaneval_plus_pass_at_1": float(scores.get("humaneval_plus", 0.0)) / 100.0,
+                "log_path": result_dict.get("log_path"),
+            },
+            samples_path=result_dict.get("samples_path"),
+        )
+
 
 def register(reg: BenchmarkRunnerRegistry) -> None:
     """Register this runner with a registry instance. Called at module

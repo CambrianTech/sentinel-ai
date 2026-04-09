@@ -46,6 +46,7 @@ from __future__ import annotations
 import json
 import sys
 from pathlib import Path
+from typing import Any
 
 from .base import BenchmarkRunner, ScoreResult
 from .registry import BenchmarkRunnerRegistry
@@ -180,6 +181,44 @@ class LiveCodeBenchV6Runner(BenchmarkRunner):
                 "problem_count": total,
             },
             samples_path=str(samples_path),
+        )
+
+
+    def evaluate(
+        self,
+        model_dir: str | Path,
+        output_dir: str | Path,
+        **kwargs: Any,
+    ) -> ScoreResult:
+        """Run lcb_runner end-to-end on a model and return LCB v6 pass@1.
+
+        Delegates to eval_with_calibration.run_livecodebench_v6 (the
+        canonical lcb_runner subprocess wrapper). The samples_path on
+        the returned ScoreResult is the LCB output JSON for re-scoring.
+
+        kwargs:
+            force_base_prompt: bool — pick the base-model prompt template
+                                       proxy instead of the instruct one.
+        """
+        from eval_with_calibration import run_livecodebench_v6 as _run
+        result_dict = _run(
+            Path(model_dir),
+            Path(output_dir),
+            force_base_prompt=bool(kwargs.get("force_base_prompt", False)),
+        )
+        scores = result_dict.get("scores", {})
+        return ScoreResult(
+            benchmark_name=self.name,
+            pass_at_1=float(scores.get("livecodebench_v6", 0.0)) / 100.0,
+            metric="pass@1",
+            extras={
+                "release_version": result_dict.get("lcb_release_version", "release_v6"),
+                "lcb_proxy_model": result_dict.get("lcb_proxy_model"),
+                "lcb_n": result_dict.get("lcb_n"),
+                "lcb_temperature": result_dict.get("lcb_temperature"),
+                "log_path": result_dict.get("log_path"),
+            },
+            samples_path=result_dict.get("samples_path"),
         )
 
 

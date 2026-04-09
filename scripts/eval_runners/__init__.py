@@ -57,12 +57,25 @@ def registered_benchmarks() -> list[str]:
 # benchmark name, not by import order. NEW runner = new module here.
 from . import humaneval         # noqa: E402,F401
 from . import humaneval_plus    # noqa: E402,F401
-from . import livecodebench_v6  # noqa: E402,F401  — real LCB v6 scorer (was a stub in sota_stubs)
+from . import livecodebench_v6  # noqa: E402,F401  — real LCB v6 scorer
+# Open LLM Leaderboard v2 runner pack (lm-eval-harness backed)
+from . import ifeval            # noqa: E402,F401
+from . import bbh               # noqa: E402,F401
+from . import math_hard         # noqa: E402,F401
+from . import gpqa              # noqa: E402,F401
+from . import mmlu_pro          # noqa: E402,F401
+from . import musr              # noqa: E402,F401
 from . import sota_stubs        # noqa: E402,F401  — remaining frontier-target runner stubs
 
 humaneval.register(_REGISTRY)
 humaneval_plus.register(_REGISTRY)
 livecodebench_v6.register(_REGISTRY)
+ifeval.register(_REGISTRY)
+bbh.register(_REGISTRY)
+math_hard.register(_REGISTRY)
+gpqa.register(_REGISTRY)
+mmlu_pro.register(_REGISTRY)
+musr.register(_REGISTRY)
 sota_stubs.register(_REGISTRY)
 
 

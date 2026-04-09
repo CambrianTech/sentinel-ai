@@ -174,6 +174,80 @@ python experiments/experiment_self_directed.py --model_name gpt2-medium
 | [Self-Directed Plasticity](paper/SELF-DIRECTED-PLASTICITY.ipynb) | V1→V2→PID controller evolution with transfer function analysis |
 | [Colab Demo](colab_notebooks/NeuralPlasticityDemo.ipynb) | Run on free Colab T4 GPU [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/CambrianTech/sentinel-ai/blob/main/colab_notebooks/NeuralPlasticityDemo.ipynb) |
 
+## The Factory Pipeline
+
+Sentinel-AI is the forge. The factory pipeline turns it into a 24/7 model
+production line: drop a recipe alloy in a queue directory, BigMama (or any
+single-GPU box) picks it up, forges it through the family-adapter set,
+scores it against every benchmark it's eligible for, and publishes to
+HuggingFace. No hand-rolled scripts per model — the architecture handles
+dispatch.
+
+```
+                                       ┌─────────────────────────┐
+                                       │  .factory/queue/        │
+                  drop alloy here  →   │    pending/             │  ← cp my-recipe.alloy.json here
+                                       │    running/  ← worker   │
+                                       │    done/     ← success  │
+                                       │    failed/   ← traceback│
+                                       └────────────┬────────────┘
+                                                    │
+                                                    ▼
+                                       FactoryWorker.process_one()
+                                                    │
+                          ┌─────────────────────────┼─────────────────────────┐
+                          ▼                         ▼                         ▼
+                 alloy_executor               eval_runners              publish_model
+                 .execute_alloy()             (registry dispatch)       .publish()
+                          │                         ▲                         │
+                          │                         │                         │
+                  family-adapter              resolve_runner(name)         HF push
+                  dispatch (16 adapters)            │                         │
+                  → MoEUnfusedExpertsBase           │                    model card
+                  → MixtralAdapter                  │                         │
+                  → PhiMoEAdapter (inherits)        │                         ▼
+                  → DeepSeekV2Adapter               │              published continuum-ai/<model>
+                  → QwenVLAdapter                   │              with cryptographically
+                  → ... 11 more                     │              attested alloy hash
+                          │                         │
+                          ▼                         │
+                  forge output dir  ──── eval ──→  9 real benchmark runners:
+                                                    HumanEval, HumanEval+,
+                                                    LCB v6, IFEval, BBH,
+                                                    MATH-Hard, GPQA,
+                                                    MMLU-Pro, MuSR
+                                                    (Open LLM Leaderboard v2 pack)
+```
+
+**Two-axis dispatch:**
+
+- **Axis 1 — `source.architecture` → FamilyAdapter.** Each model family
+  is one file in `scripts/adapters/` (16 adapters today). Adding a new
+  family is one new file plus one import line. Old families stay frozen
+  forever so older alloys reproduce bit-identically.
+- **Axis 2 — benchmark name → BenchmarkRunner.** Each benchmark is one
+  file in `scripts/eval_runners/` (9 real, 12 stubs). Adding a new
+  benchmark is one new file. The §4.1.4.1 anchor-reproduction discipline
+  gate routes through the same registry.
+
+**Sending BigMama a task:**
+
+```bash
+cp my-recipe.alloy.json /path/to/.factory/queue/pending/
+python -m factory_queue --root /path/to/.factory --max-iters 1
+```
+
+The worker picks the file off pending/, runs `execute_alloy` (which
+dispatches to the right family adapter), executes each stage including
+`eval` (which dispatches via the runner registry), calls `publish` on
+success, writes a `.result.json` next to the alloy in `done/`. On any
+failure: `.error.json` with the full traceback in `failed/` — no silent
+defaults, no retries on broken state.
+
+The filesystem IS the queue. No DB, no service, no network coordination.
+Multi-worker safety comes free if you ever need to scale beyond a single
+GPU (atomic `pending → running` rename via `O_EXCL`).
+
 ## Papers
 
 - **[Experiential Plasticity](https://github.com/CambrianTech/continuum/blob/main/docs/papers/EXPERIENTIAL-PLASTICITY.md)** — Scaling law, transfer function, self-directed controller, domain forging, continuous defrag

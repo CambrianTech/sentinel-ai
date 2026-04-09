@@ -15,6 +15,47 @@
 
 ---
 
+## Standing directive — close the gaps and go viral
+
+After the 8-step sprint landed, the work shifted from architectural plumbing
+to operationalizing BigMama for HuggingFace leaderboard wins. The empty
+quadrant on HF for structurally-pruned MoE variants is uncontested viral
+territory.
+
+**Priority queue (highest leverage first):**
+
+1. ✅ Phi-3.5-MoE adapter (graduated via inheritance from MixtralAdapter)
+2. ✅ DeepSeek-V2 routed/shared pruner (DEEPSEEK_V2_LAYOUT, shared experts bit-exact)
+3. ✅ Open LLM Leaderboard v2 runner pack (LmEvalHarnessRunner base + 6 thin subclasses: IFEval, BBH, MATH-Hard, GPQA, MMLU-Pro, MuSR)
+4. GraniteMoE fused-tensor pruner (structurally novel — slice fused tensors along expert axis, can NOT use unfused layout)
+5. eval_with_calibration.py → BenchmarkRunner registry migration (replace hand-rolled if/else with registry dispatch so the §4.1.4.1 anchor-reproduction discipline gate uses the same axis as production scoring)
+6. Tier 2 reproducibility test on BigMama (asserts produced safetensors hash == alloy modelHash for every published artifact)
+7. Run the headline forges on BigMama:
+    - **Mixtral 8x22B** → ~70B/22GB single-5090 prosumer headline (no code blockers, only GPU time)
+    - **Qwen3-Coder-480B** → multi-GPU grid moonshot (needs the grid sprint)
+
+**Standing rule for eval results — big drop = algorithmic failure first:**
+
+When a forged model drops unexpectedly on a benchmark, the first hypothesis
+is a bug in the eval/forge code, NOT model quality. The §4.1.3.4 publication
+came from this exact frame: the morning's qwen3-coder-30b looked broken on
+HumanEval+ via the router-gate-L2 metric, "model is bad" would have killed
+it, "our scoring is wrong" found the calibration-aware activation count
+that closed +9.7 points and became the methodology.
+
+Pre-flight checks before concluding the model is bad:
+
+1. Is the `metric_key` right? (harness rename: `acc,none` ↔ `acc_norm,none`)
+2. Is the prompt template right? (chat template for instruct, raw for base)
+3. Is the `num_fewshot` right? (Open LLM v2 uses task defaults, not 0-shot)
+4. Did the calibration corpus drift? (hash-pinned per §4.1.3.4.1)
+5. Is the pruning algorithm using the right importance metric for the family?
+
+Only after all five are clean does "model is bad" become the working
+hypothesis. The bug-first frame turns failures into methodology wins.
+
+---
+
 ## TL;DR
 
 The forge pipeline used to be one mutable script (`alloy_executor.py` + `forge_model.py`

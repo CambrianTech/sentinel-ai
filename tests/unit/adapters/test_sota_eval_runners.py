@@ -67,9 +67,9 @@ SOTA_BENCHMARKS = [
     "aider_polyglot",
     "mbpp_plus",                 # complement to humaneval+
     # General-purpose benchmarks (frontier general targets)
-    "mmlu_pro",
-    "gpqa_diamond",
-    "ifeval",
+    # NOTE: mmlu_pro, gpqa, ifeval, bbh, math_hard, musr graduated to real
+    # lm-eval-harness runners (Open LLM Leaderboard v2 pack). Coverage now
+    # in test_open_llm_leaderboard_v2_runners.py.
     "gsm8k",
     "aime_2024",
     # Vision benchmarks (Qwen2.5-VL / Qwen3.5-VL targets)
@@ -123,7 +123,11 @@ def test_registered_benchmarks_includes_all_sota():
     the existing humaneval / humaneval_plus from Step 4."""
     from eval_runners import registered_benchmarks
     actual = set(registered_benchmarks())
-    expected = set(SOTA_BENCHMARKS) | {"humaneval", "humaneval_plus"}
+    expected = set(SOTA_BENCHMARKS) | {
+        "humaneval", "humaneval_plus", "livecodebench_v6",
+        # Open LLM Leaderboard v2 pack
+        "ifeval", "bbh", "math_hard", "gpqa", "mmlu_pro", "musr",
+    }
     missing = expected - actual
     assert not missing, (
         f"registered benchmarks missing: {sorted(missing)}\n"

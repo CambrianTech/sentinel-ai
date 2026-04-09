@@ -88,5 +88,37 @@ class BenchmarkRunner(ABC):
         """
         ...
 
+    def evaluate(
+        self,
+        model_dir: str | Path,
+        output_dir: str | Path,
+        **kwargs: Any,
+    ) -> ScoreResult:
+        """Run this benchmark end-to-end against a model directory.
+
+        Loads the model, generates completions for the benchmark's task(s),
+        scores them via the canonical scorer, writes the samples + results
+        files to output_dir, and returns a ScoreResult. This is the codegen
+        + score combined path the §4.1.4.1 anchor-reproduction discipline
+        gate dispatches to via eval_with_calibration.run_benchmark, and the
+        path the publish pipeline calls when scoring a freshly forged model.
+
+        Default raises NotImplementedError naming the runner — same
+        deterministic-rock pattern the abstract score() uses for stubs.
+        Concrete runners that have a real codegen path override this.
+
+        Subclasses are free to accept benchmark-specific kwargs
+        (force_base_prompt for the code benchmarks, batch_size/num_fewshot
+        for lm-eval-harness benchmarks, etc.); the **kwargs in the base
+        signature is the universal slot.
+        """
+        raise NotImplementedError(
+            f"{type(self).__name__}.evaluate is not implemented. The runner "
+            f"is registered against name={self.name!r} so dispatch resolves, "
+            f"but actual end-to-end evaluation requires a real implementation "
+            f"in this class. Override evaluate(model_dir, output_dir, **kwargs) "
+            f"with the codegen + score path for this benchmark."
+        )
+
     def __repr__(self) -> str:
         return f"<{type(self).__name__} name={self.name!r}>"
