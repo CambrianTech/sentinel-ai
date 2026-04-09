@@ -73,6 +73,29 @@ class TrainExecutor(StageExecutor):
         return family.train(ctx, **params)
 
 
+class ExpertActivationProfileExecutor(StageExecutor):
+    """§4.1.3.4 calibration-aware MoE expert importance profiling.
+
+    Delegates to family_adapter.expert_activation_profile() which loads
+    the calibration corpus, registers forward hooks on the family-specific
+    router gate path, runs the corpus through inference, and writes the
+    importance JSON to ctx.importance_json_path. The downstream
+    expert-prune stage reads that path to make calibration-aware
+    selection decisions.
+
+    Without this executor registered, the alloy_executor's stage
+    dispatch would silently SKIP the stage (logging a warning), and
+    the expert-prune stage would loud-fail because importance_json_path
+    is not set. This executor IS the wire that makes calibration-aware
+    pruning the default §4.1.3.4 path.
+    """
+
+    def execute(self, ctx: ForgeContext) -> ForgeContext:
+        family = _resolve_family_for_ctx(ctx, "ExpertActivationProfileExecutor")
+        params = {k: v for k, v in self.config.items() if k != "type"}
+        return family.expert_activation_profile(ctx, **params)
+
+
 class ExpertPruneExecutor(StageExecutor):
     """MoE expert pruning — delegates to family_adapter.expert_prune().
 
