@@ -408,6 +408,8 @@ class FactoryWorker:
         publisher: Callable[..., Any] | None = None,
         work_root: str | Path,
         org: str = "continuum-ai",
+        cleanup_fn: Callable[..., dict] | None = None,
+        cleanup_threshold_pct: float = 85.0,
     ) -> None:
         self.queue = queue
         self.executor = executor
@@ -415,6 +417,11 @@ class FactoryWorker:
         self.work_root = Path(work_root)
         self.work_root.mkdir(parents=True, exist_ok=True)
         self.org = org
+        # cleanup_fn is the storage lifecycle hook. If not provided, the
+        # production wiring imports factory_storage.auto_cleanup lazily
+        # so unit tests don't pull a real disk dependency.
+        self.cleanup_fn = cleanup_fn
+        self.cleanup_threshold_pct = cleanup_threshold_pct
 
     def process_one(self) -> bool:
         """Pop the oldest intake alloy, forge → assay → mark finished.
@@ -430,6 +437,19 @@ class FactoryWorker:
         assembly = self.queue.pop_oldest_intake()
         if assembly is None:
             return False
+
+        # Auto-cleanup BEFORE starting a new part — free orphan work
+        # dirs from previous forges if disk pressure is high. Conservative:
+        # only orphans, never anything referenced by an active alloy.
+        if self.cleanup_fn is not None:
+            try:
+                self.cleanup_fn(
+                    self.queue.root,
+                    threshold_pct=self.cleanup_threshold_pct,
+                )
+            except Exception:
+                # Cleanup is best-effort; never fail a forge over it.
+                pass
 
         alloy_stem = assembly.stem.replace(".alloy", "")
         forged_root = self.work_root / alloy_stem
@@ -582,6 +602,8 @@ def main():
     ap.add_argument("--org", default="continuum-ai")
     ap.add_argument("--idle-sleep", type=float, default=5.0,
                     help="seconds to sleep between intake polls when empty")
+    ap.add_argument("--cleanup-threshold", type=float, default=85.0,
+                    help="auto-cleanup orphan work dirs if disk pct_used > this")
     ap.add_argument("--max-iters", type=int, default=None,
                     help="testing: process at most N parts then exit")
     ap.add_argument("--once", action="store_true",
@@ -645,12 +667,15 @@ def main():
         raise KeyboardInterrupt
     signal.signal(signal.SIGTERM, _sigterm)
 
+    from factory_storage import auto_cleanup as _real_cleanup
     worker = FactoryWorker(
         queue,
         executor=execute_alloy,
         publisher=publisher,
         work_root=args.work_root or (Path(args.root) / "work"),
         org=args.org,
+        cleanup_fn=_real_cleanup,
+        cleanup_threshold_pct=args.cleanup_threshold,
     )
 
     print(f"hive node starting at {args.root}")

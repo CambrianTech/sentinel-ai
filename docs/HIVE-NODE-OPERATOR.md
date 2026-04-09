@@ -155,6 +155,67 @@ python scripts/factory_queue.py --root .factory --tail
 That's it. One node, one human foreman, twelve forges queued, no
 continuum dependency. The grid layer ships when it ships.
 
+## Storage lifecycle (factory_storage)
+
+Source models are 50–260GB each, intermediate forge work dirs add
+another 100–200GB, and the queue typically has 12 parts in flight.
+Without lifecycle management the box fills up after 4-5 forges and
+the daemon dies on disk-full mid-build.
+
+The daemon **auto-cleans before each new part** if disk pressure
+crosses `--cleanup-threshold` (default 85% used). Auto-cleanup is
+conservative: it only removes ORPHAN work dirs (`work/<name>/` where
+`<name>` matches no alloy in any station). Anything ambiguous stays
+put until you intervene.
+
+```bash
+# What's on disk right now?
+python -m factory_storage --root .factory --audit
+
+# Just the disk pressure
+python -m factory_storage --root .factory --pressure
+
+# List orphan work dirs (unused, safe to delete)
+python -m factory_storage --root .factory --orphans
+
+# List stale work dirs (older than N days, may still be referenced)
+python -m factory_storage --root .factory --stale --days 14
+
+# Manual cleanup — show what WOULD be deleted, no changes
+python -m factory_storage --root .factory --cleanup --dry-run --force
+
+# Manual cleanup — actually delete orphans (bypass threshold)
+python -m factory_storage --root .factory --cleanup --force
+```
+
+**Cold tier (when the 10TB drive arrives):**
+
+```bash
+# One-time: format + mount the cold drive at /mnt/cold
+sudo mkfs.ext4 /dev/sdX1 && sudo mount /dev/sdX1 /mnt/cold
+
+# Tell the daemon to MOVE evictions to cold instead of deleting
+python -m factory_queue --root .factory --cleanup-cold-root /mnt/cold
+# (CLI flag wiring still needed; today --cold-root works on the
+#  factory_storage CLI for manual cleanups)
+```
+
+When the cold drive lands, evictions become "moved to cold storage"
+instead of "deleted." The reference set is the same; only the
+destination changes. HF re-fetch is still the fallback if both copies
+are gone.
+
+**The reference set — what auto-cleanup will NEVER touch:**
+
+- Calibration corpora in `.factory/calibration/`
+- Anything referenced by an alloy in `intake/` or `assembly/`
+- Work dirs for finished alloys within the last 7 days
+- Files with mtime in the last 24 hours
+
+Every eviction is logged to `throughput.jsonl` as
+`{outcome: "evicted", path, bytes, action}` so the audit trail is
+preserved.
+
 ## What still needs the grid (continuum) to come online
 
 These work without continuum but feel less polished:
