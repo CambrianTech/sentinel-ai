@@ -482,7 +482,16 @@ def write_status(output_dir: Path, phase: str, detail: str = "", **extra):
 
 @torch.no_grad()
 def evaluate(model, eval_loader, output_dir: Path = None, label: str = "eval"):
-    """Perplexity with eval-batch=1 to minimize VRAM spike from 248K logits."""
+    """Perplexity with eval-batch=1 to minimize VRAM spike from 248K logits.
+
+    CRITICAL: labels are masked to -100 at pad positions so the model's
+    cross-entropy loss only considers VALID tokens. Without this mask,
+    padding-to-max-length 2048 means a 50-token wikitext sample
+    contributes ~1998 pad-token losses that dominate the result and
+    inflate perplexity by ~30x. (Bug found 2026-04-09 when our published
+    qwen2-5-7b-instruct-compacted card showed baseline ppl 263 vs the
+    real 8.7 — 30x off because of this exact issue.)
+    """
     model.eval()
     total_loss, total_tokens = 0.0, 0
     n_batches = len(eval_loader)
@@ -492,9 +501,20 @@ def evaluate(model, eval_loader, output_dir: Path = None, label: str = "eval"):
         ids = batch["input_ids"].to(device)
         mask = batch["attention_mask"].to(device)
         for i in range(ids.shape[0]):
-            out = model(input_ids=ids[i:i+1], attention_mask=mask[i:i+1], labels=ids[i:i+1])
+            input_ids = ids[i:i+1]
+            attention_mask = mask[i:i+1]
+            # Mask labels at pad positions so the loss only counts valid tokens.
+            labels = input_ids.clone()
+            labels[attention_mask == 0] = -100
+            out = model(
+                input_ids=input_ids,
+                attention_mask=attention_mask,
+                labels=labels,
+            )
             loss_val = out.loss.float().item()  # force fp32 for accuracy
-            n = (mask[i:i+1] > 0).sum().item()
+            # n is the number of VALID tokens (the same denominator the
+            # model's CE loss used), so the running average matches.
+            n = int(attention_mask.sum().item())
             total_loss += loss_val * n
             total_tokens += n
             # Debug first batch
@@ -996,9 +1016,15 @@ def train_lora(model, train_loader, cfg: ForgeConfig, steps=1000, lr=5e-5, outpu
                 break
             ids = batch["input_ids"].to(model.device)
             mask = batch["attention_mask"].to(model.device)
+            # Mask labels at pad positions so the loss only counts valid
+            # tokens — same fix as evaluate(). Otherwise the model is
+            # trained to predict 0 at every padding position which is
+            # both wrong (no signal) and noisy (degrades the LoRA fit).
+            labels = ids.clone()
+            labels[mask == 0] = -100
 
             with torch.amp.autocast("cuda", dtype=torch.float16):
-                out = model(input_ids=ids, attention_mask=mask, labels=ids)
+                out = model(input_ids=ids, attention_mask=mask, labels=labels)
                 loss = out.loss / ga
 
             scaler.scale(loss).backward()
