@@ -587,8 +587,15 @@ class FactoryWorker:
         file_hashes: list[dict] = []
         try:
             from alloy_hashing import compose_model_hash, hash_local_safetensors_dir
-            file_hashes = hash_local_safetensors_dir(forged_dir)
-            model_hash = compose_model_hash(file_hashes)
+            # The safetensors might be directly under forged_dir OR
+            # nested in a 'model/' subdir (the publish stage's
+            # convention). Try the nested layout first since that's
+            # what alloy_executor produces.
+            for candidate in (forged_dir / "model", forged_dir):
+                if candidate.exists() and any(candidate.glob("*.safetensors")):
+                    file_hashes = hash_local_safetensors_dir(candidate)
+                    model_hash = compose_model_hash(file_hashes)
+                    break
         except Exception:
             # Tier 2 is best-effort recording — never fail a forge
             # because the hashing helpers tripped on something.
