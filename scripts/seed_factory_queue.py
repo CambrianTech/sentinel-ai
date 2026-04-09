@@ -732,7 +732,7 @@ CATALOG: list[dict] = [
         base_model="ibm-granite/granite-3.0-3b-a800m-instruct",
         architecture="granitemoe",
         layout="granite-moe-fused",
-        keep_experts=20,
+        keep_experts=32,
         original_experts=40,
         source_geometry={
             "totalParamsB": 3.4,
