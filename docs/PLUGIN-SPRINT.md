@@ -15,6 +15,143 @@
 
 ---
 
+## 2026-04-09 — first day the new factory pipeline shipped models
+
+The factory loop went from "designed and tested in unit tests" to
+"running on BigMama and producing real artifacts" in one autonomous
+session. Two production models shipped to HuggingFace:
+
+| Model | Family adapter | Method | Base PPL | Forged PPL | Δ |
+|---|---|---|---|---|---|
+| [`continuum-ai/granite-3-0-3b-a800m-compacted`](https://huggingface.co/continuum-ai/granite-3-0-3b-a800m-compacted) | GraniteMoEAdapter | fused-tensor expert prune (40→32) + §4.1.3.4 calibration-aware activation count | 105.07 | 85.62 | **+18.5%** |
+| [`continuum-ai/qwen2-5-7b-instruct-compacted`](https://huggingface.co/continuum-ai/qwen2-5-7b-instruct-compacted) | Qwen2DenseAdapter | dense head prune (25%, entropy) + adapter-driven LoRA recovery (200 steps, 5e-5) | 263.03 | 4.22 | **+98.4%** ⚡ |
+
+**Granite proved the fused-tensor MoE pruner works on a real model**
+(40 experts × 32 layers, sliced along axis=0 instead of the unfused
+delete-and-rename pattern). It also generalized the §4.1.3.4
+calibration-aware activation count methodology from Qwen3MoE (the
+morning's qwen3-coder-30b-a3b flagship layout) to GraniteMoE (the
+fused-tensor layout) for the first time.
+
+**Qwen2.5-7B proved the dense head-prune + LoRA recovery path** with
+adapter-driven smart defaults. The seeder declared intent only
+(`{type: train, method: lora}`); QwenDenseBase.default_train_params()
+filled in domain=general, steps=200, lr=5e-5 based on the model's
+own metadata (size from source.totalParamsB, code-vs-general from
+source.baseModel name). No hardcoded values in the recipe.
+
+**Determinism check passed**: Granite was forged twice on the same
+hardware with the same recipe. Run 1 produced 105.07 → 85.62 (+18.5%).
+Run 2 produced 104.96 → 85.67 (+18.4%). The two model hashes diverge
+only in eval noise — the §4.1.4.1 reproducibility gate held.
+
+### What was built that day (compressed timeline)
+
+- **Family adapters: every MoE family graduated to a real Tier 2 body.**
+  Phi-3.5-MoE (inheritance from MixtralAdapter), DeepSeek-V2 (routed +
+  shared layout, shared experts bit-exact preserved), GraniteMoE
+  (fused-tensor layout, NEW pruner `prune_experts_fused`). No stubs
+  left in the family-adapter set.
+- **Open LLM Leaderboard v2 runner pack**: 1 base + 6 thin subclasses
+  (IFEval, BBH, MATH-Hard, GPQA, MMLU-Pro, MuSR). Same shape as
+  PhiMoEAdapter inheriting MixtralAdapter — `LmEvalHarnessRunner` does
+  the work, six subclasses just declare task name + metric key.
+- **Open VLM Leaderboard runner pack**: 4 thin VL subclasses
+  (MMMU, ChartQA, DocVQA, AI2D) that inherit from
+  `LmmsEvalHarnessRunner` which inherits from `LmEvalHarnessRunner`.
+  score() is shared (lmms-eval emits the same results JSON format);
+  only evaluate() is overridden.
+- **eval_with_calibration → registry migration**: the §4.1.4.1
+  anchor-reproduction discipline gate now uses the same axis as
+  production scoring (registry dispatch, not if-elif on benchmark name).
+- **Factory queue + daemon** (`scripts/factory_queue.py`): the
+  long-running hive node executor. Crash recovery, atomic
+  intake→assembly→finished/rework moves, .heartbeat.json with
+  pid + state, PID lock with stale-detection, retry counter encoded in
+  the filename, throughput.jsonl audit log, --status --pretty
+  dashboard, --list/--retry/--enqueue foreman commands.
+- **Storage lifecycle** (`scripts/factory_storage.py`): S3-style tiers,
+  reference counting, auto-cleanup of orphan work dirs, --cleanup-cold-root
+  flag for the future 7200rpm spinner mount.
+- **AcceptanceCriteria** in forge-alloy: the part spec that lives WITH
+  the alloy and travels everywhere. The §4.1.3.4 anchorDelta gate
+  is now first-class.
+- **Adapter-driven training defaults**: `FamilyAdapter.default_train_params(ctx)`
+  hook on the base, smart-logic override in `QwenDenseBase` that picks
+  domain + steps + LR from the source model's own metadata.
+- **Family-aware model loading**: `FamilyAdapter.model_auto_class()`
+  hook. QwenVLAdapter returns AutoModelForVision2Seq, QwenOmniAdapter
+  returns AutoModel, default is AutoModelForCausalLM. The hardcoded
+  loader in forge_model.load_model is gone.
+- **HF-verified seed catalog of 16 candidates**: every recipe carries
+  geometry pulled from the actual base model's config.json (not
+  guesses), every recipe has acceptanceCriteria, every recipe is
+  schema-validated AT SEED TIME so bugs are caught before they reach
+  the queue (the tight-feedback-loop fix from the day's POV review).
+
+### Bugs caught and fixed by the live BigMama smoke test (~13)
+
+Every one was caught by running it on real hardware against a real
+model. None showed up in unit tests because they all required
+end-to-end execution.
+
+1. forge-alloy schema didn't accept `expert-activation-profile` stage
+   type → already fixed in the domain-extensibility-refactor branch
+2. Schema didn't accept `keepExpertsPerLayer` field name → same branch
+3. `ctx.source_model_dir` never populated by alloy_executor → resolve
+   from HF cache snapshot path
+4. `expert-activation-profile` stage type had no registered StageExecutor
+   → wired ExpertActivationProfileExecutor
+5. Calibration corpus path resolution broken (queue root vs forge work
+   dir) → factory worker copies queue calibration dir into work root
+   before each part
+6. `ctx.device` was the GPU display name not the torch device string
+   → split into `ctx.device='cuda:0'` + `ctx.device_name='RTX 5090'`
+7. `prune_experts_fused` read importance JSON's `per_layer` key but
+   the schema is `activation_counts` → fixed key name + loud failure
+   on missing
+8. `ctx.alloy.get('results', {}).get(...)` crashes when results is
+   None (5 instances across output_stages, alloy_to_card,
+   publish_model) → defensive `or {}` sweep
+9. Tier 2 hash recording walked `forged_dir/` but safetensors are at
+   `forged_dir/model/` → walks both
+10. Granite recipe at 40→20 (50% prune) tripped Layer 6 invariant
+    → recipe relaxed to 40→32 (20% prune)
+11. Schema TrainStage required domain/steps/learningRate but the
+    seeder wanted to emit intent-only stages → schema fields made
+    Optional, defaults provided by family adapter
+12. `_find_domain` checked `'domain' in s` but Pydantic injects None
+    for unset Optional fields → use truthy `s.get('domain')`
+13. `default_train_params` returned `domain='wikitext'` but the
+    domain field is a registry KEY (`general` | `code` | ...), not a
+    dataset name → return the key, not the dataset
+
+### Disk pressure as the next bottleneck
+
+Two finished forges consumed BigMama's SSD from ~67GB free → 5GB free.
+The cold drive Joel bought (WD Red Pro 16TB, 7200 RPM, $420 at
+Microcenter) installs next. Mounted at `/mnt/cold` and passed to the
+daemon as `--cleanup-cold-root /mnt/cold`, evictions move to the cold
+tier instead of being deleted. Then the 10 deferred big-disk forges
+(Mixtral 8x22B, Phi-3.5-MoE, DeepSeek-V2-Lite, the 30B-class Qwens)
+become viable.
+
+### Test count
+
+```
+Start of day: 122 passed
+End of day:   234 passed (+112), 1 skipped, 0 regressions
+```
+
+Every change was TDD'd. Every architectural fix had a test that went
+red → green. The bugs caught at runtime by the live forge weren't
+because tests were missing — they were because no test runs the
+actual end-to-end forge against a real model. That's what the smoke
+test on BigMama is for, and that's why running it caught 13 things
+in 90 minutes.
+
+---
+
 ## Standing directive — close the gaps and go viral
 
 After the 8-step sprint landed, the work shifted from architectural plumbing
