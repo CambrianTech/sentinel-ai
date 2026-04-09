@@ -65,6 +65,7 @@ import shutil
 import sys
 import time
 from collections import defaultdict
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
@@ -77,8 +78,76 @@ TOOL_NAME = "sentinel-ai/scripts/cpu_expert_prune_v2"
 TOOL_VERSION = "1.0.0"
 SCHEMA_VERSION = "expert_prune.metadata.v1"
 
-ROUTER_GATE_RE = re.compile(r"^model\.layers\.(\d+)\.mlp\.gate\.weight$")
-EXPERT_TENSOR_RE = re.compile(r"^model\.layers\.(\d+)\.mlp\.experts\.(\d+)\.([a-z_]+)\.weight$")
+
+# ── LayoutSpec — per-family tensor name patterns ────────────────────────────
+#
+# The two-pass streaming pruner is the same algorithm regardless of MoE
+# family. Only the tensor name patterns differ:
+#
+#   Qwen3MoE / OLMoE     model.layers.{L}.mlp.experts.{K}.{gate|up|down}_proj.weight
+#                        + model.layers.{L}.mlp.gate.weight
+#
+#   Mixtral / Phi-MoE    model.layers.{L}.block_sparse_moe.experts.{K}.{w1|w2|w3}.weight
+#                        + model.layers.{L}.block_sparse_moe.gate.weight
+#
+# (GraniteMoE-fused and DeepSeek-V2-routed-shared are structurally distinct
+#  enough that they need their own pruners — fused-tensor-slicing for Granite,
+#  shared-expert preservation for DeepSeek-V2.)
+#
+# LayoutSpec encodes the family's name patterns + the renumbering template.
+# prune_experts(layout=...) takes a LayoutSpec; default is QWEN3_MOE_LAYOUT
+# so the existing forge path (the morning's qwen3-coder-30b-a3b flagship)
+# keeps working with no changes.
+
+@dataclass(frozen=True)
+class LayoutSpec:
+    """Per-family tensor name patterns for the streaming MoE pruner."""
+    family_name: str
+    # Regex string that matches the router gate tensor name. MUST capture
+    # the layer index as group(1).
+    gate_pattern: str
+    # Regex string that matches an expert weight tensor name. MUST capture
+    # the layer index as group(1), the expert index as group(2), and the
+    # per-expert weight name (e.g. 'gate_proj' or 'w1') as group(3).
+    expert_pattern: str
+    # Format string for the renumbered expert tensor name. Uses {layer},
+    # {new_idx}, {proj_name} as placeholders.
+    expert_rename_template: str
+
+    def gate_re(self) -> "re.Pattern":
+        return re.compile(self.gate_pattern)
+
+    def expert_re(self) -> "re.Pattern":
+        return re.compile(self.expert_pattern)
+
+
+# Qwen3MoE / OLMoE — the unfused-Qwen layout. The morning's flagship
+# qwen3-coder-30b-a3b-compacted-19b-256k forge ran with this layout.
+# Frozen for reproducibility.
+QWEN3_MOE_LAYOUT = LayoutSpec(
+    family_name="qwen3_moe",
+    gate_pattern=r"^model\.layers\.(\d+)\.mlp\.gate\.weight$",
+    expert_pattern=r"^model\.layers\.(\d+)\.mlp\.experts\.(\d+)\.([a-z_]+)\.weight$",
+    expert_rename_template="model.layers.{layer}.mlp.experts.{new_idx}.{proj_name}.weight",
+)
+
+# Mixtral / Phi-MoE — block_sparse_moe-unfused layout. Per-expert weights
+# are named w1 (gate_proj), w2 (down_proj), w3 (up_proj). 8 experts in
+# Mixtral 8x7B / 8x22B, 16 in Phi-3.5-MoE. Same algorithm as the
+# qwen3_moe path; only the path prefix and per-expert weight names differ.
+MIXTRAL_LAYOUT = LayoutSpec(
+    family_name="mixtral",
+    gate_pattern=r"^model\.layers\.(\d+)\.block_sparse_moe\.gate\.weight$",
+    expert_pattern=r"^model\.layers\.(\d+)\.block_sparse_moe\.experts\.(\d+)\.(w[123])\.weight$",
+    expert_rename_template="model.layers.{layer}.block_sparse_moe.experts.{new_idx}.{proj_name}.weight",
+)
+
+
+# Backward-compat module-level regexes — anything that imported these
+# directly (older internal callers) keeps working. NEW code should use
+# QWEN3_MOE_LAYOUT.gate_re() / .expert_re() instead.
+ROUTER_GATE_RE = QWEN3_MOE_LAYOUT.gate_re()
+EXPERT_TENSOR_RE = QWEN3_MOE_LAYOUT.expert_re()
 
 
 def _ts() -> str:
@@ -105,17 +174,21 @@ def _shards(model_dir: Path) -> list[Path]:
     return shards
 
 
-def read_router_gates(model_dir: Path) -> dict[int, torch.Tensor]:
+def read_router_gates(model_dir: Path, layout: LayoutSpec = QWEN3_MOE_LAYOUT) -> dict[int, torch.Tensor]:
     """Pass 1: read every router gate tensor on CPU. Returns {layer_idx: tensor}.
 
     Router gates are tiny (num_experts × hidden_size, e.g. 128 × 2048 =
     ~1 MB per layer at fp16). Reading all of them into RAM is cheap.
+
+    layout: LayoutSpec for the family being pruned. Default is QWEN3_MOE_LAYOUT
+    for backwards compatibility with the existing forge path.
     """
+    gate_re = layout.gate_re()
     gates: dict[int, torch.Tensor] = {}
     for shard in _shards(model_dir):
         with safe_open(str(shard), framework="pt", device="cpu") as f:
             for k in f.keys():
-                m = ROUTER_GATE_RE.match(k)
+                m = gate_re.match(k)
                 if m:
                     layer_idx = int(m.group(1))
                     gates[layer_idx] = f.get_tensor(k)
@@ -198,6 +271,7 @@ def stream_rewrite(
     shard_max_bytes: int = 5 * 1024 ** 3,
     metric_used: str = "router_gate_l2_norm",
     importance_json_meta: dict | None = None,
+    layout: LayoutSpec = QWEN3_MOE_LAYOUT,
 ) -> dict:
     """Pass 2: stream every source tensor, decide keep/rename/slice/drop,
     write to new shards. Returns metadata."""
@@ -273,13 +347,20 @@ def stream_rewrite(
         shard_buf[name] = tensor
         shard_bytes += nbytes
 
-    _log("Pass 2: streaming rewrite...")
+    # Compile the layout patterns ONCE for the streaming loop. The layout
+    # is part of the function contract — every tensor name walked here
+    # uses the same family's name patterns.
+    gate_re = layout.gate_re()
+    expert_re = layout.expert_re()
+    metadata["selection"]["layout_family"] = layout.family_name
+
+    _log(f"Pass 2: streaming rewrite (layout={layout.family_name})...")
     t0 = time.time()
     for sp in src_shards:
         with safe_open(str(sp), framework="pt", device="cpu") as f:
             for k in f.keys():
                 # Router gate: slice to surviving experts
-                gm = ROUTER_GATE_RE.match(k)
+                gm = gate_re.match(k)
                 if gm:
                     layer_idx = int(gm.group(1))
                     if layer_idx not in selected:
@@ -296,7 +377,7 @@ def stream_rewrite(
                     continue
 
                 # Per-expert MLP tensor: drop or renumber
-                em = EXPERT_TENSOR_RE.match(k)
+                em = expert_re.match(k)
                 if em:
                     layer_idx = int(em.group(1))
                     expert_idx = int(em.group(2))
@@ -311,7 +392,9 @@ def stream_rewrite(
                         # Dropped — do not write
                         metadata["tensors"]["dropped_expert"] += 1
                         continue
-                    new_name = f"model.layers.{layer_idx}.mlp.experts.{new_idx}.{proj_name}.weight"
+                    new_name = layout.expert_rename_template.format(
+                        layer=layer_idx, new_idx=new_idx, proj_name=proj_name,
+                    )
                     add_to_shard(new_name, f.get_tensor(k))
                     metadata["tensors"]["kept_renamed"] += 1
                     continue
@@ -394,6 +477,7 @@ def prune_experts(
     *,
     shard_bytes: int = 5 * 1024 ** 3,
     importance_json: str | Path | None = None,
+    layout: LayoutSpec = QWEN3_MOE_LAYOUT,
 ) -> dict:
     """Streaming CPU-side per-layer top-K MoE expert removal.
 
@@ -472,17 +556,16 @@ def prune_experts(
             f"Nothing to prune."
         )
 
-    _log("Pass 1: reading router gates...")
-    gates = read_router_gates(src_dir)
+    _log(f"Pass 1: reading router gates (layout={layout.family_name})...")
+    gates = read_router_gates(src_dir, layout=layout)
     _log(f"  found {len(gates)} router gate tensors")
     if not gates:
         raise RuntimeError(
-            f"no router gate tensors found in {src_dir}. The expected name "
-            f"pattern is 'model.layers.N.mlp.gate.weight'. This script handles "
-            f"the unfused MoE layout used by Qwen3MoE / OLMoE; if your model "
-            f"uses a different layout (fused experts, different gate name), "
-            f"the script needs an update for that architecture — write a new "
-            f"prune script for the new layout, do not branch this one."
+            f"no router gate tensors found in {src_dir} for layout "
+            f"{layout.family_name!r}. The expected gate pattern is "
+            f"{layout.gate_pattern!r}. If your model has a different "
+            f"layout, declare a new LayoutSpec for it (or use one of the "
+            f"existing constants: QWEN3_MOE_LAYOUT, MIXTRAL_LAYOUT)."
         )
 
     activation_counts = None
@@ -525,6 +608,7 @@ def prune_experts(
         shard_max_bytes=shard_bytes,
         metric_used=metric_used,
         importance_json_meta=importance_json_meta,
+        layout=layout,
     )
     update_config(out_dir, src_dir, keep_experts)
     _log(f"  config updated: num_experts -> {keep_experts}")

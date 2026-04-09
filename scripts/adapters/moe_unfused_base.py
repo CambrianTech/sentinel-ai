@@ -257,18 +257,27 @@ class MoEUnfusedExpertsBase(FamilyAdapter):
         # to do in memory for big models).
         #
         # We need:
-        #   - source model directory (the original unmodified base)
+        #   - source model directory (the original unmodified base — local
+        #     disk path, NOT an HF id; the streaming rewriter operates on
+        #     safetensors shards on disk and never downloads)
         #   - output directory for the pruned shards
         #   - importance JSON path (set by the upstream expert_activation_profile
         #     stage on ctx.importance_json_path)
-        src_model_dir = getattr(ctx, "source_model_dir", None) or ctx.model_name
-        if not src_model_dir or not Path(src_model_dir).exists():
+        src_model_dir = getattr(ctx, "source_model_dir", None)
+        if src_model_dir is None:
             raise ValueError(
-                f"{self.name}.expert_prune: ctx.source_model_dir is not set "
-                f"or does not exist. The pruner needs the original safetensors "
-                f"shards on disk to do the streaming rewrite. alloy_executor "
-                f"must populate ctx.source_model_dir with the local path to "
-                f"the unmodified base model before this stage runs."
+                f"{self.name}.expert_prune: ctx.source_model_dir is not set. "
+                f"The pruner needs the original safetensors shards on disk to "
+                f"do the streaming rewrite — ctx.model_name (an HF id) is NOT "
+                f"a substitute. alloy_executor must populate "
+                f"ctx.source_model_dir with the local path to the unmodified "
+                f"base model directory before this stage runs."
+            )
+        if not Path(src_model_dir).exists():
+            raise ValueError(
+                f"{self.name}.expert_prune: ctx.source_model_dir={src_model_dir!r} "
+                f"does not exist on disk. The streaming rewriter cannot operate "
+                f"on a missing directory."
             )
         pruned_out = (ctx.output_dir / "pruned").resolve()
         importance_path = getattr(ctx, "importance_json_path", None)
