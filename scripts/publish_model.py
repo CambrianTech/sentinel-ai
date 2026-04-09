@@ -61,7 +61,7 @@ def hash_model_weights(model_dir: Path) -> tuple[str, list[dict]]:
 def verify_integrity(alloy: dict, model_dir: Path) -> list[str]:
     """Verify alloy claims match actual files. Returns list of errors."""
     errors = []
-    integrity = alloy.get("results", {}).get("integrity", {})
+    integrity = (alloy.get("results") or {}).get("integrity") or {}
     if not integrity:
         return []
 
@@ -173,7 +173,7 @@ def publish(output_dir: Path, org: str = "continuum-ai",
             return None
         return "sha256:" + hash_file(abs_path)
 
-    for b in alloy.get("results", {}).get("benchmarks", []):
+    for b in (alloy.get("results") or {}).get("benchmarks", []):
         bname = b.get("name", "?")
         # Student samples → resultHash
         if not b.get("resultHash"):

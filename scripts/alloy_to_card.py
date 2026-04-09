@@ -200,8 +200,8 @@ def alloy_to_card(alloy: dict, alloy_hash: str = "", audience: str = "user") -> 
     author = alloy.get("author", "")
     source = alloy.get("source", {})
     base_model = source.get("baseModel", "unknown")
-    r = alloy.get("results", {})
-    i = r.get("integrity", {})
+    r = alloy.get("results") or {}
+    i = r.get("integrity") or {}
     code = i.get("code", {})
     receipt = alloy.get("receipt", {})
     stages = alloy.get("stages", [])
