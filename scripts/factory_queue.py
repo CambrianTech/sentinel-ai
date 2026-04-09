@@ -530,6 +530,21 @@ class FactoryWorker:
 
         alloy_stem = assembly.stem.replace(".alloy", "")
         forged_root = self.work_root / alloy_stem
+        forged_root.mkdir(parents=True, exist_ok=True)
+
+        # Copy calibration corpora from the queue root into the forge work
+        # dir so the family adapters' corpus path resolution (which is
+        # relative to ctx.output_dir) just works. Non-destructive: only
+        # copies files that don't already exist in the work dir's
+        # calibration/ subdir.
+        queue_calibration = self.queue.root / "calibration"
+        if queue_calibration.exists():
+            forge_calibration = forged_root / "calibration"
+            forge_calibration.mkdir(exist_ok=True)
+            for corpus in queue_calibration.iterdir():
+                if corpus.is_file() and not (forge_calibration / corpus.name).exists():
+                    shutil.copy(corpus, forge_calibration / corpus.name)
+
         self.queue.write_heartbeat(state="building", current_part=assembly.name)
 
         # Station 1: forge + assay. The alloy's eval stage runs through
