@@ -322,9 +322,14 @@ def execute_alloy(alloy_path: str, output_dir: str = None, dry_run: bool = False
 
 
 def _find_domain(transform_stages: list) -> str:
-    """Extract domain from train stages."""
+    """Extract domain from train stages.
+
+    Pydantic-loaded alloys include None for unset Optional fields, so
+    'domain' in s is True even when the recipe didn't set it. Check
+    truthy via .get() so the fallback fires correctly.
+    """
     for s in transform_stages:
-        if s["type"] in ("train", "lora") and "domain" in s:
+        if s["type"] in ("train", "lora") and s.get("domain"):
             return s["domain"]
     return "general"
 
