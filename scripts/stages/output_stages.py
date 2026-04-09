@@ -343,7 +343,10 @@ class DeliverExecutor(StageExecutor):
     """
 
     def execute(self, ctx: ForgeContext) -> ForgeContext:
-        r = ctx.alloy.get("results", {})
+        # ctx.alloy.get("results") may legitimately be None for fresh
+        # forges that haven't been re-saved through the publish stage
+        # yet. Treat None the same as missing — empty results dict.
+        r = ctx.alloy.get("results") or {}
         benchmarks = r.get("benchmarks", [])
 
         # Compute model size
