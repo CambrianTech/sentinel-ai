@@ -198,15 +198,15 @@ def alloy_to_card(alloy: dict, alloy_hash: str = "", audience: str = "user") -> 
 
     name = alloy.get("name", "model")
     author = alloy.get("author", "")
-    source = alloy.get("source", {})
+    source = alloy.get("source") or {}
     base_model = source.get("baseModel", "unknown")
     r = alloy.get("results") or {}
     i = r.get("integrity") or {}
     code = i.get("code", {})
-    receipt = alloy.get("receipt", {})
-    stages = alloy.get("stages", [])
+    receipt = alloy.get("receipt") or {}
+    stages = alloy.get("stages") or []
     cycles = alloy.get("cycles", 1)
-    tags = alloy.get("tags", [])
+    tags = alloy.get("tags") or []
     certs = i.get("certifications", [])
 
     # Derive key metrics
