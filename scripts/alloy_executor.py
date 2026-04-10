@@ -217,24 +217,84 @@ def execute_alloy(alloy_path: str, output_dir: str = None, dry_run: bool = False
     else:
         n_shards = len(list(_P(early_source_dir).rglob("*.safetensors"))) if early_source_dir else 0
         print(f"  on-disk model size: {on_disk_gb:.1f}GB across {n_shards} safetensors files")
-    use_streaming = (not cfg.load_4bit) and (on_disk_gb > vram_gb)
     model_fp16_gb = on_disk_gb  # for downstream logging
-    if use_streaming:
-        # Reserve some headroom on each device — leave 2GiB on GPU for
-        # activations and 12GiB on CPU for working memory + Python.
+
+    # ── Load strategy decision tree (from the 2026-04-10 py-spy diagnosis) ─
+    #
+    # The decision is a three-way branch based on model size vs hardware:
+    #
+    #   (a) Model fits in VRAM in fp16 → load fp16 to CPU then move to CUDA
+    #       (the existing default path, preserves the RTX 5090 + Mamba2
+    #       sm_120 kernel workaround for CPU-init). Fast inference because
+    #       the whole model is on GPU.
+    #
+    #   (b) Model DOESN'T fit in fp16 but DOES fit in 4-bit → force 4-bit
+    #       loading. The entire model lands on GPU in quantized form.
+    #       Forward passes are GPU-bound and fast (no device swapping).
+    #       This is the FIX for the Mixtral 8x7B pathological slow case:
+    #       the previous streaming-load path (c) worked for loading but
+    #       made inference catastrophically slow because every forward
+    #       pass triggered dozens of CPU⇔GPU tensor copies via
+    #       Accelerate's pre_forward hook → set_module_tensor_to_device.
+    #       py-spy on bigmama 2026-04-10 showed the main thread pinned
+    #       in set_module_tensor_to_device for over an hour while the
+    #       baseline eval crawled through a single forward pass.
+    #
+    #       The activation profile stage produces valid results at 4-bit
+    #       because it counts router-gate activations (relative ordering
+    #       of expert firing frequency), which is robust to quantization.
+    #       The expert-prune stage downstream reads fp16 safetensors from
+    #       ctx.source_model_dir (disk), not the in-memory model, so
+    #       pruning precision is unaffected by the quantized load.
+    #
+    #   (c) Model doesn't fit even in 4-bit → streaming-load with
+    #       device_map="auto" and disk overflow. This is the only path
+    #       for truly huge models (Mixtral 8x22B at ~70GB in 4-bit on a
+    #       32GB GPU). Forward passes WILL be slow because of CPU⇔GPU
+    #       swapping — plan for hours-long activation profiles.
+    #
+    # Approximate 4-bit size: on_disk_gb / 4 (fp16 → 4-bit ≈ 4x compression).
+    # Use a conservative 3.5x to account for overhead.
+    approx_4bit_gb = on_disk_gb / 3.5
+    model_too_big_for_fp16 = (not cfg.load_4bit) and (on_disk_gb > vram_gb)
+    model_fits_in_4bit = approx_4bit_gb <= vram_gb * 0.9  # 90% headroom
+
+    if model_too_big_for_fp16 and model_fits_in_4bit:
+        # Path (b): force 4-bit. The model is too big for fp16 on GPU
+        # but fits in 4-bit. This gives us fast GPU-bound inference
+        # instead of the pathological CPU⇔GPU swap path.
+        print(
+            f"  Model too big for fp16 ({on_disk_gb:.1f}GB > {vram_gb:.1f}GB VRAM) "
+            f"but fits in 4-bit (~{approx_4bit_gb:.1f}GB ≤ {vram_gb:.1f}GB). "
+            f"Forcing 4-bit load for fast inference."
+        )
+        cfg = ForgeConfig(
+            tier="C", load_4bit=True,
+            batch_size=1, seq_len=256, grad_accum_steps=8,
+            lora_r=16, lora_alpha=32, use_8bit_optim=True,
+            pruning_method="forward_hooks",
+        )
+        ctx.tier = cfg.tier
+        ctx.load_4bit = cfg.load_4bit
+        ctx.model, ctx.tokenizer = load_model(load_path, cfg.load_4bit, auto_class=auto_class)
+
+    elif model_too_big_for_fp16 and not model_fits_in_4bit:
+        # Path (c): streaming-load with device_map="auto". Model doesn't
+        # fit even in 4-bit. Forward passes will be slow (CPU⇔GPU swap)
+        # but at least the model loads. Plan for hours-long stages.
         max_gpu = max(int(vram_gb) - 2, 8)
-        # Read total system RAM dynamically; cap CPU usage so Linux
-        # doesn't OOM-kill the daemon during a forge.
         try:
             import psutil
             total_ram_gb = psutil.virtual_memory().total / 1e9
             max_cpu = max(int(total_ram_gb) - 12, 16)
         except Exception:
-            max_cpu = 50  # safe default for a 62GiB WSL2 ceiling
+            max_cpu = 50
         print(
-            f"  Streaming-load enabled (model={model_fp16_gb:.1f}GB > "
-            f"vram={vram_gb:.1f}GB): GPU≤{max_gpu}GiB, CPU≤{max_cpu}GiB, "
-            f"disk overflow→/mnt/d/cold/hf-offload"
+            f"  Model too big even for 4-bit (~{approx_4bit_gb:.1f}GB > {vram_gb:.1f}GB). "
+            f"Streaming-load enabled (fp16={on_disk_gb:.1f}GB): "
+            f"GPU≤{max_gpu}GiB, CPU≤{max_cpu}GiB, "
+            f"disk overflow→/mnt/d/cold/hf-offload. "
+            f"WARNING: forward passes will be slow due to CPU⇔GPU device swapping."
         )
         ctx.model, ctx.tokenizer = load_model(
             load_path, cfg.load_4bit, auto_class=auto_class,
@@ -243,6 +303,7 @@ def execute_alloy(alloy_path: str, output_dir: str = None, dry_run: bool = False
             streaming_max_cpu_gb=max_cpu,
         )
     else:
+        # Path (a): model fits on GPU in fp16. The happy path.
         ctx.model, ctx.tokenizer = load_model(load_path, cfg.load_4bit, auto_class=auto_class)
 
     # Populate ctx.source_model_dir — the absolute on-disk path to the
