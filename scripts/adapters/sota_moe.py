@@ -259,19 +259,32 @@ class MixtralAdapter(FamilyAdapter):
         )
 
         # Reload ctx.model from the pruned dir for downstream stages.
+        # CRITICAL: use load_model() — NOT raw from_pretrained — so the
+        # pruned model gets the same 4-bit hybrid loading path (with BnB
+        # compat patches, offload_folder, fp32 CPU offload) as the
+        # initial load. Without this, the 70.9 GB pruned model loads in
+        # fp16 and hits the same CPU⇔GPU swap pathology that made the
+        # initial fp16 streaming path take 90+ minutes per forward pass.
+        # Kink #13 from the 2026-04-10 Mixtral 8x7B forge.
         import torch
-        from transformers import AutoModelForCausalLM, AutoTokenizer
+        import sys
+        from pathlib import Path as _P
+        sys.path.insert(0, str(_P(__file__).resolve().parents[1]))
+        from forge_model import load_model, get_model_info
         self.log(f"  reloading pruned Mixtral from {pruned_out}")
         del ctx.model
         torch.cuda.empty_cache()
-        ctx.model = AutoModelForCausalLM.from_pretrained(
+        # Measure the pruned model's on-disk size to decide load strategy
+        pruned_gb = sum(
+            f.stat().st_size for f in _P(pruned_out).glob("*.safetensors")
+        ) / 1e9
+        vram_gb = torch.cuda.get_device_properties(0).total_memory / 1e9
+        use_4bit = pruned_gb > vram_gb
+        self.log(f"  pruned on-disk: {pruned_gb:.1f}GB, VRAM: {vram_gb:.1f}GB → {'4-bit' if use_4bit else 'fp16'}")
+        ctx.model, ctx.tokenizer = load_model(
             str(pruned_out),
-            torch_dtype="auto",
-            device_map="auto",
-            trust_remote_code=True,
-        )
-        ctx.tokenizer = AutoTokenizer.from_pretrained(
-            str(pruned_out), trust_remote_code=True,
+            load_4bit=use_4bit,
+            auto_class=self.model_auto_class(),
         )
         ctx.dead_heads = None
         ctx.pruned_model_dir = str(pruned_out)

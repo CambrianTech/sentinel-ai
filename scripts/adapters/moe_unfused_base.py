@@ -300,20 +300,28 @@ class MoEUnfusedExpertsBase(FamilyAdapter):
         # Reload ctx.model from the pruned dir so downstream stages (quant,
         # eval, package, publish) operate on the pruned model, not the
         # in-memory original.
+        # CRITICAL: use load_model() — NOT raw from_pretrained — so the
+        # pruned model gets the same 4-bit hybrid loading path as the
+        # initial load. Without this, large pruned models load in fp16
+        # and hit CPU⇔GPU swap pathology. Kink #13 fix.
         import torch
-        from transformers import AutoModelForCausalLM, AutoTokenizer
+        import sys
+        from pathlib import Path as _P
+        sys.path.insert(0, str(_P(__file__).resolve().parents[1]))
+        from forge_model import load_model
         self.log(f"  reloading pruned model from {pruned_out}")
-        # Free the original model's GPU memory before loading the pruned one.
         del ctx.model
         torch.cuda.empty_cache()
-        ctx.model = AutoModelForCausalLM.from_pretrained(
+        pruned_gb = sum(
+            f.stat().st_size for f in _P(pruned_out).glob("*.safetensors")
+        ) / 1e9
+        vram_gb = torch.cuda.get_device_properties(0).total_memory / 1e9
+        use_4bit = pruned_gb > vram_gb
+        self.log(f"  pruned on-disk: {pruned_gb:.1f}GB, VRAM: {vram_gb:.1f}GB → {'4-bit' if use_4bit else 'fp16'}")
+        ctx.model, ctx.tokenizer = load_model(
             str(pruned_out),
-            torch_dtype="auto",
-            device_map="auto",
-            trust_remote_code=True,
-        )
-        ctx.tokenizer = AutoTokenizer.from_pretrained(
-            str(pruned_out), trust_remote_code=True,
+            load_4bit=use_4bit,
+            auto_class=self.model_auto_class(),
         )
         ctx.dead_heads = None  # not relevant for MoE
         ctx.pruned_model_dir = str(pruned_out)
