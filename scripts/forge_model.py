@@ -251,7 +251,15 @@ def load_model(
             llm_int8_enable_fp32_cpu_offload=True,
         )
         kwargs["device_map"] = "auto"
-        print(f"  Loading 4-bit NF4 (double quant, fp32 CPU offload) via {auto_class.__name__}")
+        # MoE models (Mixtral, etc.) need offload_folder for disk-based
+        # weight re-saving during 4-bit quantized loading. Without this,
+        # transformers raises "provide an offload_folder" when the auto
+        # device map spills MoE expert weights to disk.
+        from pathlib import Path as _P
+        offload_dir = _P(streaming_offload_folder)
+        offload_dir.mkdir(parents=True, exist_ok=True)
+        kwargs["offload_folder"] = str(offload_dir)
+        print(f"  Loading 4-bit NF4 (double quant, fp32 CPU offload, disk→{offload_dir}) via {auto_class.__name__}")
     elif streaming:
         # Streaming load via Accelerate's auto device map. Used when the
         # model is too large to fit in CPU RAM all at once (Mixtral 8x7B,
