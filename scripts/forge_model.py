@@ -235,19 +235,23 @@ def load_model(
             bnb_4bit_compute_dtype=torch.float16,
             bnb_4bit_use_double_quant=True,
             bnb_4bit_quant_type="nf4",
+            # Enable fp32 CPU offload for modules that don't fit on GPU.
+            # Despite the "int8" in the name, this flag controls 4-bit
+            # mixed CPU/GPU loading too. Without it, BnB's
+            # validate_environment refuses to proceed if any module would
+            # spill to CPU. With it, overflow modules (embedding, lm_head,
+            # a few expert layers) go to CPU in fp32 while the rest stays
+            # on GPU in 4-bit. Forward passes are mostly GPU-bound — way
+            # faster than the fp16 streaming path that swaps entire layers.
+            #
+            # History (bigmama 2026-04-10):
+            #   device_map="auto" without this flag → BnB validation error
+            #   device_map={"": 0} → CUDA OOM (model too big even in 4-bit)
+            #   device_map="auto" WITH this flag → the hybrid path that works
+            llm_int8_enable_fp32_cpu_offload=True,
         )
-        # Use {"": 0} instead of "auto" for 4-bit loads. The "auto" device
-        # map triggers BnB's validate_environment which refuses to proceed
-        # if any module would spill to CPU — even when the 4-bit model
-        # actually fits on GPU. This was the failure mode on bigmama for
-        # Mixtral 8x7B (~27GB 4-bit on 32GB VRAM): auto said "some modules
-        # dispatched to CPU" and raised ValueError. Forcing {"": 0} tells
-        # transformers to put everything on cuda:0 without asking BnB for
-        # permission. If it truly doesn't fit, we get an honest CUDA OOM
-        # at load time (which is recoverable) instead of a preemptive
-        # validation error.
-        kwargs["device_map"] = {"": 0}
-        print(f"  Loading 4-bit NF4 (double quant) via {auto_class.__name__}")
+        kwargs["device_map"] = "auto"
+        print(f"  Loading 4-bit NF4 (double quant, fp32 CPU offload) via {auto_class.__name__}")
     elif streaming:
         # Streaming load via Accelerate's auto device map. Used when the
         # model is too large to fit in CPU RAM all at once (Mixtral 8x7B,
