@@ -227,14 +227,13 @@ def load_model(
     if auto_class is None:
         auto_class = AutoModelForCausalLM
 
-    # ── BnB 0.49.2 compat patch ──────────────────────────────────────
-    # transformers 5.3.0 passes `_is_hf_initialized` kwarg when
-    # reconstructing Params4bit objects via set_module_tensor_to_device.
-    # BnB 0.49.2's Params4bit.__new__ doesn't accept it → TypeError.
-    # Monkey-patch to filter the kwarg until BnB 0.50+ ships.
-    # TODO: remove when bitsandbytes >= 0.50.0 is available.
+    # ── BnB 0.49.2 compat patches ─────────────────────────────────────
+    # Two patches for BnB 0.49.2 incompatibilities with modern
+    # transformers/accelerate. TODO: remove when BnB >= 0.50.0 ships.
     try:
         import bitsandbytes as _bnb
+
+        # Patch 1: Params4bit.__new__ doesn't accept _is_hf_initialized
         _P4b = _bnb.nn.Params4bit
         if not getattr(_P4b, '_continuum_patched', False):
             _orig_new = _P4b.__new__
@@ -244,6 +243,29 @@ def load_model(
                 return _orig_new(cls, *args, **kwargs)
             _P4b.__new__ = _patched_new
             _P4b._continuum_patched = True
+
+        # Patch 2: QuantState.as_dict() calls offset.item() on meta
+        # tensors during accelerate's dispatch hook installation.
+        # When accelerate moves tensors to the "meta" device for
+        # deferred materialization, BnB's quant_state.offset ends up
+        # on meta and .item() raises RuntimeError. Fix: materialize
+        # meta-device offset as a CPU zero tensor before as_dict runs.
+        # The offset is a nested-quantization correction factor that
+        # defaults to zero when uninitialized, so this is safe.
+        from bitsandbytes.functional import QuantState as _QS
+        if not getattr(_QS, '_continuum_patched', False):
+            _orig_as_dict = _QS.as_dict
+            def _patched_as_dict(self, packed=False):
+                if hasattr(self, 'offset') and self.offset is not None:
+                    if hasattr(self.offset, 'device') and str(self.offset.device) == 'meta':
+                        self.offset = torch.zeros(1, dtype=self.offset.dtype, device='cpu')
+                if hasattr(self, 'state2') and self.state2 is not None:
+                    if hasattr(self.state2, 'offset') and self.state2.offset is not None:
+                        if hasattr(self.state2.offset, 'device') and str(self.state2.offset.device) == 'meta':
+                            self.state2.offset = torch.zeros(1, dtype=self.state2.offset.dtype, device='cpu')
+                return _orig_as_dict(self, packed=packed)
+            _QS.as_dict = _patched_as_dict
+            _QS._continuum_patched = True
     except Exception:
         pass  # BnB not installed — 4-bit path won't be used anyway
 
