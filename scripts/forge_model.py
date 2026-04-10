@@ -198,7 +198,7 @@ def load_model(
     streaming: bool = False,
     streaming_max_gpu_gb: int = 30,
     streaming_max_cpu_gb: int = 50,
-    streaming_offload_folder: str = "/mnt/d/cold/hf-offload",
+    streaming_offload_folder: str = "/mnt/cold/hf-offload",
 ):
     """Load model with explicit memory strategy.
 
@@ -214,7 +214,7 @@ def load_model(
     model_fp16_gb vs available CPU RAM. When streaming is enabled,
     weights are loaded one shard at a time and placed across GPU / CPU
     / disk per the max_memory constraints, with overflow spilling to
-    streaming_offload_folder (default /mnt/d/cold/hf-offload — the cold
+    streaming_offload_folder (default /mnt/cold/hf-offload — the cold
     tier with plenty of room for big-MoE source weights).
 
     The non-streaming (CPU-first) path is preserved as the default
