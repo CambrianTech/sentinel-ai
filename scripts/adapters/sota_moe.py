@@ -169,6 +169,11 @@ class MixtralAdapter(FamilyAdapter):
             max_length=max_length,
             device=device,
             model_label=ctx.model_name or type(ctx.model).__name__,
+            # Mixtral's router gate lives at block_sparse_moe.gate per
+            # layer, NOT mlp.gate (which is Qwen3MoE's path). This is
+            # kink #11: the profile defaulted to mlp.gate and registered
+            # 0/32 hooks because Mixtral has no mlp.gate attribute.
+            gate_attr_path="block_sparse_moe.gate",
         )
         ctx.importance_json_path = str(importance_path)
         self.log(
