@@ -146,13 +146,15 @@ class FactoryQueue:
     @property
     def rework_dir(self) -> Path:    return self.line_dir / "rework"
 
-    # ── Daemon support: heartbeat, PID lock, throughput log ────────────
+    # ── Daemon support: heartbeat, PID lock, throughput log, events ────
     @property
     def heartbeat_path(self) -> Path:        return self.line_dir / ".heartbeat.json"
     @property
     def pid_path(self) -> Path:              return self.line_dir / ".worker.pid"
     @property
     def throughput_log_path(self) -> Path:   return self.line_dir / "throughput.jsonl"
+    @property
+    def events_path(self) -> Path:           return self.line_dir / ".events.jsonl"
 
     def write_heartbeat(self, *, state: str, current_part: str | None) -> None:
         """Write the daemon heartbeat. The grid (continuum) polls this
@@ -169,6 +171,76 @@ class FactoryQueue:
         tmp = self.heartbeat_path.with_suffix(".json.tmp")
         tmp.write_text(json.dumps(data, indent=2))
         tmp.rename(self.heartbeat_path)
+
+    def emit_event(self, kind: str, **payload: Any) -> None:
+        """Append an event to the forge event stream sidecar.
+
+        The event stream is append-only JSON Lines. Each line is one
+        event with a timestamp, node hostname, kind, and kind-specific
+        payload. This is the file-based v0 transport for forge events;
+        continuum's Events.emit() pub/sub layer will eventually subscribe
+        to this file and republish events as native pub/sub events.
+        Until then, operators and agents tail -f the file directly or
+        read it in batches.
+
+        The file is per-line (not per-daemon global) so consumers can
+        watch a specific line's lifecycle. Hostname is included in
+        every event so cross-node aggregators can route by origin.
+
+        Event kinds (v0.2 of FACTORY-PROTOCOL.md):
+          forge/started            — new part picked up from intake
+          forge/stage/started      — stage N begins
+          forge/stage/progress     — periodic progress within a stage
+          forge/stage/completed    — stage N finishes
+          forge/model/load/*       — optional fine-grained load events
+          forge/completed          — full forge lands in finished/
+          forge/rework             — forge moves to rework/ with error
+
+        Best-effort: never blocks a forge on event emission failure.
+        """
+        event = {
+            "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S.000Z", time.gmtime()),
+            "host": os.uname().nodename if hasattr(os, "uname") else "unknown",
+            "kind": kind,
+            **payload,
+        }
+        try:
+            with self.events_path.open("a") as f:
+                f.write(json.dumps(event) + "\n")
+        except Exception:
+            # Best-effort only. Never fail a forge on an event emission
+            # failure — the events stream is an observability channel,
+            # not a load-bearing state channel (the canonical state is
+            # in heartbeat.json + the station directories).
+            pass
+
+    def read_events(self, since_timestamp: str | None = None, limit: int | None = None) -> list[dict]:
+        """Read events from the stream, optionally filtered by timestamp.
+
+        Helper for subscribers that want to consume the events file in
+        batches rather than tailing it. Returns events in chronological
+        order (same as file order).
+        """
+        if not self.events_path.exists():
+            return []
+        events: list[dict] = []
+        try:
+            for line in self.events_path.read_text().splitlines():
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    event = json.loads(line)
+                except json.JSONDecodeError:
+                    continue  # Skip malformed lines; don't fail the read
+                if since_timestamp and event.get("timestamp", "") <= since_timestamp:
+                    continue
+                events.append(event)
+                if limit and len(events) >= limit:
+                    break
+        except Exception:
+            pass
+        return events
 
     def read_heartbeat(self) -> dict | None:
         if not self.heartbeat_path.exists():
@@ -626,12 +698,49 @@ class FactoryWorker:
 
         self._set_heartbeat(state="building", current_part=assembly.name)
 
+        # Parse the alloy file once up front to pull out metadata for
+        # events — source model, stages, etc. Best-effort; if the alloy
+        # is malformed, the executor will fail anyway and the event is
+        # incidental.
+        alloy_meta: dict = {}
+        try:
+            _alloy_raw = json.loads(assembly.read_text())
+            alloy_meta = {
+                "alloy_name": _alloy_raw.get("name", assembly.stem),
+                "source_model": (_alloy_raw.get("source") or {}).get("baseModel"),
+                "stages": [s.get("type") for s in (_alloy_raw.get("stages") or [])],
+            }
+        except Exception:
+            pass
+
+        _forge_started_at = time.time()
+        self.queue.emit_event(
+            "forge/started",
+            alloy=assembly.name,
+            forged_dir=str(forged_root),
+            **alloy_meta,
+        )
+
         # Station 1: forge + assay. The alloy's eval stage runs through
         # the registered BenchmarkRunner pack as part of execute_alloy.
+        self.queue.emit_event(
+            "forge/stage/started",
+            alloy=assembly.name,
+            stage="executor",  # the executor runs all pipeline stages
+            stages=alloy_meta.get("stages", []),
+        )
         try:
             executor_result = self.executor(str(assembly), output_dir=str(forged_root))
             forged_dir = Path(executor_result) if executor_result else forged_root
         except Exception as e:
+            _err_str = str(e)
+            self.queue.emit_event(
+                "forge/rework",
+                alloy=assembly.name,
+                stage="executor",
+                error=_err_str[:500],  # truncate long errors
+                elapsed_s=round(time.time() - _forge_started_at, 2),
+            )
             self.queue.mark_rework(
                 assembly,
                 error=f"executor failed: {e}",
@@ -639,14 +748,32 @@ class FactoryWorker:
             )
             return True
 
+        self.queue.emit_event(
+            "forge/stage/completed",
+            alloy=assembly.name,
+            stage="executor",
+            elapsed_s=round(time.time() - _forge_started_at, 2),
+            forged_dir=str(forged_dir),
+        )
+
         # Station 2 (OPTIONAL): publish. Default is OFF. Continuum is
         # the shipping department. The worker only invokes the publisher
         # if one was explicitly injected (staging-environment test path).
         publish_manifest: dict = {}
         if self.publisher is not None:
+            self.queue.emit_event("forge/stage/started", alloy=assembly.name, stage="publish")
+            _publish_started_at = time.time()
             try:
                 publish_result = self.publisher(forged_dir, org=self.org)
             except Exception as e:
+                _err_str = str(e)
+                self.queue.emit_event(
+                    "forge/rework",
+                    alloy=assembly.name,
+                    stage="publish",
+                    error=_err_str[:500],
+                    elapsed_s=round(time.time() - _publish_started_at, 2),
+                )
                 self.queue.mark_rework(
                     assembly,
                     error=f"publisher failed: {e}",
@@ -657,6 +784,13 @@ class FactoryWorker:
                 publish_manifest["hf_repo_url"] = publish_result
             elif isinstance(publish_result, dict):
                 publish_manifest.update(publish_result)
+            self.queue.emit_event(
+                "forge/stage/completed",
+                alloy=assembly.name,
+                stage="publish",
+                elapsed_s=round(time.time() - _publish_started_at, 2),
+                **publish_manifest,
+            )
 
         # Tier 2: compute the modelHash of forged_dir using the canonical
         # alloy_hashing convention and record it in the manifest. Continuum
@@ -716,6 +850,16 @@ class FactoryWorker:
             **publish_manifest,
         }
         self.queue.mark_finished(assembly, manifest)
+        self.queue.emit_event(
+            "forge/completed",
+            alloy=assembly.name,
+            forged_dir=str(forged_dir),
+            modelHash=model_hash,
+            published=self.publisher is not None,
+            priorMetricBaselines_count=len(prior_metric_baselines),
+            elapsed_s=round(time.time() - _forge_started_at, 2),
+            **{k: v for k, v in publish_manifest.items() if k == "hf_repo_url"},
+        )
         return True
 
     def run_forever(

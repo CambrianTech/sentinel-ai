@@ -89,6 +89,43 @@ Standard outcomes:
 - `evicted` — auto-cleanup pass removed an orphan work dir
 - `promoted_from_rework` — foreman manually moved a rework part back to intake
 
+### `.events.jsonl` — the forge event stream (v0.2)
+
+An append-only JSON Lines file written by the daemon at every forge lifecycle transition. Each line is one event with a timestamp, the node hostname, an event `kind`, and a kind-specific payload. **This is the file-based v0 transport for forge events; continuum's `Events.emit()` pub/sub layer will eventually subscribe to this file and republish events as native pub/sub events.** Until then, operators and agents tail the file directly (`tail -F .events.jsonl`) or read it in batches via `FactoryQueue.read_events()`.
+
+The events stream is **observability, not load-bearing state**. The canonical state of the line is still held in `.heartbeat.json` (current daemon liveness + current part) and the station directories (`intake/` / `assembly/` / `finished/` / `rework/` — where each alloy file physically sits). Events are the *history* of how state changed, not the state itself. This means event emission is best-effort and never blocks a forge; a lost event is a gap in observability but the state remains authoritative via the canonical sources.
+
+**Event kinds (v0.2)**, with required payload fields beyond the base (`timestamp`, `host`, `kind`, `alloy`):
+
+| Kind | When emitted | Required payload |
+|---|---|---|
+| `forge/started` | New part picked up from intake | `forged_dir`, optionally `alloy_name`, `source_model`, `stages[]` |
+| `forge/stage/started` | Stage begins | `stage` (string name), optionally `stages[]` (full pipeline) |
+| `forge/stage/progress` | Periodic progress within a stage (optional, fine-grained) | `stage`, `substage?`, `progress` (0.0-1.0), `samples_done?`, `samples_total?` |
+| `forge/stage/completed` | Stage finishes cleanly | `stage`, `elapsed_s`, optionally `forged_dir` |
+| `forge/model/load/*` | Optional fine-grained model-load lifecycle | `source_gb`, `streaming`, `max_gpu_gb`, `max_cpu_gb`, `peak_*_gb`, `elapsed_s` |
+| `forge/completed` | Full forge lands in `finished/` | `forged_dir`, `modelHash`, `published`, `elapsed_s`, `priorMetricBaselines_count`, `hf_repo_url?` |
+| `forge/rework` | Forge moves to `rework/` with error | `stage`, `error` (truncated to 500 chars), `elapsed_s` |
+
+**Example event stream** (one forge from start to finish):
+
+```jsonl
+{"timestamp": "2026-04-10T01:09:00.000Z", "host": "BigMama", "kind": "forge/started", "alloy": "mixtral-8x7b-instruct-compacted.retry2.alloy.json", "forged_dir": "/home/joel/sentinel-factory/work/mixtral-8x7b...", "alloy_name": "mixtral-8x7b-instruct-compacted-conservative", "source_model": "mistralai/Mixtral-8x7B-Instruct-v0.1", "stages": ["expert-activation-profile", "expert-prune", "quant", "eval", "publish"]}
+{"timestamp": "2026-04-10T01:09:00.500Z", "host": "BigMama", "kind": "forge/stage/started", "alloy": "mixtral-8x7b-instruct-compacted.retry2.alloy.json", "stage": "executor", "stages": ["expert-activation-profile", "expert-prune", "quant", "eval", "publish"]}
+{"timestamp": "2026-04-10T02:45:15.000Z", "host": "BigMama", "kind": "forge/stage/completed", "alloy": "mixtral-8x7b-instruct-compacted.retry2.alloy.json", "stage": "executor", "elapsed_s": 5774.5, "forged_dir": "/home/joel/sentinel-factory/work/mixtral-8x7b..."}
+{"timestamp": "2026-04-10T02:45:16.000Z", "host": "BigMama", "kind": "forge/completed", "alloy": "mixtral-8x7b-instruct-compacted.retry2.alloy.json", "forged_dir": "/home/joel/sentinel-factory/work/mixtral-8x7b...", "modelHash": "sha256:...", "published": false, "elapsed_s": 5776.0, "priorMetricBaselines_count": 1}
+```
+
+**Schema compatibility**: consumers MUST tolerate unknown payload fields (forward compatibility). Consumers MUST NOT assume fields beyond the required ones for each kind. Adding new kinds or new optional fields is a minor version bump; removing fields or changing their semantics is a breaking change requiring a major version bump.
+
+**Rotation**: the events file can be rotated by a log-rotator (for long-running nodes producing many events) but rotation must preserve the file's contents in order and never reorder events. A rotated file sequence (`.events.jsonl.1`, `.events.jsonl.2`, etc.) is a valid continuation of the stream.
+
+**Subscriber patterns**:
+
+1. **Tail and parse** — `tail -F .events.jsonl | jq` for a live feed on the operator's terminal
+2. **Batch read with `since`** — `FactoryQueue.read_events(since_timestamp=...)` returns events newer than a given timestamp, for poller clients that catch up intermittently
+3. **Republish to continuum `Events.emit()`** — a bridge process that tails the file and republishes each event to continuum's native pub/sub system as `data:forge:<kind>` events. This is the path that connects file-based v0 events to continuum's native event infrastructure without changing the daemon's side of the contract.
+
 ### Sidecar files
 
 Each part in `finished/` and `rework/` has at least one sidecar with the same basename:
