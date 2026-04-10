@@ -236,7 +236,17 @@ def load_model(
             bnb_4bit_use_double_quant=True,
             bnb_4bit_quant_type="nf4",
         )
-        kwargs["device_map"] = "auto"
+        # Use {"": 0} instead of "auto" for 4-bit loads. The "auto" device
+        # map triggers BnB's validate_environment which refuses to proceed
+        # if any module would spill to CPU — even when the 4-bit model
+        # actually fits on GPU. This was the failure mode on bigmama for
+        # Mixtral 8x7B (~27GB 4-bit on 32GB VRAM): auto said "some modules
+        # dispatched to CPU" and raised ValueError. Forcing {"": 0} tells
+        # transformers to put everything on cuda:0 without asking BnB for
+        # permission. If it truly doesn't fit, we get an honest CUDA OOM
+        # at load time (which is recoverable) instead of a preemptive
+        # validation error.
+        kwargs["device_map"] = {"": 0}
         print(f"  Loading 4-bit NF4 (double quant) via {auto_class.__name__}")
     elif streaming:
         # Streaming load via Accelerate's auto device map. Used when the
