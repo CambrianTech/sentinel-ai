@@ -529,6 +529,81 @@ CATALOG: list[dict] = [
             "second — the §4.1.3.4 lesson)."
         ),
     ),
+    # ── Qwen3.5-35B-A3B — hybrid attention (Strategy A) regression test ──
+    #
+    # ROW 4 of the cross-family anchor table per
+    # continuum/docs/papers/ROADMAP-VIRAL-CANDIDATES.md. This is the strategic
+    # forge-target floor per Joel's standing memory (Qwen3.5+, vision
+    # paramount) AND the regression test of the shared adapter base
+    # for hybrid attention.
+    #
+    # Qwen3.5 MoE has HYBRID ATTENTION: a mix of linear-attention (Gated
+    # DeltaNet) layers and full-attention layers, specified in config.json
+    # as `layer_types: ["linear_attention", ..., "full_attention", ...]`.
+    # The attention-surgery code paths (defrag, importance profiling,
+    # pruning) MUST skip non-full-attention layers — this is Strategy A
+    # from sentinel-ai#163, implemented in scripts/forge_model.py via
+    # is_full_attention_layer() and has_hybrid_layers() helpers. Those
+    # helpers have NOT been exercised end-to-end since before the recent
+    # Mixtral and Qwen3-coder work. This recipe is the regression test
+    # that proves the shared base hasn't drifted under all the Mixtral
+    # focus. A successful forge validates "adapters not branches" as
+    # empirical principle (feedback_adapters_not_branches memory). A
+    # failed forge surfaces the drift and we fix before continuing.
+    #
+    # TODO before queueing:
+    #   1. Verify the exact HF repo name — this recipe assumes
+    #      "Qwen/Qwen3.5-35B-A3B-Instruct" but it may be different
+    #      (e.g. "Qwen/Qwen3.5-MoE-35B-A3B-Instruct" or similar).
+    #   2. Verify the architecture discriminator string by loading the
+    #      HF config.json — may be "qwen3_next", "qwen3_5_moe", or a
+    #      new key introduced with the Qwen3.5 release. If it's a new
+    #      key, we also need to either register it against the existing
+    #      Qwen3MoEAdapter (if the layout is compatible) or create a
+    #      new Qwen3_5MoEAdapter subclass.
+    #   3. Verify all source_geometry fields (numLayers, hiddenSize,
+    #      moeIntermediateSize, numExpertsPerLayer, contextLength)
+    #      against the actual config.json. The values below are
+    #      estimates based on naming conventions.
+    #   4. Confirm the family adapter's expert_activation_profile and
+    #      expert_prune stages respect has_hybrid_layers(config) so
+    #      linear-attention layers are skipped during surgery.
+    _moe_recipe(
+        name="qwen3-5-35b-a3b-instruct-compacted",
+        base_model="Qwen/Qwen3.5-35B-A3B-Instruct",  # TODO: verify exact repo
+        architecture="qwen3_moe",  # TODO: verify; may need new key + adapter
+        layout="mlp-experts-unfused",  # assumed same as Qwen3-Coder-30B-A3B
+        keep_experts=80,  # same 25% removal as the morning flagship
+        original_experts=128,  # TODO: verify from config
+        source_geometry={
+            "totalParamsB": 35.0,
+            "activeParamsB": 3.0,
+            "numLayers": 48,  # TODO: verify
+            "numExpertsPerLayer": 128,  # TODO: verify
+            "numActivatedExperts": 8,  # TODO: verify
+            "hiddenSize": 2048,  # TODO: verify
+            "moeIntermediateSize": 768,  # TODO: verify
+            "contextLength": 262144,  # TODO: verify
+            "license": "apache-2.0",  # TODO: verify
+            "hybridAttention": True,
+            "attentionStrategy": "A",
+        },
+        benchmarks=CODE_BENCHMARKS + OPENLLM_V2_BENCHMARKS,
+        acceptance=_general_acceptance(max_vram_gb=14.0),
+        description=(
+            "Qwen3.5-35B-A3B-Instruct compacted via §4.1.3.4 calibration-aware "
+            "activation count — the strategic forge-target floor per Joel's "
+            "standing direction (Qwen3.5 and newer). THIS IS THE REGRESSION "
+            "TEST of the shared adapter base: Qwen3.5 has hybrid attention "
+            "(linear + full) requiring Strategy A (skip non-full-attention "
+            "layers during surgery), and those code paths in forge_model.py "
+            "have not been exercised end-to-end since before the recent "
+            "Mixtral-focused work. A successful forge validates 'adapters "
+            "not branches' as empirical principle. A failed forge surfaces "
+            "drift in the shared base and we fix before continuing. Row 4 "
+            "of the 5-row cross-family anchor table."
+        ),
+    ),
     # ── Vision: Qwen3-VL dense (8B) and Qwen3-VL MoE (30B-A3B) ──
     # Verified from HF config.json:
     #   Qwen3-VL-8B-Instruct        model_type: qwen3_vl
