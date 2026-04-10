@@ -190,9 +190,84 @@ def check_vram(label: str):
 # Loading
 # ---------------------------------------------------------------------------
 
-def load_model(model_name: str, load_4bit: bool, free_cache_after_load: bool = False):
-    """Load model with explicit memory strategy."""
+def load_model(
+    model_name: str,
+    load_4bit: bool,
+    free_cache_after_load: bool = False,
+    auto_class=None,
+    streaming: bool = False,
+    streaming_max_gpu_gb: int = 30,
+    streaming_max_cpu_gb: int = 50,
+    streaming_offload_folder: str = "/mnt/cold/hf-offload",
+):
+    """Load model with explicit memory strategy.
+
+    auto_class is the transformers AutoModel class to use for loading.
+    Default is AutoModelForCausalLM (the dense LLM case). Family
+    adapters can pass their own class (AutoModelForVision2Seq for VL,
+    AutoModel for omni-modal, etc.) via family.model_auto_class().
+
+    streaming=True enables Accelerate's auto-device-map streaming load,
+    required for models too large to fit in CPU RAM all at once
+    (Mixtral 8x7B ~93GB fp16, Mixtral 8x22B ~280GB fp16, etc.). The
+    decision to enable streaming should be made by the caller based on
+    model_fp16_gb vs available CPU RAM. When streaming is enabled,
+    weights are loaded one shard at a time and placed across GPU / CPU
+    / disk per the max_memory constraints, with overflow spilling to
+    streaming_offload_folder (default /mnt/cold/hf-offload — the cold
+    tier with plenty of room for big-MoE source weights).
+
+    The non-streaming (CPU-first) path is preserved as the default
+    because of the RTX 5090 + Mamba2 sm_120 kernel workaround — small
+    Mamba-class models still need CPU-first init. Big MoE models that
+    don't have that constraint take the streaming path.
+    """
     from transformers import AutoModelForCausalLM, AutoTokenizer
+
+    if auto_class is None:
+        auto_class = AutoModelForCausalLM
+
+    # ── BnB 0.49.2 compat patches ─────────────────────────────────────
+    # Two patches for BnB 0.49.2 incompatibilities with modern
+    # transformers/accelerate. TODO: remove when BnB >= 0.50.0 ships.
+    try:
+        import bitsandbytes as _bnb
+
+        # Patch 1: Params4bit.__new__ doesn't accept _is_hf_initialized
+        _P4b = _bnb.nn.Params4bit
+        if not getattr(_P4b, '_continuum_patched', False):
+            _orig_new = _P4b.__new__
+            @staticmethod
+            def _patched_new(cls, *args, **kwargs):
+                kwargs.pop('_is_hf_initialized', None)
+                return _orig_new(cls, *args, **kwargs)
+            _P4b.__new__ = _patched_new
+            _P4b._continuum_patched = True
+
+        # Patch 2: QuantState.as_dict() calls offset.item() on meta
+        # tensors during accelerate's dispatch hook installation.
+        # When accelerate moves tensors to the "meta" device for
+        # deferred materialization, BnB's quant_state.offset ends up
+        # on meta and .item() raises RuntimeError. Fix: materialize
+        # meta-device offset as a CPU zero tensor before as_dict runs.
+        # The offset is a nested-quantization correction factor that
+        # defaults to zero when uninitialized, so this is safe.
+        from bitsandbytes.functional import QuantState as _QS
+        if not getattr(_QS, '_continuum_patched', False):
+            _orig_as_dict = _QS.as_dict
+            def _patched_as_dict(self, packed=False):
+                if hasattr(self, 'offset') and self.offset is not None:
+                    if hasattr(self.offset, 'device') and str(self.offset.device) == 'meta':
+                        self.offset = torch.zeros(1, dtype=self.offset.dtype, device='cpu')
+                if hasattr(self, 'state2') and self.state2 is not None:
+                    if hasattr(self.state2, 'offset') and self.state2.offset is not None:
+                        if hasattr(self.state2.offset, 'device') and str(self.state2.offset.device) == 'meta':
+                            self.state2.offset = torch.zeros(1, dtype=self.state2.offset.dtype, device='cpu')
+                return _orig_as_dict(self, packed=packed)
+            _QS.as_dict = _patched_as_dict
+            _QS._continuum_patched = True
+    except Exception:
+        pass  # BnB not installed — 4-bit path won't be used anyway
 
     kwargs = {"low_cpu_mem_usage": True}
     if load_4bit:
@@ -202,19 +277,68 @@ def load_model(model_name: str, load_4bit: bool, free_cache_after_load: bool = F
             bnb_4bit_compute_dtype=torch.float16,
             bnb_4bit_use_double_quant=True,
             bnb_4bit_quant_type="nf4",
+            # Enable fp32 CPU offload for modules that don't fit on GPU.
+            # Despite the "int8" in the name, this flag controls 4-bit
+            # mixed CPU/GPU loading too. Without it, BnB's
+            # validate_environment refuses to proceed if any module would
+            # spill to CPU. With it, overflow modules (embedding, lm_head,
+            # a few expert layers) go to CPU in fp32 while the rest stays
+            # on GPU in 4-bit. Forward passes are mostly GPU-bound — way
+            # faster than the fp16 streaming path that swaps entire layers.
+            #
+            # History (bigmama 2026-04-10):
+            #   device_map="auto" without this flag → BnB validation error
+            #   device_map={"": 0} → CUDA OOM (model too big even in 4-bit)
+            #   device_map="auto" WITH this flag → the hybrid path that works
+            llm_int8_enable_fp32_cpu_offload=True,
         )
         kwargs["device_map"] = "auto"
-        print(f"  Loading 4-bit NF4 (double quant)")
+        # MoE models (Mixtral, etc.) need offload_folder for disk-based
+        # weight re-saving during 4-bit quantized loading. Without this,
+        # transformers raises "provide an offload_folder" when the auto
+        # device map spills MoE expert weights to disk.
+        from pathlib import Path as _P
+        offload_dir = _P(streaming_offload_folder)
+        offload_dir.mkdir(parents=True, exist_ok=True)
+        kwargs["offload_folder"] = str(offload_dir)
+        print(f"  Loading 4-bit NF4 (double quant, fp32 CPU offload, disk→{offload_dir}) via {auto_class.__name__}")
+    elif streaming:
+        # Streaming load via Accelerate's auto device map. Used when the
+        # model is too large to fit in CPU RAM all at once (Mixtral 8x7B,
+        # 8x22B, Qwen3-Coder-480B, etc.). Each shard loads, gets placed
+        # on its target device, and the next shard loads. Peak CPU memory
+        # is one shard at a time plus working overhead, NOT the whole
+        # model. Anything that doesn't fit on GPU+CPU spills to disk in
+        # streaming_offload_folder.
+        from pathlib import Path as _P
+        offload_path = _P(streaming_offload_folder)
+        offload_path.mkdir(parents=True, exist_ok=True)
+        kwargs["dtype"] = torch.float16
+        kwargs["device_map"] = "auto"
+        kwargs["max_memory"] = {
+            0: f"{streaming_max_gpu_gb}GiB",
+            "cpu": f"{streaming_max_cpu_gb}GiB",
+        }
+        kwargs["offload_folder"] = str(offload_path)
+        kwargs["offload_state_dict"] = True
+        print(
+            f"  Loading fp16 STREAMING via {auto_class.__name__} "
+            f"(GPU≤{streaming_max_gpu_gb}GiB, CPU≤{streaming_max_cpu_gb}GiB, "
+            f"disk overflow→{streaming_offload_folder})"
+        )
     else:
         kwargs["dtype"] = torch.float16
         # Load to CPU first, then move to CUDA. This avoids sm_120 kernel errors
         # during _init_weights (Mamba-2 A_log init runs torch.uniform_ on CUDA
         # which fails on RTX 5090 with older PyTorch). CPU init always works.
         kwargs["device_map"] = "cpu"
-        print(f"  Loading fp16 (CPU → CUDA)")
+        print(f"  Loading fp16 (CPU → CUDA) via {auto_class.__name__}")
 
-    model = AutoModelForCausalLM.from_pretrained(model_name, **kwargs)
-    if not load_4bit and str(model.device) == "cpu":
+    model = auto_class.from_pretrained(model_name, **kwargs)
+    # Only move to CUDA if we used the CPU-first path. Streaming and 4-bit
+    # paths already placed weights via device_map="auto" — calling .to("cuda")
+    # on a dispatched model breaks the per-layer placement.
+    if not load_4bit and not streaming and str(model.device) == "cpu":
         model = model.to("cuda")
     tokenizer = AutoTokenizer.from_pretrained(model_name)
     if tokenizer.pad_token is None:
@@ -468,7 +592,16 @@ def write_status(output_dir: Path, phase: str, detail: str = "", **extra):
 
 @torch.no_grad()
 def evaluate(model, eval_loader, output_dir: Path = None, label: str = "eval"):
-    """Perplexity with eval-batch=1 to minimize VRAM spike from 248K logits."""
+    """Perplexity with eval-batch=1 to minimize VRAM spike from 248K logits.
+
+    CRITICAL: labels are masked to -100 at pad positions so the model's
+    cross-entropy loss only considers VALID tokens. Without this mask,
+    padding-to-max-length 2048 means a 50-token wikitext sample
+    contributes ~1998 pad-token losses that dominate the result and
+    inflate perplexity by ~30x. (Bug found 2026-04-09 when our published
+    qwen2-5-7b-instruct-compacted card showed baseline ppl 263 vs the
+    real 8.7 — 30x off because of this exact issue.)
+    """
     model.eval()
     total_loss, total_tokens = 0.0, 0
     n_batches = len(eval_loader)
@@ -478,9 +611,20 @@ def evaluate(model, eval_loader, output_dir: Path = None, label: str = "eval"):
         ids = batch["input_ids"].to(device)
         mask = batch["attention_mask"].to(device)
         for i in range(ids.shape[0]):
-            out = model(input_ids=ids[i:i+1], attention_mask=mask[i:i+1], labels=ids[i:i+1])
+            input_ids = ids[i:i+1]
+            attention_mask = mask[i:i+1]
+            # Mask labels at pad positions so the loss only counts valid tokens.
+            labels = input_ids.clone()
+            labels[attention_mask == 0] = -100
+            out = model(
+                input_ids=input_ids,
+                attention_mask=attention_mask,
+                labels=labels,
+            )
             loss_val = out.loss.float().item()  # force fp32 for accuracy
-            n = (mask[i:i+1] > 0).sum().item()
+            # n is the number of VALID tokens (the same denominator the
+            # model's CE loss used), so the running average matches.
+            n = int(attention_mask.sum().item())
             total_loss += loss_val * n
             total_tokens += n
             # Debug first batch
@@ -982,9 +1126,15 @@ def train_lora(model, train_loader, cfg: ForgeConfig, steps=1000, lr=5e-5, outpu
                 break
             ids = batch["input_ids"].to(model.device)
             mask = batch["attention_mask"].to(model.device)
+            # Mask labels at pad positions so the loss only counts valid
+            # tokens — same fix as evaluate(). Otherwise the model is
+            # trained to predict 0 at every padding position which is
+            # both wrong (no signal) and noisy (degrades the LoRA fit).
+            labels = ids.clone()
+            labels[mask == 0] = -100
 
             with torch.amp.autocast("cuda", dtype=torch.float16):
-                out = model(input_ids=ids, attention_mask=mask, labels=ids)
+                out = model(input_ids=ids, attention_mask=mask, labels=labels)
                 loss = out.loss / ga
 
             scaler.scale(loss).backward()
@@ -1377,6 +1527,41 @@ def main():
     model.save_pretrained(str(model_dir))
     tokenizer.save_pretrained(str(model_dir))
     print(f"  Saved to {model_dir}")
+
+    # SAVE-THEN-RELOAD SMOKE TEST: load the just-saved model from disk
+    # to verify the shapes in config.json match the actual safetensors.
+    # This catches the entire class of bugs where defrag/prune mutates
+    # tensor shapes but model.config doesn't get updated to match
+    # (the qwen2-5-7b 2026-04-09 incident — model published, but
+    # AutoModelForCausalLM.from_pretrained failed with size mismatch
+    # errors because the slice-mode defrag produced per-layer shape
+    # divergence that the single config.num_attention_heads couldn't
+    # represent). Failing here at FORGE time means we never publish
+    # an artifact that downstream users can't load.
+    print("  [smoke] save-then-reload check...")
+    try:
+        from transformers import AutoModelForCausalLM as _ReloadCls
+        _check = _ReloadCls.from_pretrained(
+            str(model_dir),
+            torch_dtype=torch.float16,
+            device_map="cpu",
+            trust_remote_code=True,
+        )
+        del _check
+        print(f"  [smoke] OK — saved model loads cleanly via from_pretrained")
+    except Exception as _e:
+        # Loud failure — never silently let a non-loadable artifact land.
+        raise RuntimeError(
+            f"SAVE-THEN-RELOAD SMOKE TEST FAILED: the model saved to "
+            f"{model_dir} cannot be loaded via from_pretrained. "
+            f"This means the saved config.json doesn't match the actual "
+            f"safetensors shapes (typically caused by defrag mutating "
+            f"tensors without updating model.config). Original error:\n"
+            f"  {type(_e).__name__}: {_e}\n"
+            f"FIX: ensure defrag_live_model updates model.config to "
+            f"reflect post-defrag dimensions, OR use defrag mode 'pad' "
+            f"which preserves the wire shape."
+        ) from _e
 
     # --- 7. Results ---
     results = {

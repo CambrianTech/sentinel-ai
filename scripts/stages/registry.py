@@ -6,7 +6,10 @@ The alloy_executor discovers stages from this registry.
 
 from .base import StageExecutor
 from .input_stages import SourceConfigExecutor, ContextExtendExecutor, ModalityExecutor
-from .transform_stages import PruneExecutor, TrainExecutor, ExpertPruneExecutor
+from .transform_stages import (
+    PruneExecutor, TrainExecutor, ExpertPruneExecutor,
+    ExpertActivationProfileExecutor,
+)
 from .output_stages import QuantExecutor, PackageExecutor, EvalExecutor, DeliverExecutor, PublishExecutor, DeployExecutor
 
 STAGE_EXECUTORS: dict[str, type[StageExecutor]] = {
@@ -19,6 +22,7 @@ STAGE_EXECUTORS: dict[str, type[StageExecutor]] = {
     "prune": PruneExecutor,
     "train": TrainExecutor,
     "lora": TrainExecutor,  # LoRA is a training variant — same executor for now
+    "expert-activation-profile": ExpertActivationProfileExecutor,
     "expert-prune": ExpertPruneExecutor,
 
     # Output stages (end of pipeline)

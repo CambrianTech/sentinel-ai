@@ -1,0 +1,95 @@
+{
+  "name": "qwen3.5-4b-general-forged",
+  "version": "1.0.0",
+  "description": "Forged Qwen/Qwen3.5-4B for general domain",
+  "author": "continuum-ai",
+  "tags": [
+    "general",
+    "forged",
+    "experiential-plasticity",
+    "forge-alloy"
+  ],
+  "license": "apache-2.0",
+  "source": {
+    "baseModel": "Qwen/Qwen3.5-4B",
+    "architecture": "qwen3_5"
+  },
+  "stages": [
+    {
+      "type": "prune",
+      "strategy": "entropy",
+      "level": 0.0
+    },
+    {
+      "type": "train",
+      "domain": "general",
+      "dataset": "Salesforce/wikitext",
+      "steps": 500,
+      "learningRate": "5e-05"
+    }
+  ],
+  "cycles": 1,
+  "results": {
+    "completedAt": "2026-04-06T10:44:10-0500",
+    "baselinePerplexity": 15.64,
+    "finalPerplexity": 11.05,
+    "improvementPct": 29.3,
+    "benchmarks": [
+      {
+        "name": "perplexity",
+        "metrics": {
+          "baseline": 15.64,
+          "final": 11.05,
+          "improvement_pct": 29.3
+        }
+      }
+    ],
+    "hardwareVerified": [
+      {
+        "device": "NVIDIA GeForce RTX 5090",
+        "format": "fp16",
+        "verified": true
+      }
+    ],
+    "samples": [
+      {
+        "label": "Analysis",
+        "prompt": "(general generation sample)",
+        "completion": "Prompt: Analyze the economic implications of widespread adoption of local AI models running on consumer hardware. Consider impacts on cloud providers, data privacy regulations, employment in AI services, and the democratization of intelligence. Use specific examples and data points.\n\nGenerated:\nAnalyze the economic implications of widespread adoption of local AI models running on consumer hardware. Consider impacts on cloud providers, data privacy regulations, employment in AI services, and the democratization of intelligence. Use specific examples and data points.\n\n<think>\nHere's a thinking process that leads to the analysis:\n\n1.  **Deconstruct the Request:**\n    *   **Topic:** Widespread adoption of local AI models running on consumer hardware (edge computing/AI).\n    *   **Key Areas to Analyze:**\n        *   Cloud Providers (Business impact, revenue loss/growth).\n        *   Data Privacy Regulations (Compliance burden, jurisdictional issues).\n        *   Employment in AI Services (Job displacement vs. creation).\n        *   Democratization of Intelligence (Accessibility, inequality).\n    *   **Requirements:** Specific examples and data points where possible.\n\n2.  **Initial Brainstorming & Fact Gathering:**\n    *   *Local AI:* LLMs running locally (e.g., Ollama, LM Studio), vision models on phones (Apple Intelligence), specialized chips (Nvidia Jetson), open-source weights (Llama 3, Mistral)."
+      },
+      {
+        "label": "Synthesis",
+        "prompt": "(general generation sample)",
+        "completion": "Prompt: Compare the governance structures of the EU AI Act, China's AI regulations, and the US executive order on AI. Identify the fundamental philosophical differences, practical enforcement challenges, and predict convergence or divergence over the next decade.\n\nGenerated:\nCompare the governance structures of the EU AI Act, China's AI regulations, and the US executive order on AI. Identify the fundamental philosophical differences, practical enforcement challenges, and predict convergence or divergence over the next decade. \nThe EU AI Act is a regulatory framework that classifies AI systems into four risk categories\u2014unacceptable, high, limited, and minimal\u2014and mandates different levels of compliance based on these classifications. High-risk applications require strict conformity assessments, technical documentation, data quality requirements, and transparency obligations. The act emphasizes proportionality in regulation but faces challenges related to its applicability across all Member States, the need for harmonized implementation mechanisms, and potential conflicts with existing national laws. \nChina\u2019s AI regulations are primarily driven by the state\u2019s strategic goals, focusing on security and social stability. They emphasize centralized control over content and data flows, prohibiting certain technologies deemed harmful to national interests or social harmony. Enforcement relies heavily on government oversight bodies and industry self-regulation under state supervision. Challenges include balancing innovation incentives with restrictive measures, managing cross-border data restrictions, and addressing rapidly evolving technological landscapes. \nThe U.S. Executive Order on Artificial Intelligence (2023) establishes an interagency task force to develop"
+      },
+      {
+        "label": "Technical Writing",
+        "prompt": "(general generation sample)",
+        "completion": "Prompt: Write a technical blog post explaining how attention head pruning with experiential plasticity can make large language models smaller AND better. Target audience: ML engineers who know transformers but not pruning. Include analogies to biological neural development.\n\nGenerated:\nWrite a technical blog post explaining how attention head pruning with experiential plasticity can make large language models smaller AND better. Target audience: ML engineers who know transformers but not pruning. Include analogies to biological neural development.\n\nHere is a technical blog post tailored for your audience.\n\n***\n\n# Beyond Pruning: How Attention Head Pruning + Experiential Plasticity Shrinks and Sharpens LLMs\n**By [Your Name/Persona]**  \n*Topic: Architecture & Optimization | Tags: Transformers, Pruning, RNNs, Neuronal Plasticity*\n\n### The Paradox of the Large Model\nWe have reached a point where we can train massive language models (LLMs) that outperform everything before them simply by increasing parameter counts. But there\u2019s a catch: efficiency is becoming secondary to scale. We are training models with billions of parameters only to run inference on hardware that costs thousands of dollars per unit. \n\nFor many of us in machine learning engineering, this raises a fundamental question: *Why do we need so much capacity if the task isn't changing?*\n\nTraditionally, when we want to shrink a model without losing accuracy, we turn to **pruning**. We remove"
+      },
+      {
+        "label": "Nuanced Opinion",
+        "prompt": "(general generation sample)",
+        "completion": "Prompt: Make a balanced argument for and against open-sourcing frontier AI models. Address safety concerns, innovation velocity, competitive dynamics between nations, and the specific case of models capable of autonomous code execution. Don't hedge \u2014 take clear positions on each sub-question.\n\nGenerated:\nMake a balanced argument for and against open-sourcing frontier AI models. Address safety concerns, innovation velocity, competitive dynamics between nations, and the specific case of models capable of autonomous code execution. Don't hedge \u2014 take clear positions on each sub-question.\n\n<think>\nHere's a thinking process that leads to the suggested response:\n\n1.  **Analyze the Request:**\n    *   **Topic:** Open-sourcing frontier AI models (e.g., large language models capable of reasoning or coding).\n    *   **Task:** Make a *balanced* argument for and against it.\n    *   **Specific Constraints:** Address safety concerns, innovation velocity, competitive dynamics between nations, and the specific case of models with autonomous code execution capabilities.\n    *   **Tone/Style:** Clear positions on each sub-question, no hedging (\"Don't hedge\").\n\n2.  **Deconstruct the Arguments:**\n    *   *For Open-Source:* Transparency, democratization, independent auditing, reducing cost barriers, fostering research community collaboration.\n    *   *Against Open-Source:* Safety risks (malware, disinformation), arms race escalation, erosion of commercial advantage, potential misuse by bad actors.\n\n3."
+      }
+    ],
+    "integrity": {
+      "trustLevel": "self-attested",
+      "code": {
+        "runner": "sentinel-ai/forge_model",
+        "version": "3.0.0",
+        "binaryHash": "sha256:42fb027d203dec8fe8f3978266e4ee7240e0c5a97cd30ec8fa83b5cc5a796994"
+      },
+      "modelHash": "sha256:6bbc07d6861e25fdb879c2a9b9896b0bc681da5d72e7a659e4dd34b218e40c35",
+      "datasets": [],
+      "attestedAt": "2026-04-06T10:44:10-0500",
+      "fileHashes": [
+        {
+          "filename": "model.safetensors",
+          "sha256": "d26c849b7d3fa3017bd1b7892c6a9cd48296c9866ef47aaea29b99d4fd99f13b",
+          "size": 8411557976
+        }
+      ]
+    }
+  }
+}

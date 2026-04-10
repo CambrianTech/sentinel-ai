@@ -140,25 +140,13 @@ PUBLISHED_ANCHORS = {
 }
 
 
-# Benchmark runners. Each maps a benchmark name to (1) the runner function
-# that produces a score and (2) the metric the runner outputs. New benchmarks
-# get registered here when their runner is implemented. Unimplemented
-# benchmarks are noted in NOT_YET_IMPLEMENTED so the script can fail loud
-# instead of silently picking the wrong default.
-
-NOT_YET_IMPLEMENTED = {
-    "mmlu_pro": "needs lm-evaluation-harness or equivalent integration — required for Qwen3.5+ reasoning anchor",
-    "ifeval": "needs ifeval harness integration",
-    "swe_bench_verified": "needs SWE-bench Verified harness integration (very expensive, requires Docker sandboxes)",
-    "gpqa_diamond": "needs lm-evaluation-harness integration",
-    "hmmt_feb_25": "needs HMMT harness integration",
-    "polymath": "needs PolyMATH harness integration",
-    "mathvision": "needs MathVision harness integration",
-    "mmmlu": "needs MMMLU integration",
-    "mmmu": "needs multimodal harness integration",
-    "realworldqa": "needs multimodal harness integration",
-    "mmlu_redux": "needs lm-evaluation-harness integration",
-}
+# Benchmark dispatch is now handled by the eval_runners registry — the
+# single source of truth for which benchmark names route to which runner.
+# Adding a new benchmark = new file in scripts/eval_runners/ with a
+# BenchmarkRunner subclass that implements evaluate(); zero changes here.
+# The old NOT_YET_IMPLEMENTED dict is gone; stub runners raise
+# NotImplementedError from their evaluate() method via the
+# BenchmarkRunner ABC default.
 
 
 def _ts() -> str:
@@ -170,30 +158,54 @@ def _log(msg: str) -> None:
 
 
 def run_benchmark(benchmark: str, model_dir: Path, out_dir: Path, *, force_base_prompt: bool) -> dict:
-    """Dispatch to the right runner for the requested benchmark.
+    """Dispatch to the right runner via the BenchmarkRunner registry.
 
     Returns a dict with at least:
-        {"benchmark": str, "scores": {<benchmark_subname>: float, ...}}
+        {"benchmark": str, "scores": {<benchmark_subname>: float, ...},
+         "samples_path": str | None}
 
     For HumanEval, the runner produces both humaneval and humaneval_plus
-    scores in one pass (since evalplus.evaluate emits both). The scores
-    dict will contain both keys, and the calibration check will use the
-    one matching the requested benchmark name.
+    scores in one pass (evalplus.evaluate emits both); both land in the
+    scores dict. For every other benchmark, scores carries one key.
+
+    Unknown benchmark name raises BenchmarkNotRegistered (from the
+    registry) — the loud failure naming what IS registered. Stub runners
+    that lack a real evaluate() raise NotImplementedError naming the
+    runner file that needs the implementation. The architecture provides
+    no silent substitution path.
     """
-    if benchmark in ("humaneval", "humaneval_plus"):
-        return run_humaneval(model_dir, out_dir, force_base_prompt=force_base_prompt)
-    if benchmark == "livecodebench_v6":
-        return run_livecodebench_v6(model_dir, out_dir, force_base_prompt=force_base_prompt)
-    if benchmark in NOT_YET_IMPLEMENTED:
-        raise NotImplementedError(
-            f"benchmark {benchmark!r} is not yet wired into eval_with_calibration.py. "
-            f"Reason: {NOT_YET_IMPLEMENTED[benchmark]}. "
-            f"Implement the runner in eval_with_calibration.py and register it in run_benchmark()."
-        )
-    raise ValueError(
-        f"unknown benchmark {benchmark!r}. Known: humaneval, humaneval_plus, livecodebench_v6, "
-        f"plus the not-yet-implemented set: {sorted(NOT_YET_IMPLEMENTED.keys())}"
+    from eval_runners import resolve_runner
+
+    runner = resolve_runner(benchmark)  # raises BenchmarkNotRegistered if unknown
+    score_result = runner.evaluate(
+        model_dir,
+        out_dir,
+        force_base_prompt=force_base_prompt,
     )
+
+    # Reassemble the legacy dict shape callers (the §4.1.4.1 anchor-
+    # reproduction discipline gate, the publish pipeline) expect. The
+    # canonical pass@1 lives at scores[benchmark]; the humaneval pair
+    # special case carries both numbers because evalplus emits both.
+    legacy_dict: dict = {
+        "benchmark": benchmark,
+        "scores": {benchmark: round(score_result.pass_at_1 * 100, 2)},
+        "samples_path": score_result.samples_path,
+    }
+    extras = score_result.extras or {}
+    if benchmark == "humaneval" and "humaneval_plus_pass_at_1" in extras:
+        legacy_dict["scores"]["humaneval_plus"] = round(
+            extras["humaneval_plus_pass_at_1"] * 100, 2
+        )
+    if benchmark == "humaneval_plus" and "humaneval_pass_at_1" in extras:
+        legacy_dict["scores"]["humaneval"] = round(
+            extras["humaneval_pass_at_1"] * 100, 2
+        )
+    # Forward LCB / log fields for downstream consumers that read them.
+    for k in ("lcb_proxy_model", "lcb_release_version", "lcb_n", "lcb_temperature", "log_path"):
+        if k in extras and extras[k] is not None:
+            legacy_dict[k] = extras[k]
+    return legacy_dict
 
 
 def run_livecodebench_v6(model_dir: Path, out_dir: Path, *, force_base_prompt: bool) -> dict:

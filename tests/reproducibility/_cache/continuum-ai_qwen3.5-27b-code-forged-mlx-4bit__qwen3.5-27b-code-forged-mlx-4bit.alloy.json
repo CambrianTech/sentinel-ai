@@ -1,0 +1,153 @@
+{
+  "name": "qwen3.5-27b-code-forged-mlx-4bit",
+  "version": "1.0.0",
+  "description": "MLX-4BIT derivative of [`qwen3.5-27b-code-forged`](https://huggingface.co/continuum-ai/qwen3.5-27b-code-forged). Same forge journey as the parent (prune + train as published in the parent's alloy); this artifact adds a single 'mlx-4bit' transformation stage to produce a smaller / faster / more-portable variant of the same logical model. Inherits the parent's published benchmark results; per-variant evaluation samples will land in a follow-up release if/when per-variant benchmarks are run.",
+  "author": "continuum-ai",
+  "tags": [
+    "derivative",
+    "experiential-plasticity",
+    "mlx-4bit",
+    "forge-alloy",
+    "alloy-backfilled",
+    "code",
+    "forged"
+  ],
+  "license": "apache-2.0",
+  "source": {
+    "baseModel": "Qwen/Qwen3.5-27B",
+    "architecture": "qwen3_5"
+  },
+  "stages": [
+    {
+      "type": "prune",
+      "strategy": "magnitude",
+      "level": 0.3,
+      "notes": "Legacy strategy name from forging_results.json: 'experiential_plasticity'. Mapped to canonical 'magnitude' for the alloy schema. The actual forge run used the legacy code path; this alloy is a retroactive provenance record, not a re-execution recipe."
+    },
+    {
+      "type": "train",
+      "domain": "code",
+      "steps": 500,
+      "learningRate": "2e-4",
+      "dataset": "m-a-p/CodeFeedback-Filtered-Instruction",
+      "notes": "Legacy training method: LoRA (r=16, alpha=32)"
+    },
+    {
+      "type": "quant",
+      "format": "mlx",
+      "quantTypes": [
+        "4bit"
+      ],
+      "deviceTargets": [
+        "macbook-pro-m-series",
+        "macbook-air-16gb"
+      ],
+      "notes": "MLX 4-bit quantization for Apple Silicon. The parent forge's safetensors weights are converted to MLX format and quantized to 4 bits per weight via mlx-lm. Runs natively on M-series Macs with the unified memory architecture, no llama.cpp / GGUF intermediate."
+    }
+  ],
+  "cycles": 2,
+  "derivedFrom": {
+    "repo": "continuum-ai/qwen3.5-27b-code-forged",
+    "alloyHash": null,
+    "kind": "mlx-4bit"
+  },
+  "results": {
+    "completedAt": "2026-03-27T20:29:26-0500",
+    "baselinePerplexity": 3.0711,
+    "finalPerplexity": 2.9624,
+    "improvementPct": 3.54,
+    "benchmarks": [
+      {
+        "name": "perplexity",
+        "metrics": {
+          "baseline": 3.0711,
+          "final": 2.9624,
+          "improvement_pct": 3.54,
+          "dataset": "m-a-p/CodeFeedback-Filtered-Instruction"
+        }
+      }
+    ],
+    "hardwareVerified": [
+      {
+        "device": "MacBook Pro 32GB",
+        "format": "fp16",
+        "verified": true
+      },
+      {
+        "device": "RTX 3090 24GB",
+        "format": "fp16",
+        "verified": true
+      }
+    ],
+    "samples": [],
+    "integrity": {
+      "trustLevel": "self-attested",
+      "code": {
+        "runner": "sentinel-ai/derive_alloy_from_parent (mlx-4bit)",
+        "version": "1.0",
+        "binaryHash": "sha256:derivation-tool-only"
+      },
+      "modelHash": "sha256:deff5ceac01ef81d2e6082bd14ac51fdc2c43e1900d7801b620aaeeda385e31b",
+      "fileHashes": [
+        {
+          "filename": "model-00001-of-00011.safetensors",
+          "sha256": "2a876d235e3a8fc505aa6860324e0a8f038d2585db2227b4e4c0a53e1693e085",
+          "size": 1473406112
+        },
+        {
+          "filename": "model-00002-of-00011.safetensors",
+          "sha256": "099f83f4d5611427ff9baea21fb87e8dbd8a3bf6a1feb1068d2b27fd09125749",
+          "size": 1507659344
+        },
+        {
+          "filename": "model-00003-of-00011.safetensors",
+          "sha256": "dd65f18ada195085a64e221d336b6fb0e28d1c4b2ea743ddf0fda6920cd1f727",
+          "size": 1500696752
+        },
+        {
+          "filename": "model-00004-of-00011.safetensors",
+          "sha256": "b89633ab48d6e7ce6e9b76c7b506568934356de6ed1c1f7b8d014165b0e79c86",
+          "size": 1500696752
+        },
+        {
+          "filename": "model-00005-of-00011.safetensors",
+          "sha256": "ffdd36ad22e8ae7c41f59a03b709845c12b306516259cefd38861576a459faab",
+          "size": 1500696752
+        },
+        {
+          "filename": "model-00006-of-00011.safetensors",
+          "sha256": "5851c83ea07dce653bb287aff40e0308f88b7e0599511f2aa972f9bccc6827fe",
+          "size": 1507659552
+        },
+        {
+          "filename": "model-00007-of-00011.safetensors",
+          "sha256": "6369747fb9088087240c86ce4e85fae866c1f7beee69098c4c9326fac67789f6",
+          "size": 1500696752
+        },
+        {
+          "filename": "model-00008-of-00011.safetensors",
+          "sha256": "30ecec4a966807f9c16c954f49df281225bbbbab3874ebf3fc73f6089791c7ac",
+          "size": 1500696752
+        },
+        {
+          "filename": "model-00009-of-00011.safetensors",
+          "sha256": "fe7e60015539a415f152d66d4d9ca4c6fd818142b44d76cf07e6615d980f5981",
+          "size": 1500696752
+        },
+        {
+          "filename": "model-00010-of-00011.safetensors",
+          "sha256": "ea64e04541e3aa418b93b0bc9a93a8877c4d93f4e84d0f82e7ff19f7a83d1ba2",
+          "size": 958837400
+        },
+        {
+          "filename": "model-00011-of-00011.safetensors",
+          "sha256": "29f63168a17d55db4f8aece7be0d5ce617ac4108ad52ed5781c404c39169f215",
+          "size": 715161872
+        }
+      ],
+      "datasets": [],
+      "attestedAt": "2026-04-08",
+      "parentAlloyHash": null
+    }
+  }
+}

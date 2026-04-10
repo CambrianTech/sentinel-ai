@@ -230,11 +230,59 @@ class EvalExecutor(StageExecutor):
             return {"name": name, "metrics": {"status": "failed", "error": str(e)}}
 
     def _parse_evalplus_output(self, output: str, name: str) -> dict:
-        """Parse evalplus stdout for pass@1 results."""
-        metrics = {}
+        """Parse evalplus stdout for the pass@1 of a SPECIFIC benchmark.
+
+        evalplus's CLI prints both base and plus scores in one run:
+            humaneval (base tests)
+            pass@1:	0.884
+            humaneval+ (base + extra tests)
+            pass@1:	0.854
+
+        This parser must select the RIGHT pass@1 line for the benchmark
+        we're scoring. Previous version walked all lines and overwrote
+        metrics["score"] each iteration, so it always returned the LAST
+        pass@1 (humaneval_plus) regardless of which benchmark `name` was.
+        That assigned the humaneval_plus value to a humaneval benchmark.
+        Fix: section-aware parsing.
+
+        canonical pass@1 from evalplus:
+            humaneval (base tests):       (tasks where base_status == 'pass') / total
+            humaneval+ (base+extra tests): (tasks where base_status == plus_status == 'pass') / total
+        Both are computed by evalplus.estimate_pass_at_k internally; we
+        just read the printed values.
+        """
+        import re
+        metrics: dict = {}
+
+        if name in ("humaneval", "humaneval_plus", "humaneval+"):
+            # Section header: "humaneval (base tests)" then "pass@1:\t<float>"
+            # Then:           "humaneval+ (base + extra tests)" then next "pass@1:\t<float>"
+            base_match = re.search(
+                r"humaneval \(base tests\)\s*\n?\s*pass@1:\s*(\d+\.\d+)",
+                output,
+            )
+            plus_match = re.search(
+                r"humaneval\+ \(base \+ extra tests\)\s*\n?\s*pass@1:\s*(\d+\.\d+)",
+                output,
+            )
+            if name == "humaneval" and base_match:
+                pass1 = float(base_match.group(1))
+                metrics["score"] = round(pass1 * 100, 2)
+                metrics["pass_at_1_fraction"] = pass1
+            elif name in ("humaneval_plus", "humaneval+") and plus_match:
+                pass1 = float(plus_match.group(1))
+                metrics["score"] = round(pass1 * 100, 2)
+                metrics["pass_at_1_fraction"] = pass1
+            else:
+                metrics["status"] = "completed_no_parse"
+                metrics["raw_output"] = output[-500:]
+            return metrics
+
+        # Fallback: not a HumanEval-family benchmark, walk lines naively.
+        # Some lm-eval-harness benchmarks print pass@1 in different formats.
+        # If we see one and it's parseable, use it; otherwise record raw.
         for line in output.splitlines():
             line = line.strip()
-            # evalplus prints: "pass@1: 0.741"  or  "humaneval (pass@1): 63/85"
             if "pass@1" in line.lower():
                 parts = line.split(":")
                 if len(parts) >= 2:
@@ -243,16 +291,16 @@ class EvalExecutor(StageExecutor):
                         passing, total = val.split("/")
                         metrics["passing"] = int(passing.strip())
                         metrics["total"] = int(total.strip())
-                        metrics["score"] = round(metrics["passing"] / metrics["total"] * 100, 1)
+                        metrics["score"] = round(metrics["passing"] / metrics["total"] * 100, 2)
                     else:
                         try:
                             score = float(val)
-                            metrics["score"] = round(score * 100, 1) if score <= 1.0 else round(score, 1)
+                            metrics["score"] = round(score * 100, 2) if score <= 1.0 else round(score, 2)
                         except ValueError:
                             pass
         if not metrics:
             metrics["status"] = "completed_no_parse"
-            metrics["raw_output"] = output[-500:]  # Last 500 chars for debugging
+            metrics["raw_output"] = output[-500:]
         return metrics
 
     def _parse_lm_eval_output(self, result_dir: Path, task: str) -> dict:
@@ -295,7 +343,10 @@ class DeliverExecutor(StageExecutor):
     """
 
     def execute(self, ctx: ForgeContext) -> ForgeContext:
-        r = ctx.alloy.get("results", {})
+        # ctx.alloy.get("results") may legitimately be None for fresh
+        # forges that haven't been re-saved through the publish stage
+        # yet. Treat None the same as missing — empty results dict.
+        r = ctx.alloy.get("results") or {}
         benchmarks = r.get("benchmarks", [])
 
         # Compute model size
@@ -486,7 +537,7 @@ class PublishExecutor(StageExecutor):
     def _verify_integrity(self, ctx: ForgeContext) -> list:
         """Verify alloy hashes match actual files."""
         errors = []
-        integrity = ctx.alloy.get("results", {}).get("integrity", {})
+        integrity = (ctx.alloy.get("results") or {}).get("integrity", {})
         if not integrity:
             return []
 

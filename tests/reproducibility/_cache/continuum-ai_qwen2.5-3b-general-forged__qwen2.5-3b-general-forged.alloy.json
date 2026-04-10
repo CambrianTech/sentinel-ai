@@ -1,0 +1,87 @@
+{
+  "name": "qwen2.5-3b-general-forged",
+  "version": "1.0.0",
+  "description": "Forged Qwen2.5-3B for general domain via per-layer head pruning + LoRA recovery training. This alloy was retroactively synthesized from forging_results.json on 2026-04-08 \u2014 the forge run itself executed at 2026-03-27T09:33:23-05:00. The published model weights are unchanged; this alloy adds the missing forge-alloy provenance envelope so the artifact participates in the chain-of-custody system.",
+  "author": "continuum-ai",
+  "tags": [
+    "general",
+    "forged",
+    "experiential-plasticity",
+    "forge-alloy",
+    "alloy-backfilled"
+  ],
+  "license": "apache-2.0",
+  "source": {
+    "baseModel": "Qwen/Qwen2.5-3B",
+    "architecture": "qwen2"
+  },
+  "stages": [
+    {
+      "type": "prune",
+      "strategy": "magnitude",
+      "level": 0.3,
+      "notes": "Legacy strategy name from forging_results.json: 'combined'. Mapped to canonical 'magnitude' for the alloy schema. The actual forge run used the legacy code path; this alloy is a retroactive provenance record, not a re-execution recipe."
+    },
+    {
+      "type": "train",
+      "domain": "general",
+      "steps": 1000,
+      "learningRate": "2e-4",
+      "dataset": "wikitext-2"
+    }
+  ],
+  "cycles": 3,
+  "results": {
+    "completedAt": "2026-03-27T09:33:23-05:00",
+    "baselinePerplexity": 2.3,
+    "finalPerplexity": 2.29,
+    "improvementPct": 0.43,
+    "benchmarks": [
+      {
+        "name": "perplexity",
+        "metrics": {
+          "baseline": 2.3,
+          "final": 2.29,
+          "improvement_pct": 0.43,
+          "dataset": "wikitext-2"
+        }
+      }
+    ],
+    "hardwareVerified": [
+      {
+        "device": "MacBook Pro 16GB",
+        "format": "fp16",
+        "verified": true
+      },
+      {
+        "device": "MacBook Pro 32GB",
+        "format": "fp16",
+        "verified": true
+      }
+    ],
+    "samples": [],
+    "integrity": {
+      "trustLevel": "self-attested",
+      "code": {
+        "runner": "sentinel-ai/forge_model (legacy pre-\u00a74.1.3.1 path)",
+        "version": "2.x",
+        "binaryHash": "sha256:legacy-pre-alloy-schema"
+      },
+      "modelHash": "sha256:80def3c4bcf296e5960c37244b43018cc80f50dddc2c9f8a5b9593993ce55e91",
+      "fileHashes": [
+        {
+          "filename": "model.safetensors",
+          "sha256": "89728129a4822053d50b795cf58e5dca96f2e441d5a7fee9d0c3f8d5c0b9e49f",
+          "size": 4185546752
+        }
+      ],
+      "datasets": [
+        {
+          "name": "wikitext-2",
+          "hash": "sha256:not-pinned-legacy"
+        }
+      ],
+      "attestedAt": "2026-03-27T09:33:23-05:00"
+    }
+  }
+}

@@ -37,32 +37,37 @@ def hash_file(path: Path) -> str:
     return h.hexdigest()
 
 
-def hash_model_weights(model_dir: Path) -> str:
-    """SHA-256 hash of all safetensors files in order."""
-    safetensors = sorted(model_dir.glob("*.safetensors"))
-    if not safetensors:
-        return ""
-    h = hashlib.sha256()
-    for sf in safetensors:
-        with open(sf, "rb") as f:
-            while True:
-                chunk = f.read(65536)
-                if not chunk:
-                    break
-                h.update(chunk)
-    return f"sha256:{h.hexdigest()}"
+def hash_model_weights(model_dir: Path) -> tuple[str, list[dict]]:
+    """Compose the canonical alloy modelHash from a local model directory.
+
+    Delegates to scripts/alloy_hashing.py for both the per-shard hashing
+    AND the composition. There is exactly one source of truth for the
+    modelHash convention across publish and backfill paths.
+
+    Returns (modelHash, fileHashes) — both should be written into the
+    alloy's results.integrity field. The empty string + empty list is
+    returned only if the directory has no safetensors (the caller decides
+    whether that's an error).
+    """
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    from alloy_hashing import compose_model_hash, hash_local_safetensors_dir
+
+    file_hashes = hash_local_safetensors_dir(model_dir)
+    if not file_hashes:
+        return "", []
+    return compose_model_hash(file_hashes), file_hashes
 
 
 def verify_integrity(alloy: dict, model_dir: Path) -> list[str]:
     """Verify alloy claims match actual files. Returns list of errors."""
     errors = []
-    integrity = alloy.get("results", {}).get("integrity", {})
+    integrity = (alloy.get("results") or {}).get("integrity") or {}
     if not integrity:
         return []
 
     claimed_hash = integrity.get("modelHash", "")
     if claimed_hash:
-        actual_hash = hash_model_weights(model_dir)
+        actual_hash, _file_hashes = hash_model_weights(model_dir)
         if actual_hash and actual_hash != claimed_hash:
             errors.append(
                 f"Model hash mismatch: claimed {claimed_hash[:32]}... "
@@ -168,7 +173,7 @@ def publish(output_dir: Path, org: str = "continuum-ai",
             return None
         return "sha256:" + hash_file(abs_path)
 
-    for b in alloy.get("results", {}).get("benchmarks", []):
+    for b in (alloy.get("results") or {}).get("benchmarks", []):
         bname = b.get("name", "?")
         # Student samples → resultHash
         if not b.get("resultHash"):
@@ -343,7 +348,7 @@ def publish(output_dir: Path, org: str = "continuum-ai",
         "repoUrl": pub_url,
         "verifyUrl": verify_url,
         "alloyHash": alloy_hash,
-        "modelHash": hash_model_weights(model_dir) if model_dir.exists() else "",
+        "modelHash": hash_model_weights(model_dir)[0] if model_dir.exists() else "",
         "filesUploaded": files_uploaded,
         "totalSizeGb": round(total_gb, 2),
     }

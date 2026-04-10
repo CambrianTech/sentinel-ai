@@ -174,6 +174,93 @@ python experiments/experiment_self_directed.py --model_name gpt2-medium
 | [Self-Directed Plasticity](paper/SELF-DIRECTED-PLASTICITY.ipynb) | V1→V2→PID controller evolution with transfer function analysis |
 | [Colab Demo](colab_notebooks/NeuralPlasticityDemo.ipynb) | Run on free Colab T4 GPU [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/CambrianTech/sentinel-ai/blob/main/colab_notebooks/NeuralPlasticityDemo.ipynb) |
 
+## The Factory Pipeline
+
+Sentinel-AI is the forge. The factory pipeline turns it into an
+**assembly line** for model production: drop a recipe alloy at the
+intake station, BigMama (or any single-GPU box) builds it through the
+family-adapter set, assays it against every benchmark it's eligible for,
+and parks the finished artifact in the shipping bay. **Continuum is the
+shipping department** — it reads `finished/`, applies its release gates,
+and publishes to HuggingFace. Sentinel never pushes to HF; that's a
+deliberate architectural boundary.
+
+```
+                                       ┌──────────────────────────┐
+                                       │  .factory/line/          │
+                  drop alloy here  →   │    intake/               │  ← cp my-recipe.alloy.json here
+                                       │    assembly/  ← worker   │
+                                       │    finished/  ← shipping │  ← continuum reads here
+                                       │    rework/    ← QA flag  │
+                                       └────────────┬─────────────┘
+                                                    │
+                                                    ▼
+                                       FactoryWorker.process_one()
+                                                    │
+                                   ┌────────────────┴────────────────┐
+                                   ▼                                 ▼
+                          alloy_executor                       eval_runners
+                          .execute_alloy()                   (registry dispatch)
+                                   │                                 ▲
+                                   │                                 │
+                            family-adapter                  resolve_runner(name)
+                            dispatch (16 adapters)                   │
+                            → MoEUnfusedExpertsBase                  │
+                            → MixtralAdapter                         │
+                            → PhiMoEAdapter (inherits)               │
+                            → DeepSeekV2Adapter                      │
+                            → QwenVLAdapter                          │
+                            → ... 11 more                            │
+                                   │                                 │
+                                   ▼                                 │
+                            forged artifact  ──── assay (eval) ──→  9 real benchmark runners:
+                                   │                                 HumanEval, HumanEval+,
+                                   │                                 LCB v6, IFEval, BBH,
+                                   │                                 MATH-Hard, GPQA,
+                                   ▼                                 MMLU-Pro, MuSR
+                            mark_finished()                          (Open LLM Leaderboard v2 pack)
+                                   │
+                                   ▼
+                            .factory/line/finished/  ──→  CONTINUUM (shipping department)
+                                                          • reads result manifest
+                                                          • applies release gates
+                                                          • pushes to HF
+                                                          • posts model card
+```
+
+**Two-axis dispatch:**
+
+- **Axis 1 — `source.architecture` → FamilyAdapter.** Each model family
+  is one file in `scripts/adapters/` (16 adapters today). Adding a new
+  family is one new file plus one import line. Old families stay frozen
+  forever so older alloys reproduce bit-identically.
+- **Axis 2 — benchmark name → BenchmarkRunner.** Each benchmark is one
+  file in `scripts/eval_runners/` (9 real, 12 stubs). Adding a new
+  benchmark is one new file. The §4.1.4.1 anchor-reproduction discipline
+  gate routes through the same registry.
+
+**Sending BigMama a part to build:**
+
+```bash
+cp my-recipe.alloy.json /path/to/.factory/line/intake/
+python -m factory_queue --root /path/to/.factory --max-iters 1
+```
+
+The worker picks the part off `intake/`, moves it to `assembly/`, runs
+`execute_alloy` (which dispatches to the right family adapter), executes
+each stage including `eval` (registry-dispatched), and on success moves
+the alloy to `finished/` with a `.result.json` sidecar pointing at the
+on-disk forged artifact and the eval results. On any failure the part
+goes to `rework/` with a `.error.json` sidecar carrying the full
+traceback — no silent defaults, no retries on broken state.
+
+**The filesystem IS the queue.** No DB, no service, no network
+coordination. Multi-worker safety comes free if you ever need to scale
+beyond a single GPU (atomic `intake → assembly` rename via `O_EXCL`).
+Continuum's shipping department picks parts off `finished/`, applies
+release gates, and publishes — separate from the assembly line, separate
+process, separate auth scope.
+
 ## Papers
 
 - **[Experiential Plasticity](https://github.com/CambrianTech/continuum/blob/main/docs/papers/EXPERIENTIAL-PLASTICITY.md)** — Scaling law, transfer function, self-directed controller, domain forging, continuous defrag

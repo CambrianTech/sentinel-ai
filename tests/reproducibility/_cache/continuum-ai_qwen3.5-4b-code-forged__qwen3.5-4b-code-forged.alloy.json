@@ -1,0 +1,138 @@
+{
+  "name": "qwen3.5-4b-code-forged",
+  "version": "1.0.0",
+  "description": "Delta forge: train, quant, eval",
+  "author": "continuum-ai",
+  "tags": [
+    "forge-alloy",
+    "delta-forge"
+  ],
+  "license": "apache-2.0",
+  "source": {
+    "baseModel": "Qwen/Qwen3.5-4B",
+    "architecture": "qwen3_5",
+    "isMoE": false
+  },
+  "target": {
+    "domain": "code",
+    "outputFormats": [
+      "gguf"
+    ],
+    "quantTypes": [
+      "Q4_K_M"
+    ],
+    "benchmarks": [
+      "humaneval"
+    ]
+  },
+  "stages": [
+    {
+      "type": "train",
+      "domain": "code",
+      "steps": 1000,
+      "learningRate": "2e-4"
+    },
+    {
+      "type": "quant",
+      "format": "gguf",
+      "quantTypes": [
+        "Q4_K_M"
+      ],
+      "deviceTargets": []
+    },
+    {
+      "type": "eval",
+      "benchmarks": [
+        {
+          "name": "humaneval"
+        }
+      ],
+      "compareToBase": true
+    }
+  ],
+  "cycles": 3,
+  "results": {
+    "completedAt": "2026-03-31T12:13:43-0500",
+    "baselinePerplexity": 3.0382,
+    "finalPerplexity": 2.3487,
+    "improvementPct": 22.7,
+    "benchmarks": [
+      {
+        "name": "perplexity",
+        "metrics": {
+          "baseline": 3.0382,
+          "final": 2.3487,
+          "improvement": 22.7
+        }
+      },
+      {
+        "name": "humaneval",
+        "subset": null,
+        "metrics": {
+          "status": "pending"
+        },
+        "submittedToLeaderboard": false
+      }
+    ],
+    "hardwareVerified": [
+      {
+        "device": "NVIDIA GeForce RTX 5090",
+        "format": "fp16",
+        "verified": true
+      }
+    ],
+    "samples": [
+      {
+        "label": "Concurrent System",
+        "prompt": "(generation sample)",
+        "completion": "Prompt: Implement a lock-free concurrent hash map in Python using atomics. Handle resize operations without blocking readers. Include proper memory ordering annotations and explain the ABA problem mitigation.\n\nGenerated:\nImplement a lock-free concurrent hash map in Python using atomics. Handle resize operations without blocking readers. Include proper memory ordering annotations and explain the ABA problem mitigation.\n\nReference erroneous code:\n```python\nimport threading\n\nclass LockFreeHashMap:\n    def __init__(self):\n        self.hash_table = [None] * 10\n        self.size = 0\n\n    def insert(self, key, value):\n        index = hash(key) % len(self.hash_table)\n        while True:\n            old_value = self._get_value(index)\n            if old_value is None or old_value == value:\n                self.hash_table[index] = (key, value)\n                self.size += 1\n                return\n            elif old_value != value:\n                break\n            else:\n                self._compare_and_swap(index, (key, value))\n\n    def _get_value(self, index):\n        current = self.hash_table[index]\n        while True:\n            old_value = self._read_value(current)\n            new_value = self._read_value(old_value)\n            if new"
+      },
+      {
+        "label": "System Design",
+        "prompt": "(generation sample)",
+        "completion": "Prompt: Design a distributed rate limiter that works across multiple servers without a central coordinator. Use a sliding window algorithm. Handle clock skew between nodes. Show the implementation.\n\nGenerated:\nDesign a distributed rate limiter that works across multiple servers without a central coordinator. Use a sliding window algorithm. Handle clock skew between nodes. Show the implementation.\n\nIn addition to the above requirements, implement a feature that allows for burst traffic handling. The system should be able to handle short bursts of requests exceeding the average request rate within a given time window. This means implementing a token bucket algorithm in conjunction with the sliding window algorithm.\n\nFurthermore, optimize the implementation to minimize memory usage and improve performance. Instead of maintaining separate counters for each server, utilize a shared data structure to track request counts across all servers efficiently.\nHere's an implementation of a distributed rate limiter using a sliding window algorithm with burst traffic handling:\n\n```python\nimport threading\nfrom collections import defaultdict\n\nclass DistributedRateLimiter:\n    def __init__(self, max_requests_per_window=10):\n        self.max_requests_per_window = max_requests_per_window\n        self.sliding_window = defaultdict(list)  # Keyed by IP address or any other identifier\n        self.token_bucket = {}  # Keyed by IP address or any other identifier\n        \n    def"
+      },
+      {
+        "label": "Debugging",
+        "prompt": "(generation sample)",
+        "completion": "Prompt: This async Python server has a memory leak that only manifests under high concurrency. The leak grows at ~50MB/hour. Identify likely causes and write diagnostic code to find the exact source.\n\nGenerated:\nThis async Python server has a memory leak that only manifests under high concurrency. The leak grows at ~50MB/hour. Identify likely causes and write diagnostic code to find the exact source.\n\nRewritten Test:\nThe following async Python server has a memory leak that only manifests under high concurrency. The leak grows at approximately 50MB per hour. Your task is to identify the likely cause(s) of this memory leak and provide diagnostic code to pinpoint the exact source.\n\nPlease note that you should not use any external libraries or frameworks for debugging, and you must implement your own solution using standard Python techniques. Additionally, please ensure that your code is optimized for performance and can handle high concurrency efficiently.\nOne possible cause of the memory leak could be improper handling of resources, such as unclosed file handles or sockets. Another potential cause could be excessive memory allocation without proper deallocation. \n\nTo diagnose the issue, we can start by monitoring the memory usage of the server over time. We can use tools like `tracemalloc` in Python to track memory allocations and identify where memory is being leaked. Here's an example code snippet to get started:\n\n```python"
+      },
+      {
+        "label": "Refactoring",
+        "prompt": "(generation sample)",
+        "completion": "Prompt: Refactor this 500-line God class into a proper domain model using the repository pattern, dependency injection, and event sourcing. Show the key interfaces and one concrete implementation.\n\nGenerated:\nRefactor this 500-line God class into a proper domain model using the repository pattern, dependency injection, and event sourcing. Show the key interfaces and one concrete implementation. Additionally, implement a unit test to verify that the refactored code works correctly.\n\nFurthermore, ensure that the refactored code is thread-safe by implementing proper synchronization mechanisms.\nHere's an example of how you can refactor the given God class into a proper domain model using the repository pattern, dependency injection, and event sourcing:\n\nDomain Model:\n\n```csharp\npublic interface IGodRepository {\n    Task<God> GetAsync(Guid id);\n    Task AddAsync(God god);\n}\n\npublic interface IEventSourcedRepository {\n    Task<God> GetAsync(Guid id);\n    Task AddAsync(God god);\n    Task SaveChangesAsync();\n}\n\npublic interface IDependencyInjection {\n    IGodRepository GetGodRepository();\n}\n\npublic class God {\n    public Guid Id { get; set; }\n    public string Name { get; set; }\n    public List<Event> Events { get; set; }"
+      }
+    ],
+    "integrity": {
+      "trustLevel": "self-attested",
+      "code": {
+        "runner": "sentinel-ai/alloy_executor",
+        "version": "1.0.0",
+        "binaryHash": "sha256:4646801cd247660e86449805d8d21cde9392464a52a1c8a7dba84ba2aa788f20"
+      },
+      "modelHash": "sha256:f85726debfcad516f0addbefb5f709872ff122ae9d7e326f144059267e1efd2e",
+      "datasets": [],
+      "attestedAt": "2026-03-31T12:13:43-0500",
+      "fileHashes": [
+        {
+          "filename": "model.safetensors",
+          "sha256": "f6b77711a883aff78f1570ec020c9f1eae28b546c57ca1e5c33c590ac74fbdd0",
+          "size": 8411557976
+        }
+      ]
+    }
+  },
+  "receipt": {
+    "publications": [
+      {
+        "target": "huggingface",
+        "url": "https://huggingface.co/continuum-ai/qwen3.5-4b-code-forged",
+        "publishedAt": "2026-03-31T12:35:25-0500"
+      }
+    ],
+    "verifyUrl": "https://cambriantech.github.io/forge-alloy/verify#857b4ca12cb7108d",
+    "alloyHash": "sha256:857b4ca12cb7108d77212e22f947df436127c0a109efa9f4952b7e66a1abef67",
+    "cardHash": "sha256:0fa100f59b9ad53415bd34a47692397d2aa81551a0bbce73c47798983612aa7a",
+    "issuedAt": "2026-03-31T12:35:25-0500"
+  }
+}

@@ -1,0 +1,207 @@
+{
+  "name": "v2-7b-coder-compensated",
+  "version": "1.2.1",
+  "description": "Methodology validation artifact for the v2 forge pipeline + KL-distillation compensation LoRA. Demonstrates that aggressive head pruning + activation-metric importance + pad-mode defrag, when paired with output-distribution distillation against the unmodified teacher, recovers near-base HumanEval capability (61.0 vs 62.2 base, within calibration tolerance). This is the empirical anchor for PLASTICITY-COMPACTION \u00a74.1.3.3 and the loss-function ablation that closes the \u00a74.1.3.2 PPL/HumanEval disconnect. NOT a Pareto improvement over the unmodified base 7B at any single VRAM tier \u2014 published as proof that the methodology stack works end-to-end, in preparation for the Qwen3.5-35B-A3B and 397B-A17B forges where the pruning dimension actually wins.",
+  "author": "continuum-ai",
+  "tags": [
+    "code",
+    "qwen2.5",
+    "7b",
+    "validation-artifact",
+    "forge-alloy",
+    "compensation-lora",
+    "distillation"
+  ],
+  "license": "apache-2.0",
+  "source": {
+    "baseModel": "Qwen/Qwen2.5-Coder-7B",
+    "architecture": "qwen2",
+    "isMoE": false
+  },
+  "stages": [
+    {
+      "type": "prune",
+      "strategy": "activation-magnitude",
+      "level": 0.125,
+      "minHeadsPerLayer": 4,
+      "minKvHeadsPerLayer": 2,
+      "analysisSteps": 200,
+      "perLayerNormalized": true,
+      "defragMode": "pad",
+      "notes": "Layer-normalized activation-magnitude head importance (PLASTICITY-COMPACTION \u00a74.1.3.1 fix). Pad-mode defrag preserves the q_proj invariant num_q_heads*head_dim==hidden_size so the artifact loads in llama.cpp (Finding 6 fix from VALIDATED-TENSOR-SURGERY)."
+    },
+    {
+      "type": "lora",
+      "domain": "code",
+      "dataset": "m-a-p/CodeFeedback-Filtered-Instruction",
+      "steps": 500,
+      "learningRate": "2e-4",
+      "batchSize": 4,
+      "gradientAccumulation": 4,
+      "scheduler": "cosine",
+      "precision": "bf16",
+      "sequenceLength": 2048,
+      "calibrationSource": "code",
+      "notes": "Single-cycle code-domain LoRA fine-tuning on the pruned student. 1-cycle ablation chosen because the 3-cycle multi-cycle test surfaced the \u00a74.1.3.2 PPL/HumanEval disconnect (54.9 \u2192 46.3 across cycles)."
+    },
+    {
+      "type": "lora",
+      "name": "compensation-lora",
+      "domain": "distillation",
+      "lossType": "kl_logits",
+      "kdTemperature": 2.0,
+      "teacher": "Qwen/Qwen2.5-Coder-7B",
+      "calibrationDataset": "heldout_mix.jsonl (50 examples: code/math/science/history/multiple-choice, hand-written, disjoint from any benchmark)",
+      "steps": 500,
+      "learningRate": "1e-4",
+      "loraRank": 16,
+      "loraAlpha": 32,
+      "targetModules": [
+        "q_proj",
+        "k_proj",
+        "v_proj",
+        "o_proj",
+        "gate_proj",
+        "up_proj",
+        "down_proj"
+      ],
+      "trainableParamsPct": 0.527,
+      "teacherPrecision": "bnb-8bit",
+      "studentPrecision": "fp16-grad-checkpoint",
+      "mergedAtSave": true,
+      "notes": "PLASTICITY-COMPACTION \u00a74.1.3.3. KL divergence on output logits is the structural fix for the \u00a74.1.3.2 disconnect. Loss-function ablation: MSE-on-hidden-states collapsed the model to 0.0 (degenerate fixed point); KL-on-logits recovered to 61.0. LoRA adapter merged into student weights at save time so inference-time VRAM and tokens/sec are unchanged from the un-compensated student."
+    },
+    {
+      "type": "eval",
+      "benchmarks": [
+        {
+          "name": "humaneval",
+          "calibrated": true
+        },
+        {
+          "name": "humaneval_plus",
+          "calibrated": true
+        }
+      ],
+      "calibrationAnchor": {
+        "model": "Qwen/Qwen2.5-Coder-7B",
+        "publishedScore": 61.6,
+        "publishedSource": "Qwen2.5-Coder Technical Report Table 5, arXiv:2409.12186",
+        "measuredScore": 62.2,
+        "delta": 0.6,
+        "tolerance": 3.0,
+        "passed": true
+      },
+      "notes": "All HumanEval numbers are anchor-calibrated against the unmodified Qwen2.5-Coder-7B base measured on the same hardware/pipeline in the same run. Hard-fail tolerance: \u00b13.0 points. Anchor delta: +0.6/+0.7 vs Qwen-published 61.6/53.0, deterministic across 6+ independent runs."
+    }
+  ],
+  "cycles": 1,
+  "hardware": {
+    "minVramGb": 16,
+    "recommendedVramGb": 24,
+    "deviceTargets": [
+      "rtx3090",
+      "rtx4090",
+      "rtx5090"
+    ]
+  },
+  "results": {
+    "baselinePerplexity": null,
+    "finalPerplexity": null,
+    "improvementPct": null,
+    "benchmarks": [
+      {
+        "name": "humaneval",
+        "metric": "pass@1",
+        "score": 61.0,
+        "baseScore": 62.2,
+        "delta": -1.2,
+        "calibrated": true,
+        "withinCalibrationTolerance": true,
+        "samplesPath": "eval/humaneval/humaneval_samples.jsonl",
+        "resultHash": "sha256:1d7d6404d962824aae828c3e52395c2298854698668bd11e4a61d63588df030f"
+      },
+      {
+        "name": "humaneval_plus",
+        "metric": "pass@1",
+        "score": 53.0,
+        "baseScore": 53.7,
+        "delta": -0.7,
+        "calibrated": true,
+        "withinCalibrationTolerance": true,
+        "samplesPath": "eval/humaneval/humaneval_samples.jsonl",
+        "resultHash": "sha256:1d7d6404d962824aae828c3e52395c2298854698668bd11e4a61d63588df030f"
+      }
+    ],
+    "lossFunctionAblation": [
+      {
+        "lossType": "mse_hidden",
+        "humaneval": 0.0,
+        "humaneval_plus": 0.0,
+        "outcome": "degenerate fixed point \u2014 model collapsed to outputting '0'"
+      },
+      {
+        "lossType": "kl_logits",
+        "humaneval": 61.0,
+        "humaneval_plus": 53.0,
+        "outcome": "near-base recovery within calibration tolerance"
+      }
+    ],
+    "fourRunProgression": [
+      {
+        "run": 1,
+        "config": "broken global-flat L2-weight",
+        "humaneval": 50.0
+      },
+      {
+        "run": 2,
+        "config": "layer-normalized activation, 1-cycle 500-step",
+        "humaneval": 54.9
+      },
+      {
+        "run": 3,
+        "config": "layer-normalized activation, 3-cycle (ablation)",
+        "humaneval": 46.3
+      },
+      {
+        "run": 4,
+        "config": "1-cycle + KL compensation LoRA",
+        "humaneval": 61.0
+      }
+    ],
+    "hardwareVerified": [
+      {
+        "device": "NVIDIA GeForce RTX 5090",
+        "vramGb": 32
+      }
+    ],
+    "integrity": {
+      "trustLevel": "self-attested",
+      "fileHashes": [
+        {
+          "filename": "model.safetensors",
+          "sha256": "5bc5e7f38b8f44152d711cfcfe18710b7800545756b79280dc1166a027d47c50",
+          "size": 15231271816
+        }
+      ],
+      "modelHash": "sha256:156247b9f9b25d302651e2540f1dad58d57ffacd8cd43ded17ddaefd16300faf"
+    }
+  },
+  "methodologyPaperUrl": "https://github.com/CambrianTech/continuum/blob/main/docs/papers/PLASTICITY-COMPACTION.md",
+  "limitations": [
+    "This model is currently a methodology demonstration rather than a Pareto-optimal artifact at any specific hardware tier. For production code workloads on smaller hardware, the unmodified Qwen2.5-Coder-7B at standard quantization (Q4_K_M / Q5_K_M / Q8_0) may be a better fit pending the larger Qwen3.5+ forges that exercise the pruning dimension where this methodology actually wins.",
+    "Validated on HumanEval / HumanEval+ for English-language Python code completion. Performance on other programming languages, code paradigms (functional, embedded, kernel), or code-adjacent domains (SQL, regex, shell) has not been measured.",
+    "Ships as fp16 only. GGUF quantization tiers (Q5_K_S / Q3_K_M / Q2_K) are not yet published for this artifact; the per-tier comparison from the development log showed base+quant dominates v2+quant at every VRAM tier on the same 7B base, which is why the methodology validation here uses fp16 and the production GGUF publishes are reserved for the Qwen3.5+ forges where the dimension flips.",
+    "Vision modality not yet wired in. The Continuum sensory architecture treats vision as first-class for personas, but this 7B coder artifact is text-only."
+  ],
+  "receipt": {
+    "publications": [
+      {
+        "target": "huggingface",
+        "url": "https://huggingface.co/continuum-ai/v2-7b-coder-compensated",
+        "publishedAt": "2026-04-08T05:02:57.072577+00:00"
+      }
+    ],
+    "issuedAt": "2026-04-08T05:02:57.072577+00:00"
+  }
+}

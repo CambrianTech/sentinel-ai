@@ -1,0 +1,95 @@
+{
+  "name": "qwen3.5-0.8b-general-forged",
+  "version": "1.0.0",
+  "description": "Forged Qwen/Qwen3.5-0.8B for general domain",
+  "author": "continuum-ai",
+  "tags": [
+    "general",
+    "forged",
+    "experiential-plasticity",
+    "forge-alloy"
+  ],
+  "license": "apache-2.0",
+  "source": {
+    "baseModel": "Qwen/Qwen3.5-0.8B",
+    "architecture": "qwen3_5"
+  },
+  "stages": [
+    {
+      "type": "prune",
+      "strategy": "entropy",
+      "level": 0.0
+    },
+    {
+      "type": "train",
+      "domain": "general",
+      "dataset": "Salesforce/wikitext",
+      "steps": 500,
+      "learningRate": "5e-05"
+    }
+  ],
+  "cycles": 1,
+  "results": {
+    "completedAt": "2026-04-06T11:02:49-0500",
+    "baselinePerplexity": 27.04,
+    "finalPerplexity": 18.86,
+    "improvementPct": 30.3,
+    "benchmarks": [
+      {
+        "name": "perplexity",
+        "metrics": {
+          "baseline": 27.04,
+          "final": 18.86,
+          "improvement_pct": 30.3
+        }
+      }
+    ],
+    "hardwareVerified": [
+      {
+        "device": "NVIDIA GeForce RTX 5090",
+        "format": "fp16",
+        "verified": true
+      }
+    ],
+    "samples": [
+      {
+        "label": "Analysis",
+        "prompt": "(general generation sample)",
+        "completion": "Prompt: Analyze the economic implications of widespread adoption of local AI models running on consumer hardware. Consider impacts on cloud providers, data privacy regulations, employment in AI services, and the democratization of intelligence. Use specific examples and data points.\n\nGenerated:\nAnalyze the economic implications of widespread adoption of local AI models running on consumer hardware. Consider impacts on cloud providers, data privacy regulations, employment in AI services, and the democratization of intelligence. Use specific examples and data points."
+      },
+      {
+        "label": "Synthesis",
+        "prompt": "(general generation sample)",
+        "completion": "Prompt: Compare the governance structures of the EU AI Act, China's AI regulations, and the US executive order on AI. Identify the fundamental philosophical differences, practical enforcement challenges, and predict convergence or divergence over the next decade.\n\nGenerated:\nCompare the governance structures of the EU AI Act, China's AI regulations, and the US executive order on AI. Identify the fundamental philosophical differences, practical enforcement challenges, and predict convergence or divergence over the next decade. Provide a brief summary of how each policy should be interpreted in practice . \n@-@ @-@"
+      },
+      {
+        "label": "Technical Writing",
+        "prompt": "(general generation sample)",
+        "completion": "Prompt: Write a technical blog post explaining how attention head pruning with experiential plasticity can make large language models smaller AND better. Target audience: ML engineers who know transformers but not pruning. Include analogies to biological neural development.\n\nGenerated:\nWrite a technical blog post explaining how attention head pruning with experiential plasticity can make large language models smaller AND better. Target audience: ML engineers who know transformers but not pruning. Include analogies to biological neural development. Use Markdown \n @-@ hashtags @-@ ."
+      },
+      {
+        "label": "Nuanced Opinion",
+        "prompt": "(general generation sample)",
+        "completion": "Prompt: Make a balanced argument for and against open-sourcing frontier AI models. Address safety concerns, innovation velocity, competitive dynamics between nations, and the specific case of models capable of autonomous code execution. Don't hedge \u2014 take clear positions on each sub-question.\n\nGenerated:\nMake a balanced argument for and against open-sourcing frontier AI models. Address safety concerns, innovation velocity, competitive dynamics between nations, and the specific case of models capable of autonomous code execution. Don't hedge \u2014 take clear positions on each sub-question."
+      }
+    ],
+    "integrity": {
+      "trustLevel": "self-attested",
+      "code": {
+        "runner": "sentinel-ai/forge_model",
+        "version": "3.0.0",
+        "binaryHash": "sha256:42fb027d203dec8fe8f3978266e4ee7240e0c5a97cd30ec8fa83b5cc5a796994"
+      },
+      "modelHash": "sha256:28d12c1c24595a6d82ddfd490fd111139f8a47e72b28d1bcccdcca429c404ef4",
+      "datasets": [],
+      "attestedAt": "2026-04-06T11:02:49-0500",
+      "fileHashes": [
+        {
+          "filename": "model.safetensors",
+          "sha256": "3feade2c1d564618c69f18d68e373a50417759af7b7efc94f8b561a43d95f7d2",
+          "size": 1504827288
+        }
+      ]
+    }
+  }
+}

@@ -143,8 +143,191 @@ def execute_alloy(alloy_path: str, output_dir: str = None, dry_run: bool = False
     cfg = ForgeConfig.auto(ctx.info["fp16_gb"], vram_gb)
     ctx.tier = cfg.tier
     ctx.load_4bit = cfg.load_4bit
-    ctx.device = torch.cuda.get_device_name(0)
-    ctx.model, ctx.tokenizer = load_model(load_path, cfg.load_4bit)
+    # ctx.device must be a TORCH DEVICE STRING (e.g. "cuda:0"), not the
+    # GPU display name. tensor.to(ctx.device) requires the former.
+    # The display name is only useful for logging — keep it on a
+    # separate field if needed downstream.
+    ctx.device = "cuda:0" if torch.cuda.is_available() else "cpu"
+    ctx.device_name = torch.cuda.get_device_name(0) if torch.cuda.is_available() else "cpu"
+
+    # Resolve the family adapter from source.architecture BEFORE loading
+    # the model so we can ask it which transformers AutoModel class to
+    # use. Default is AutoModelForCausalLM (dense LLM); VL families
+    # override to AutoModelForVision2Seq, omni to AutoModel, etc.
+    auto_class = None
+    try:
+        from adapters import resolve_family_adapter
+        family = resolve_family_adapter(alloy["source"]["architecture"])
+        auto_class = family.model_auto_class()
+    except Exception as e:
+        print(f"  WARN: could not resolve family auto_class, falling back to default: {e}")
+
+    # Streaming load decision: if the model's actual on-disk size
+    # exceeds the GPU VRAM AND we're not using 4-bit quant, use
+    # Accelerate's streaming device_map. This is the only path that
+    # works for big-MoE models (Mixtral 8x7B ~93GB, Mixtral 8x22B
+    # ~280GB) that exceed CPU RAM if loaded all at once. The CPU-first
+    # path (existing default) is preserved for smaller models because
+    # of the RTX 5090 + Mamba2 sm_120 kernel workaround.
+    #
+    # IMPORTANT: we use the actual on-disk safetensors size, NOT
+    # ctx.info["fp16_gb"], because get_model_info computes its size from
+    # dense-model param math (h, n, intermediate_size) which DRAMATICALLY
+    # undercounts MoE models. For Mixtral 8x7B, the dense math returns
+    # ~14GB (one expert) but the actual model is ~93GB (8 experts per
+    # layer). Using the dense math here would skip streaming on the
+    # exact models that need it most. The disk size doesn't lie.
+    #
+    # Heuristic: on_disk_gb > vram_gb triggers streaming. This catches
+    # every case where the model couldn't fit on GPU directly anyway, and
+    # is conservative enough that small dense models keep the existing
+    # CPU-first path.
+    # Resolve the on-disk source path EARLY (before load_model) so the
+    # streaming decision can measure actual safetensors sizes. This
+    # populates ctx.source_model_dir up front; the post-load block
+    # below becomes a no-op for the case where it's already set.
+    on_disk_gb = 0.0
+    early_source_dir = None
+    try:
+        from pathlib import Path as _P
+        if _P(load_path).exists():
+            early_source_dir = str(_P(load_path).resolve())
+        else:
+            from huggingface_hub import snapshot_download
+            early_source_dir = snapshot_download(
+                repo_id=load_path, local_files_only=True,
+            )
+        ctx.source_model_dir = early_source_dir
+        sm_dir = _P(early_source_dir)
+        on_disk_gb = sum(
+            f.stat().st_size for f in sm_dir.glob("*.safetensors")
+        ) / 1e9
+        if on_disk_gb == 0:
+            on_disk_gb = sum(
+                f.stat().st_size for f in sm_dir.rglob("*.safetensors")
+            ) / 1e9
+    except Exception as e:
+        print(f"  WARN: early source-dir resolution failed: {e}")
+
+    # Fall back to ctx.info if we couldn't measure on disk. The dense
+    # math is wrong for MoE but better than nothing.
+    if on_disk_gb == 0:
+        on_disk_gb = ctx.info.get("fp16_gb", 0)
+        print(f"  on-disk measurement failed, falling back to computed fp16_gb={on_disk_gb:.1f}GB")
+    else:
+        n_shards = len(list(_P(early_source_dir).rglob("*.safetensors"))) if early_source_dir else 0
+        print(f"  on-disk model size: {on_disk_gb:.1f}GB across {n_shards} safetensors files")
+    model_fp16_gb = on_disk_gb  # for downstream logging
+
+    # ── Load strategy decision tree (from the 2026-04-10 py-spy diagnosis) ─
+    #
+    # The decision is a three-way branch based on model size vs hardware:
+    #
+    #   (a) Model fits in VRAM in fp16 → load fp16 to CPU then move to CUDA
+    #       (the existing default path, preserves the RTX 5090 + Mamba2
+    #       sm_120 kernel workaround for CPU-init). Fast inference because
+    #       the whole model is on GPU.
+    #
+    #   (b) Model DOESN'T fit in fp16 but DOES fit in 4-bit → force 4-bit
+    #       loading. The entire model lands on GPU in quantized form.
+    #       Forward passes are GPU-bound and fast (no device swapping).
+    #       This is the FIX for the Mixtral 8x7B pathological slow case:
+    #       the previous streaming-load path (c) worked for loading but
+    #       made inference catastrophically slow because every forward
+    #       pass triggered dozens of CPU⇔GPU tensor copies via
+    #       Accelerate's pre_forward hook → set_module_tensor_to_device.
+    #       py-spy on bigmama 2026-04-10 showed the main thread pinned
+    #       in set_module_tensor_to_device for over an hour while the
+    #       baseline eval crawled through a single forward pass.
+    #
+    #       The activation profile stage produces valid results at 4-bit
+    #       because it counts router-gate activations (relative ordering
+    #       of expert firing frequency), which is robust to quantization.
+    #       The expert-prune stage downstream reads fp16 safetensors from
+    #       ctx.source_model_dir (disk), not the in-memory model, so
+    #       pruning precision is unaffected by the quantized load.
+    #
+    #   (c) Model doesn't fit even in 4-bit → streaming-load with
+    #       device_map="auto" and disk overflow. This is the only path
+    #       for truly huge models (Mixtral 8x22B at ~70GB in 4-bit on a
+    #       32GB GPU). Forward passes WILL be slow because of CPU⇔GPU
+    #       swapping — plan for hours-long activation profiles.
+    #
+    # Approximate 4-bit size: on_disk_gb / 4 (fp16 → 4-bit ≈ 4x compression).
+    # Use a conservative 3.5x to account for overhead.
+    approx_4bit_gb = on_disk_gb / 3.5
+    model_too_big_for_fp16 = (not cfg.load_4bit) and (on_disk_gb > vram_gb)
+    model_fits_in_4bit = approx_4bit_gb <= vram_gb * 0.9  # 90% headroom
+
+    if model_too_big_for_fp16 and model_fits_in_4bit:
+        # Path (b): force 4-bit. The model is too big for fp16 on GPU
+        # but fits in 4-bit. This gives us fast GPU-bound inference
+        # instead of the pathological CPU⇔GPU swap path.
+        print(
+            f"  Model too big for fp16 ({on_disk_gb:.1f}GB > {vram_gb:.1f}GB VRAM) "
+            f"but fits in 4-bit (~{approx_4bit_gb:.1f}GB ≤ {vram_gb:.1f}GB). "
+            f"Forcing 4-bit load for fast inference."
+        )
+        cfg = ForgeConfig(
+            tier="C", load_4bit=True,
+            batch_size=1, seq_len=256, grad_accum_steps=8,
+            lora_r=16, lora_alpha=32, use_8bit_optim=True,
+            pruning_method="forward_hooks",
+        )
+        ctx.tier = cfg.tier
+        ctx.load_4bit = cfg.load_4bit
+        ctx.model, ctx.tokenizer = load_model(load_path, cfg.load_4bit, auto_class=auto_class)
+
+    elif model_too_big_for_fp16 and not model_fits_in_4bit:
+        # Path (c): streaming-load with device_map="auto". Model doesn't
+        # fit even in 4-bit. Forward passes will be slow (CPU⇔GPU swap)
+        # but at least the model loads. Plan for hours-long stages.
+        max_gpu = max(int(vram_gb) - 2, 8)
+        try:
+            import psutil
+            total_ram_gb = psutil.virtual_memory().total / 1e9
+            max_cpu = max(int(total_ram_gb) - 12, 16)
+        except Exception:
+            max_cpu = 50
+        print(
+            f"  Model too big even for 4-bit (~{approx_4bit_gb:.1f}GB > {vram_gb:.1f}GB). "
+            f"Streaming-load enabled (fp16={on_disk_gb:.1f}GB): "
+            f"GPU≤{max_gpu}GiB, CPU≤{max_cpu}GiB, "
+            f"disk overflow→/mnt/d/cold/hf-offload. "
+            f"WARNING: forward passes will be slow due to CPU⇔GPU device swapping."
+        )
+        ctx.model, ctx.tokenizer = load_model(
+            load_path, cfg.load_4bit, auto_class=auto_class,
+            streaming=True,
+            streaming_max_gpu_gb=max_gpu,
+            streaming_max_cpu_gb=max_cpu,
+        )
+    else:
+        # Path (a): model fits on GPU in fp16. The happy path.
+        ctx.model, ctx.tokenizer = load_model(load_path, cfg.load_4bit, auto_class=auto_class)
+
+    # Populate ctx.source_model_dir — the absolute on-disk path to the
+    # source model files. Family adapter expert_prune methods need this
+    # for the streaming CPU pruner (it walks safetensors shards directly,
+    # not via the in-memory model object). For HF-cached models, resolve
+    # the snapshot path via huggingface_hub.snapshot_download with
+    # local_files_only=True (no network — just returns the cache path
+    # if the model is already loaded).
+    try:
+        from pathlib import Path as _P
+        if _P(load_path).exists():
+            # Already a local path
+            ctx.source_model_dir = str(_P(load_path).resolve())
+        else:
+            # HF id — resolve snapshot path from the cache
+            from huggingface_hub import snapshot_download
+            ctx.source_model_dir = snapshot_download(
+                repo_id=load_path, local_files_only=True,
+            )
+        print(f"  source_model_dir: {ctx.source_model_dir}")
+    except Exception as e:
+        print(f"  WARN: could not resolve source_model_dir: {e}")
+        ctx.source_model_dir = None
 
     # Input stages
     print("\n[2] Input stages...")
@@ -281,9 +464,14 @@ def execute_alloy(alloy_path: str, output_dir: str = None, dry_run: bool = False
 
 
 def _find_domain(transform_stages: list) -> str:
-    """Extract domain from train stages."""
+    """Extract domain from train stages.
+
+    Pydantic-loaded alloys include None for unset Optional fields, so
+    'domain' in s is True even when the recipe didn't set it. Check
+    truthy via .get() so the fallback fires correctly.
+    """
     for s in transform_stages:
-        if s["type"] in ("train", "lora") and "domain" in s:
+        if s["type"] in ("train", "lora") and s.get("domain"):
             return s["domain"]
     return "general"
 

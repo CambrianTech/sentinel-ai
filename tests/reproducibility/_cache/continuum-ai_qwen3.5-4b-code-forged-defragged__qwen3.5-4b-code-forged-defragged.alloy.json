@@ -1,0 +1,113 @@
+{
+  "name": "qwen3.5-4b-code-forged-defragged",
+  "version": "1.0.0",
+  "description": "DEFRAGGED derivative of [`qwen3.5-4b-code-forged`](https://huggingface.co/continuum-ai/qwen3.5-4b-code-forged). Same forge journey as the parent (prune + train as published in the parent's alloy); this artifact adds a single 'defragged' transformation stage to produce a smaller / faster / more-portable variant of the same logical model. Inherits the parent's published benchmark results; per-variant evaluation samples will land in a follow-up release if/when per-variant benchmarks are run.",
+  "author": "continuum-ai",
+  "tags": [
+    "alloy-backfilled",
+    "forge-alloy",
+    "defragged",
+    "delta-forge",
+    "derivative"
+  ],
+  "license": "apache-2.0",
+  "source": {
+    "baseModel": "Qwen/Qwen3.5-4B",
+    "architecture": "qwen3_5",
+    "isMoE": false
+  },
+  "stages": [
+    {
+      "type": "train",
+      "domain": "code",
+      "steps": 1000,
+      "learningRate": "2e-4"
+    },
+    {
+      "type": "quant",
+      "format": "gguf",
+      "quantTypes": [
+        "Q4_K_M"
+      ],
+      "deviceTargets": []
+    },
+    {
+      "type": "eval",
+      "benchmarks": [
+        {
+          "name": "humaneval"
+        }
+      ],
+      "compareToBase": true
+    },
+    {
+      "type": "package",
+      "format": "safetensors-defragged",
+      "validateOn": [],
+      "includeTokenizer": true,
+      "notes": "Defrag-only derivative of the parent forge. The parent's prune stage marks heads as dead via forward-hooks; this artifact reifies that pruning by physically reshaping the projection matrices to remove the dead heads' parameters. Behaviorally equivalent to the parent (same logits per surviving head); structurally smaller on disk and in VRAM."
+    }
+  ],
+  "cycles": 3,
+  "derivedFrom": {
+    "repo": "continuum-ai/qwen3.5-4b-code-forged",
+    "alloyHash": null,
+    "kind": "defragged"
+  },
+  "results": {
+    "completedAt": "2026-03-31T12:13:43-0500",
+    "baselinePerplexity": 3.0382,
+    "finalPerplexity": 2.3487,
+    "improvementPct": 22.7,
+    "benchmarks": [
+      {
+        "name": "perplexity",
+        "metrics": {
+          "baseline": 3.0382,
+          "final": 2.3487,
+          "improvement": 22.7
+        }
+      },
+      {
+        "name": "humaneval",
+        "subset": null,
+        "metrics": {
+          "status": "pending"
+        },
+        "submittedToLeaderboard": false
+      }
+    ],
+    "hardwareVerified": [
+      {
+        "device": "NVIDIA GeForce RTX 5090",
+        "format": "fp16",
+        "verified": true
+      }
+    ],
+    "samples": [],
+    "integrity": {
+      "trustLevel": "self-attested",
+      "code": {
+        "runner": "sentinel-ai/derive_alloy_from_parent (defragged)",
+        "version": "1.0",
+        "binaryHash": "sha256:derivation-tool-only"
+      },
+      "modelHash": "sha256:4d59fce78f3541375dbc1adf849fa0474426dd4036fe958bad4e9270d7fe776d",
+      "fileHashes": [
+        {
+          "filename": "model-00001-of-00002.safetensors",
+          "sha256": "a1bd60ee8c791971867535382ac26a59165d04f6ba41a39bb7365bed37b41c07",
+          "size": 5351237632
+        },
+        {
+          "filename": "model-00002-of-00002.safetensors",
+          "sha256": "a5529bb11406d9d72422c6728453e10b32628976cc6304f3c0ebe99fa6f3c16e",
+          "size": 2913513560
+        }
+      ],
+      "datasets": [],
+      "attestedAt": "2026-04-08",
+      "parentAlloyHash": null
+    }
+  }
+}

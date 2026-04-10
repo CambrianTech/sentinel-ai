@@ -1,0 +1,124 @@
+{
+  "name": "qwen3.5-4b-code-forged-GGUF",
+  "version": "1.0.0",
+  "description": "GGUF derivative of [`qwen3.5-4b-code-forged`](https://huggingface.co/continuum-ai/qwen3.5-4b-code-forged). Same forge journey as the parent (prune + train as published in the parent's alloy); this artifact adds a single 'gguf' transformation stage to produce a smaller / faster / more-portable variant of the same logical model. Inherits the parent's published benchmark results; per-variant evaluation samples will land in a follow-up release if/when per-variant benchmarks are run.",
+  "author": "continuum-ai",
+  "tags": [
+    "derivative",
+    "delta-forge",
+    "alloy-backfilled",
+    "gguf",
+    "forge-alloy"
+  ],
+  "license": "apache-2.0",
+  "source": {
+    "baseModel": "Qwen/Qwen3.5-4B",
+    "architecture": "qwen3_5",
+    "isMoE": false
+  },
+  "stages": [
+    {
+      "type": "train",
+      "domain": "code",
+      "steps": 1000,
+      "learningRate": "2e-4"
+    },
+    {
+      "type": "quant",
+      "format": "gguf",
+      "quantTypes": [
+        "Q4_K_M"
+      ],
+      "deviceTargets": []
+    },
+    {
+      "type": "eval",
+      "benchmarks": [
+        {
+          "name": "humaneval"
+        }
+      ],
+      "compareToBase": true
+    },
+    {
+      "type": "quant",
+      "format": "gguf",
+      "quantTypes": [
+        "Q4_K_M",
+        "Q8_0"
+      ],
+      "deviceTargets": [
+        "macbook-pro-m-series",
+        "macbook-air-16gb",
+        "rtx3060",
+        "rtx4070",
+        "rtx4090",
+        "iphone",
+        "android"
+      ],
+      "notes": "GGUF quantization of the parent's safetensors weights via llama.cpp llama-quantize. Targets llama.cpp / Ollama / LM Studio / koboldcpp inference runtimes. Q4_K_M and Q8_0 shipped together so users can pick the size/quality tier their hardware supports."
+    }
+  ],
+  "cycles": 3,
+  "derivedFrom": {
+    "repo": "continuum-ai/qwen3.5-4b-code-forged",
+    "alloyHash": null,
+    "kind": "gguf"
+  },
+  "results": {
+    "completedAt": "2026-03-31T12:13:43-0500",
+    "baselinePerplexity": 3.0382,
+    "finalPerplexity": 2.3487,
+    "improvementPct": 22.7,
+    "benchmarks": [
+      {
+        "name": "perplexity",
+        "metrics": {
+          "baseline": 3.0382,
+          "final": 2.3487,
+          "improvement": 22.7
+        }
+      },
+      {
+        "name": "humaneval",
+        "subset": null,
+        "metrics": {
+          "status": "pending"
+        },
+        "submittedToLeaderboard": false
+      }
+    ],
+    "hardwareVerified": [
+      {
+        "device": "NVIDIA GeForce RTX 5090",
+        "format": "fp16",
+        "verified": true
+      }
+    ],
+    "samples": [],
+    "integrity": {
+      "trustLevel": "self-attested",
+      "code": {
+        "runner": "sentinel-ai/derive_alloy_from_parent (gguf)",
+        "version": "1.0",
+        "binaryHash": "sha256:derivation-tool-only"
+      },
+      "modelHash": "sha256:03dd512b17b85b9b4ee6614bc6dd46c08d0bc8e07b92f01b2934540e4f5cbb96",
+      "fileHashes": [
+        {
+          "filename": "qwen3.5-4b-code-forged-Q4_K_M.gguf",
+          "sha256": "15c8ebc22ac16e3e922041f25d285f8a322e228196de0e9b12592b8bf8b7646e",
+          "size": 2708797184
+        },
+        {
+          "filename": "qwen3.5-4b-code-forged-Q8_0.gguf",
+          "sha256": "c56465451bef33353a1f075d670d07bb11c11f60d4463c6bd4fb24f6155acd40",
+          "size": 4482395904
+        }
+      ],
+      "datasets": [],
+      "attestedAt": "2026-04-08",
+      "parentAlloyHash": null
+    }
+  }
+}
