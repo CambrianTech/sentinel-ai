@@ -228,7 +228,8 @@ class SubstrateVectorSpace:
 
                 # Learned read temperature (scalar). log-parameterized
                 # so it stays positive.
-                self.log_temperature = nn.Parameter(torch.tensor(torch.log(torch.tensor(temp_init))))
+                import math
+                self.log_temperature = nn.Parameter(torch.tensor(math.log(temp_init), dtype=torch.float32))
 
             @property
             def temperature(self) -> "Tensor":
