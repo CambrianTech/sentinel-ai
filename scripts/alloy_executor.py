@@ -162,19 +162,63 @@ def execute_alloy(alloy_path: str, output_dir: str = None, dry_run: bool = False
     except Exception as e:
         print(f"  WARN: could not resolve family auto_class, falling back to default: {e}")
 
-    # Streaming load decision: if the model's fp16 size exceeds the GPU
-    # VRAM AND we're not using 4-bit quant, use Accelerate's streaming
-    # device_map. This is the only path that works for big-MoE models
-    # (Mixtral 8x7B ~93GB, Mixtral 8x22B ~280GB) that exceed CPU RAM if
-    # loaded all at once. The CPU-first path (existing default) is
-    # preserved for smaller models because of the RTX 5090 + Mamba2
-    # sm_120 kernel workaround.
+    # Streaming load decision: if the model's actual on-disk size
+    # exceeds the GPU VRAM AND we're not using 4-bit quant, use
+    # Accelerate's streaming device_map. This is the only path that
+    # works for big-MoE models (Mixtral 8x7B ~93GB, Mixtral 8x22B
+    # ~280GB) that exceed CPU RAM if loaded all at once. The CPU-first
+    # path (existing default) is preserved for smaller models because
+    # of the RTX 5090 + Mamba2 sm_120 kernel workaround.
     #
-    # Heuristic: model_fp16_gb > vram_gb triggers streaming. This catches
+    # IMPORTANT: we use the actual on-disk safetensors size, NOT
+    # ctx.info["fp16_gb"], because get_model_info computes its size from
+    # dense-model param math (h, n, intermediate_size) which DRAMATICALLY
+    # undercounts MoE models. For Mixtral 8x7B, the dense math returns
+    # ~14GB (one expert) but the actual model is ~93GB (8 experts per
+    # layer). Using the dense math here would skip streaming on the
+    # exact models that need it most. The disk size doesn't lie.
+    #
+    # Heuristic: on_disk_gb > vram_gb triggers streaming. This catches
     # every case where the model couldn't fit on GPU directly anyway, and
-    # is conservative enough that small models keep the existing path.
-    model_fp16_gb = ctx.info.get("fp16_gb", 0)
-    use_streaming = (not cfg.load_4bit) and (model_fp16_gb > vram_gb)
+    # is conservative enough that small dense models keep the existing
+    # CPU-first path.
+    # Resolve the on-disk source path EARLY (before load_model) so the
+    # streaming decision can measure actual safetensors sizes. This
+    # populates ctx.source_model_dir up front; the post-load block
+    # below becomes a no-op for the case where it's already set.
+    on_disk_gb = 0.0
+    early_source_dir = None
+    try:
+        from pathlib import Path as _P
+        if _P(load_path).exists():
+            early_source_dir = str(_P(load_path).resolve())
+        else:
+            from huggingface_hub import snapshot_download
+            early_source_dir = snapshot_download(
+                repo_id=load_path, local_files_only=True,
+            )
+        ctx.source_model_dir = early_source_dir
+        sm_dir = _P(early_source_dir)
+        on_disk_gb = sum(
+            f.stat().st_size for f in sm_dir.glob("*.safetensors")
+        ) / 1e9
+        if on_disk_gb == 0:
+            on_disk_gb = sum(
+                f.stat().st_size for f in sm_dir.rglob("*.safetensors")
+            ) / 1e9
+    except Exception as e:
+        print(f"  WARN: early source-dir resolution failed: {e}")
+
+    # Fall back to ctx.info if we couldn't measure on disk. The dense
+    # math is wrong for MoE but better than nothing.
+    if on_disk_gb == 0:
+        on_disk_gb = ctx.info.get("fp16_gb", 0)
+        print(f"  on-disk measurement failed, falling back to computed fp16_gb={on_disk_gb:.1f}GB")
+    else:
+        n_shards = len(list(_P(early_source_dir).rglob("*.safetensors"))) if early_source_dir else 0
+        print(f"  on-disk model size: {on_disk_gb:.1f}GB across {n_shards} safetensors files")
+    use_streaming = (not cfg.load_4bit) and (on_disk_gb > vram_gb)
+    model_fp16_gb = on_disk_gb  # for downstream logging
     if use_streaming:
         # Reserve some headroom on each device — leave 2GiB on GPU for
         # activations and 12GiB on CPU for working memory + Python.
