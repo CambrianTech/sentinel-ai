@@ -102,6 +102,9 @@ def _moe_geometry(model) -> tuple[int, int, int]:
     """
     cfg = model.config
     num_layers = cfg.num_hidden_layers
+    # MoE field names vary across families: Qwen3MoE/Olmoe use num_experts,
+    # GraniteMoE/Mixtral use num_local_experts, DeepSeek-V2 uses
+    # n_routed_experts. Try in order.
     num_experts = (
         getattr(cfg, "num_experts", None)
         or getattr(cfg, "num_local_experts", None)
@@ -248,7 +251,8 @@ def _profile_inner(
     _log(f"wrote {output}")
 
     # Quick stats: per-layer top-5 activation counts. Pick first / mid / last
-    # layer dynamically so this works on any model depth.
+    # layer dynamically so this works on any model depth (Qwen3-Coder-30B has
+    # 48 layers, OLMoE has 16, Granite-3.1-3b-a800m has 32, etc.).
     _log("per-layer top expert counts (sample):")
     sample_layers = sorted({0, num_layers // 2, num_layers - 1})
     for li in sample_layers:
