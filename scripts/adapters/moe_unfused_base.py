@@ -316,8 +316,9 @@ class MoEUnfusedExpertsBase(FamilyAdapter):
             f.stat().st_size for f in _P(pruned_out).glob("*.safetensors")
         ) / 1e9
         vram_gb = torch.cuda.get_device_properties(0).total_memory / 1e9
-        use_4bit = pruned_gb > vram_gb
-        self.log(f"  pruned on-disk: {pruned_gb:.1f}GB, VRAM: {vram_gb:.1f}GB → {'4-bit' if use_4bit else 'fp16'}")
+        # Force fp16 for post-prune reload. BnB 0.49.2 compat issue.
+        use_4bit = False
+        self.log(f"  pruned on-disk: {pruned_gb:.1f}GB, VRAM: {vram_gb:.1f}GB → fp16 (BnB 0.49.2 compat)")
         ctx.model, ctx.tokenizer = load_model(
             str(pruned_out),
             load_4bit=use_4bit,

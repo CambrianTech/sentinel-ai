@@ -279,8 +279,12 @@ class MixtralAdapter(FamilyAdapter):
             f.stat().st_size for f in _P(pruned_out).glob("*.safetensors")
         ) / 1e9
         vram_gb = torch.cuda.get_device_properties(0).total_memory / 1e9
-        use_4bit = pruned_gb > vram_gb
-        self.log(f"  pruned on-disk: {pruned_gb:.1f}GB, VRAM: {vram_gb:.1f}GB → {'4-bit' if use_4bit else 'fp16'}")
+        # Force fp16 for post-prune reload. BnB 0.49.2's 4-bit path has
+        # too many meta-tensor bugs with pruned MoE safetensors (kinks
+        # #13-#14). The fp16 streaming path is slow but WORKS. The eval
+        # runs overnight. TODO: switch to 4-bit when BnB >= 0.50 ships.
+        use_4bit = False
+        self.log(f"  pruned on-disk: {pruned_gb:.1f}GB, VRAM: {vram_gb:.1f}GB → fp16 (4-bit deferred, BnB 0.49.2 compat)")
         ctx.model, ctx.tokenizer = load_model(
             str(pruned_out),
             load_4bit=use_4bit,
