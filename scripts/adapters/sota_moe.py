@@ -250,6 +250,19 @@ class MixtralAdapter(FamilyAdapter):
                 f"BEFORE expert-prune in the same alloy."
             )
 
+        # FREE THE MODEL BEFORE PRUNING. The prune pass reads safetensor
+        # shards from disk — it does not need the loaded model. On 8x22B
+        # the model eats 30+ GB; the prune pass needs 10+ GB for shard
+        # buffers. Together they exceed 64GB → OOM killed.
+        # Kink #14 from 2026-04-10 Mixtral 8x22B forge.
+        import torch, gc
+        if ctx.model is not None:
+            self.log("  freeing model before prune (saves ~30GB RAM)")
+            del ctx.model
+            ctx.model = None
+            gc.collect()
+            torch.cuda.empty_cache()
+
         metadata = prune_experts(
             model_dir=src_model_dir,
             out_dir=pruned_out,
