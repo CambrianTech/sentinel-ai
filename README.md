@@ -46,6 +46,18 @@ Improvement from [experiential plasticity](https://github.com/CambrianTech/conti
 
 Domain-specific training (Qwen3.5-4B on code) exceeds generic-text results (Qwen2.5-7B on wikitext) despite being a smaller model.
 
+### MoE Expert Pruning (§4.1.3.4)
+
+Calibration-aware expert activation count pruning. Profile which experts actually fire on a held-out corpus, remove the ones that don't. The surviving experts are the ones the model uses.
+
+| Model | Experts | Kept | PPL (base) | PPL (forged) | Δ | Size (Q4_K_M) |
+|-------|---------|------|-----------|-------------|---|--------------|
+| **[Mixtral 8x7B](https://huggingface.co/continuum-ai/mixtral-8x7b-instruct-compacted-conservative)** | 8 | 6 | 8.14 | **8.97** | +10.2% | **20 GB** |
+| **Mixtral 8x22B** | 8 | 6 | 7.81 | **~8.18** | +4.7% | **60 GB** |
+| [Qwen3-Coder-30B-A3B](https://huggingface.co/continuum-ai/qwen3-coder-30b-a3b-compacted-19b-256k) | 128 | 80 | — | — | — | — |
+
+Same methodology across independently-trained model families. The calibration corpus determines which experts survive — change the corpus, change the specialization. [Full methodology →](https://github.com/CambrianTech/continuum/blob/main/docs/papers/PLASTICITY-COMPACTION.md)
+
 ### Continuous Defrag
 
 Traditional pruning masks heads but doesn't free memory. **[Continuous defrag](docs/CONTINUOUS-DEFRAG.md)** structurally removes dead heads between cycles — the model gets physically smaller, freeing VRAM for larger batch sizes. Each cycle trains faster than the last.
@@ -173,6 +185,20 @@ python experiments/experiment_self_directed.py --model_name gpt2-medium
 | [Neural Plasticity Evidence](paper/NEURAL-PLASTICITY-EVIDENCE.ipynb) | All experimental results with publication figures |
 | [Self-Directed Plasticity](paper/SELF-DIRECTED-PLASTICITY.ipynb) | V1→V2→PID controller evolution with transfer function analysis |
 | [Colab Demo](colab_notebooks/NeuralPlasticityDemo.ipynb) | Run on free Colab T4 GPU [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/CambrianTech/sentinel-ai/blob/main/colab_notebooks/NeuralPlasticityDemo.ipynb) |
+
+## The Model Compiler
+
+forge-alloy + sentinel-ai = a **compiler for neural networks**. You write a recipe (source code), the forge optimizes it for your hardware (target architecture), the benchmarks verify it (test suite), and the attestation proves it (build manifest).
+
+```
+Recipe → Profile → Search → Prune → Quantize → Evaluate → Publish
+         (PGO)    (optimizer)  (dead code    (codegen)   (test)   (ship)
+                                elimination)
+```
+
+The search is FAST: size filter (instant) → quality estimate (instant) → quick eval (2 min) → full eval (40 min). Only the winning configuration gets the expensive evaluation. Domain specialization comes from the calibration corpus — `-march=coding` prunes experts that don't fire on code. Same source model, different domain, different optimized output.
+
+**Adapters make it extensible.** Every model family, pruning strategy, quantization format, and benchmark is an adapter. New model released? Write an adapter. New hardware target? Write a quant adapter. New training technique? Write a stage adapter. The community contributes adapters, the compiler integrates them. [Full architecture →](https://github.com/CambrianTech/forge-alloy/blob/main/docs/MODEL-COMPILER.md)
 
 ## The Factory Pipeline
 
