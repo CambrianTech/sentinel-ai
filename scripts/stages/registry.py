@@ -11,6 +11,7 @@ from .transform_stages import (
     ExpertActivationProfileExecutor,
 )
 from .output_stages import QuantExecutor, PackageExecutor, EvalExecutor, DeliverExecutor, PublishExecutor, DeployExecutor
+from .many_worlds_stages import ManyWorldsSubstrateExecutor, ManyWorldsAdapterExecutor
 
 STAGE_EXECUTORS: dict[str, type[StageExecutor]] = {
     # Input stages (front of pipeline)
@@ -24,6 +25,10 @@ STAGE_EXECUTORS: dict[str, type[StageExecutor]] = {
     "lora": TrainExecutor,  # LoRA is a training variant — same executor for now
     "expert-activation-profile": ExpertActivationProfileExecutor,
     "expert-prune": ExpertPruneExecutor,
+
+    # Many-Worlds stages (cross-model substrate)
+    "many-worlds-substrate": ManyWorldsSubstrateExecutor,
+    "many-worlds-adapter": ManyWorldsAdapterExecutor,
 
     # Output stages (end of pipeline)
     "quant": QuantExecutor,
