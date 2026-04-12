@@ -33,7 +33,8 @@ from qformer import SubstrateQFormer
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--source", default="Qwen/Qwen3-1.7B")
+    parser.add_argument("--source", default="Qwen/Qwen3-1.7B",
+                        help="Comma-separated source models (N models for N-way substrate)")
     parser.add_argument("--target", default="microsoft/phi-2")
     parser.add_argument("--corpus", required=True)
     parser.add_argument("--substrate-dim", type=int, default=256)
@@ -56,28 +57,36 @@ def main():
             if text.strip():
                 corpus.append(text)
 
+    source_names = [s.strip() for s in args.source.split(",")]
+
     print(f"{'='*60}")
-    print(f"MANY-WORLDS v11 — Q-Former Bridge")
+    print(f"MANY-WORLDS v11 — Q-Former Bridge ({len(source_names)} sources)")
     print(f"{'='*60}")
-    print(f"Source: {args.source} (frozen)")
+    print(f"Sources: {source_names}")
     print(f"Target: {args.target} (frozen)")
     print(f"Substrate: dim={args.substrate_dim}")
     print(f"Q-Former: {args.num_queries} queries, 2 layers")
     print(f"Steps: {args.steps}, LR: {args.lr}")
     print(f"Corpus: {len(corpus)} examples")
 
-    # Load source (frozen)
-    print(f"\nLoading {args.source}...")
-    source_model = AutoModelForCausalLM.from_pretrained(
-        args.source, torch_dtype=torch.bfloat16, device_map=device)
-    source_model.eval()
-    for p in source_model.parameters():
-        p.requires_grad = False
-    source_tok = AutoTokenizer.from_pretrained(args.source)
-    source_tok.pad_token = source_tok.pad_token or source_tok.eos_token
-    src_dim = source_model.config.hidden_size
-    src_layers = source_model.config.num_hidden_layers
-    src_extract = int(src_layers * 2 / 3)  # middle-ish layer, not final
+    # Load N source models (all frozen)
+    source_models = {}
+    source_toks = {}
+    source_extracts = {}
+    for sname in source_names:
+        print(f"\nLoading source: {sname}...")
+        sm = AutoModelForCausalLM.from_pretrained(
+            sname, torch_dtype=torch.bfloat16, device_map=device)
+        sm.eval()
+        for p in sm.parameters():
+            p.requires_grad = False
+        stok = AutoTokenizer.from_pretrained(sname)
+        stok.pad_token = stok.pad_token or stok.eos_token
+        src_extract = int(sm.config.num_hidden_layers * 2 / 3)
+        source_models[sname] = sm
+        source_toks[sname] = stok
+        source_extracts[sname] = src_extract
+        print(f"  {sname}: hidden={sm.config.hidden_size}, extract layer {src_extract}")
 
     # Load target (frozen)
     print(f"Loading {args.target}...")
@@ -109,17 +118,21 @@ def main():
     substrate = SubstrateVectorSpace(
         SubstrateConfig(dimensionality=args.substrate_dim, num_bases=128), device=device)
 
-    # Source adapter — extracts at 2/3 depth, per-token (no pooling)
-    src_adapter = AdapterPair(
-        AdapterConfig(
-            residual_hidden_size=src_dim,
-            substrate_dim=args.substrate_dim,
-            lora_rank=args.substrate_dim,
-            layer_idx=src_extract,
-        ),
-        args.source, device=device,
-    )
-    print(f"  Source adapter: layer {src_extract}, rank {args.substrate_dim}")
+    # Per-source adapters — one adapter per source model
+    src_adapters = {}
+    for sname in source_names:
+        src_dim = source_models[sname].config.hidden_size
+        src_adapter = AdapterPair(
+            AdapterConfig(
+                residual_hidden_size=src_dim,
+                substrate_dim=args.substrate_dim,
+                lora_rank=args.substrate_dim,
+                layer_idx=source_extracts[sname],
+            ),
+            sname, device=device,
+        )
+        src_adapters[sname] = src_adapter
+        print(f"  Adapter {sname.split('/')[-1]}: layer {source_extracts[sname]}, rank {args.substrate_dim}")
 
     # Q-Former bridge — target_scale set from measured embedding norm
     qformer = SubstrateQFormer(
@@ -133,20 +146,18 @@ def main():
     print(f"  Q-Former: vocab-grounded output ({embed_layer.weight.shape[0]} tokens)")
 
     qf_params = sum(p.numel() for p in qformer.parameters())
-    ad_params = sum(p.numel() for p in src_adapter.parameters())
+    ad_params = sum(sum(p.numel() for p in a.parameters()) for a in src_adapters.values())
     sub_params = sum(p.numel() for p in substrate.parameters())
     total = qf_params + ad_params + sub_params
     print(f"  Q-Former: {qf_params:,} params")
-    print(f"  Source adapter: {ad_params:,} params")
+    print(f"  Adapters ({len(src_adapters)}): {ad_params:,} params total")
     print(f"  Substrate: {sub_params:,} params")
     print(f"  Total trainable: {total:,} ({total/1e6:.1f}M)")
 
-    # Optimizer — only Q-Former + adapter + substrate
-    all_params = (
-        list(qformer.parameters())
-        + list(src_adapter.parameters())
-        + list(substrate.parameters())
-    )
+    # Optimizer — Q-Former + all source adapters + substrate
+    all_params = list(qformer.parameters()) + list(substrate.parameters())
+    for adapter in src_adapters.values():
+        all_params.extend(adapter.parameters())
     optimizer = AdamW(all_params, lr=args.lr, weight_decay=0.01)
     warmup_steps = min(args.steps // 10, 200)
     warmup = LinearLR(optimizer, start_factor=0.01, end_factor=1.0, total_iters=warmup_steps)
@@ -162,17 +173,19 @@ def main():
     for step in range(args.steps):
         text = corpus[step % len(corpus)]
 
-        # Source forward (frozen) → hidden states at extraction layer
-        src_inputs = source_tok(text, return_tensors="pt", truncation=True, max_length=512).to(device)
-        with torch.no_grad():
-            src_out = source_model(**src_inputs, output_hidden_states=True)
-        src_hidden = src_out.hidden_states[src_extract].float()  # (1, seq, src_dim)
+        # ALL sources forward (frozen) → project each into substrate
+        substrate_fields = []
+        for sname in source_names:
+            src_inputs = source_toks[sname](text, return_tensors="pt",
+                                            truncation=True, max_length=512).to(device)
+            with torch.no_grad():
+                src_out = source_models[sname](**src_inputs, output_hidden_states=True)
+            src_hidden = src_out.hidden_states[source_extracts[sname]].float()
+            mu, _ = src_adapters[sname].project(src_hidden)  # (1, seq_i, substrate_dim)
+            substrate_fields.append(mu)
 
-        # Project into substrate — PER-TOKEN, not pooled
-        mu, _ = src_adapter.project(src_hidden)  # (1, seq, substrate_dim)
-
-        # Q-Former: learned queries cross-attend to substrate field
-        soft_tokens = qformer(mu)  # (1, num_queries, tgt_dim)
+        # Q-Former: queries cross-attend to ALL source fields simultaneously
+        soft_tokens = qformer(substrate_fields)  # (1, num_queries, tgt_dim)
 
         # Get target embeddings
         tgt_inputs = target_tok(text, return_tensors="pt", truncation=True, max_length=512).to(device)
@@ -225,16 +238,19 @@ def main():
 
     # Save
     substrate.save(str(out / "substrate.pt"))
-    src_adapter.save(str(out / f"adapter_{args.source.replace('/', '_')}.pt"))
+    for sname, adapter in src_adapters.items():
+        adapter.save(str(out / f"adapter_{sname.replace('/', '_')}.pt"))
     torch.save(qformer.state_dict(), out / "qformer.pt")
 
     meta = {
         "version": "v11",
         "architecture": "qformer_soft_prompt",
-        "models": [args.source, args.target],
+        "sources": source_names,
+        "target": args.target,
+        "models": source_names + [args.target],
         "substrate_dim": args.substrate_dim,
         "num_queries": args.num_queries,
-        "source_extract_layer": src_extract,
+        "source_extract_layers": source_extracts,
         "steps": args.steps,
         "learning_rate": args.lr,
         "corpus_size": len(corpus),
@@ -247,7 +263,8 @@ def main():
         "adapter_params": ad_params,
         "substrate_params": sub_params,
         "target_embed_norm": tgt_embed_norm,
-        "hidden_dims": {args.source: src_dim, args.target: tgt_dim},
+        "hidden_dims": {**{s: source_models[s].config.hidden_size for s in source_names},
+                        args.target: tgt_dim},
         "losses_history": losses[-100:],
     }
     (out / "training_metadata.json").write_text(json.dumps(meta, indent=2))

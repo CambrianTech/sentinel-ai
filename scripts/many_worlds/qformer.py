@@ -109,23 +109,33 @@ class SubstrateQFormer(nn.Module):
         self.embed_table = embed_weight.detach()
         self._embed_table_set = True
 
-    def forward(self, substrate_field: torch.Tensor) -> torch.Tensor:
+    def forward(self, substrate_fields) -> torch.Tensor:
         """
         Args:
-            substrate_field: (batch, src_seq, substrate_dim)
-                Per-token substrate projections from the source model.
-                NOT pooled — each source token's projection is preserved.
+            substrate_fields: either a single tensor (batch, src_seq, substrate_dim)
+                or a LIST of tensors from N source models. When multiple fields
+                are provided, they're concatenated along the sequence dimension
+                so the queries can attend to ALL source models' knowledge
+                simultaneously. The attention weights naturally learn which
+                source tokens from which model are most relevant per query.
 
         Returns:
             soft_tokens: (batch, num_queries, target_embed_dim)
                 Ready to prepend to the target model's input embeddings.
         """
+        # Handle single tensor or list of tensors
+        if isinstance(substrate_fields, (list, tuple)):
+            # Concatenate all source fields: [(B, seq_1, D), (B, seq_2, D), ...] → (B, seq_total, D)
+            substrate_field = torch.cat(substrate_fields, dim=1)
+        else:
+            substrate_field = substrate_fields
+
         B = substrate_field.shape[0]
 
         # Expand learned queries for the batch
         queries = self.queries.expand(B, -1, -1)  # (B, num_queries, substrate_dim)
 
-        # Pass through Q-Former layers
+        # Pass through Q-Former layers — queries attend to ALL source models
         for layer in self.layers:
             queries = layer(queries, substrate_field)
 
