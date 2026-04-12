@@ -62,17 +62,18 @@ class SubstrateQFormer(nn.Module):
         ])
 
         # Final projection: substrate_dim → target_embed_dim
-        # This maps from the substrate's coordinate space to the target
-        # model's embedding space. LayerNorm before projection ensures
-        # the output magnitude is controlled.
         self.norm = nn.LayerNorm(substrate_dim)
         self.out_proj = nn.Linear(substrate_dim, target_embed_dim)
+        # Output LayerNorm pins magnitude regardless of weight growth
+        self.out_norm = nn.LayerNorm(target_embed_dim)
 
-        # Initialize output projection to produce embeddings at the right scale.
-        # Target embeddings have norm ~1.5 for Phi-2. Xavier with small gain
-        # gives us the right ballpark without needing explicit normalization.
-        nn.init.xavier_uniform_(self.out_proj.weight, gain=0.02)
+        nn.init.xavier_uniform_(self.out_proj.weight, gain=0.1)
         nn.init.zeros_(self.out_proj.bias)
+
+        # Target embedding magnitude — set via set_target_scale() after
+        # measuring the actual target model's embedding norms.
+        # Default: 1.5 (typical for Phi-2). Updated at training time.
+        self.register_buffer("target_scale", torch.tensor(1.5))
 
     def forward(self, substrate_field: torch.Tensor) -> torch.Tensor:
         """
@@ -94,9 +95,19 @@ class SubstrateQFormer(nn.Module):
         for layer in self.layers:
             queries = layer(queries, substrate_field)
 
-        # Project to target embedding space
+        # Project to target embedding space with magnitude control.
+        # LayerNorm on the output GUARANTEES the magnitude stays bounded
+        # regardless of how large the projection weights grow during training.
+        # The model learns DIRECTIONS through the projection, and the
+        # output norm pins the magnitude to match real embeddings.
         queries = self.norm(queries)
         soft_tokens = self.out_proj(queries)  # (B, num_queries, target_embed_dim)
+        # LayerNorm produces norm ≈ sqrt(dim). Scale to match real embeddings.
+        soft_tokens = self.out_norm(soft_tokens)
+        # After LayerNorm, norm ≈ sqrt(target_embed_dim) ≈ 50 for dim=2560.
+        # Scale down to target_scale (≈1.5 for Phi-2 embeddings).
+        current_norm = (self.target_embed_dim ** 0.5)
+        soft_tokens = soft_tokens * (self.target_scale / current_norm)
 
         return soft_tokens
 

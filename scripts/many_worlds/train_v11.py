@@ -121,7 +121,7 @@ def main():
     )
     print(f"  Source adapter: layer {src_extract}, rank {args.substrate_dim}")
 
-    # Q-Former bridge
+    # Q-Former bridge — target_scale set from measured embedding norm
     qformer = SubstrateQFormer(
         substrate_dim=args.substrate_dim,
         target_embed_dim=tgt_dim,
@@ -129,6 +129,8 @@ def main():
         num_heads=4,
         num_layers=2,
     ).to(device)
+    qformer.target_scale.fill_(tgt_embed_norm)
+    print(f"  Q-Former target_scale: {tgt_embed_norm:.2f}")
 
     qf_params = sum(p.numel() for p in qformer.parameters())
     ad_params = sum(p.numel() for p in src_adapter.parameters())
