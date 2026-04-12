@@ -178,11 +178,10 @@ class ProjectModule:
                 self.mean_head = nn.Linear(cfg.lora_rank, cfg.substrate_dim, bias=True)
                 self.log_var_head = nn.Linear(cfg.lora_rank, cfg.substrate_dim, bias=True)
 
-                # Zero-init the output heads so the adapter starts as a
-                # no-op contribution, then learns during training.
-                nn.init.zeros_(self.mean_head.weight)
+                # Xavier init (gradient flow) + learned output_scale (magnitude control)
+                nn.init.xavier_uniform_(self.mean_head.weight, gain=0.1)
                 nn.init.zeros_(self.mean_head.bias)
-                nn.init.zeros_(self.log_var_head.weight)
+                nn.init.xavier_uniform_(self.log_var_head.weight, gain=0.1)
                 nn.init.constant_(self.log_var_head.bias, cfg.log_var_init)
 
                 self.output_scale = nn.Parameter(torch.tensor(cfg.output_scale_init))
@@ -272,13 +271,10 @@ class ReadModule:
                 self.activation = nn.GELU()
                 self.out_proj = nn.Linear(cfg.lora_rank, cfg.residual_hidden_size, bias=True)
 
-                # Zero-init the output projection so the adapter starts
-                # as a no-op contribution to the residual stream.
-                nn.init.zeros_(self.out_proj.weight)
+                # Xavier init (non-zero for gradient flow) + small learned scale
+                # (right magnitude relative to residual stream ~50-100 norm)
+                nn.init.xavier_uniform_(self.out_proj.weight, gain=0.1)
                 nn.init.zeros_(self.out_proj.bias)
-
-                # Up projection uses Xavier init so the bottleneck has
-                # some signal to work with from step 1.
                 nn.init.xavier_uniform_(self.up.weight)
 
                 self.output_scale = nn.Parameter(torch.tensor(cfg.output_scale_init))
