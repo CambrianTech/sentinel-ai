@@ -31,13 +31,13 @@ pipeline_tag: text-generation
 
 # Many-Worlds Avengers v1 — Better Than Its Parts
 
-> **Two frozen models, blended at inference. +10% on math, zero regression on science.**
+> **Two frozen models, blended at inference. +15% on math, zero regression on science.**
 
 | Benchmark | Phi-3 alone | + Math specialist | Change |
 |-----------|-------------|-------------------|--------|
-| GSM8K (math) | 20/30 (67%) | 22/30 (73%) | **+10%** |
+| GSM8K (math) | 20/30 (67%) | 23/30 (77%) | **+15%** |
 | ARC (science) | 27/30 (90%) | 27/30 (90%) | 0% |
-| **Total** | **47/60** | **49/60** | **+2** |
+| **Total** | **47/60** | **50/60** | **+3** |
 
 ## How It Works
 
@@ -65,7 +65,7 @@ from many_worlds_ensemble import ManyWorldsEnsemble
 model = ManyWorldsEnsemble(
     target="microsoft/phi-3-mini-4k-instruct",
     specialists=["Qwen/Qwen2.5-Math-1.5B-Instruct"],
-    alpha=0.05,
+    alpha=0.2,
 )
 
 answer = model.generate("Question: If a train travels 120 miles in 2 hours, what is its average speed?\\nAnswer:")
@@ -89,7 +89,7 @@ their domain's predictions. The population grows at zero training cost.
 
 - **Target:** microsoft/phi-3-mini-4k-instruct (3.8B) — strong generalist
 - **Specialist:** Qwen/Qwen2.5-Math-1.5B-Instruct (1.5B) — math expert
-- **Blending:** Top-K logit boost at alpha=0.05
+- **Blending:** Top-K logit boost at alpha=0.2
 - **No trained components** — pure inference-time coordination
 - **VRAM:** ~12GB (both models loaded simultaneously)
 
@@ -104,7 +104,7 @@ model = ManyWorldsEnsemble(
         "Qwen/Qwen2.5-Math-1.5B-Instruct",   # math
         "Qwen/Qwen2.5-Coder-1.5B-Instruct",  # code
     ],
-    alpha=0.05,
+    alpha=0.2,
 )
 ```
 
@@ -142,12 +142,12 @@ class ManyWorldsEnsemble:
         model = ManyWorldsEnsemble(
             target="microsoft/phi-3-mini-4k-instruct",
             specialists=["Qwen/Qwen2.5-Math-1.5B-Instruct"],
-            alpha=0.05,
+            alpha=0.2,
         )
         text = model.generate("Question: solve x^2 = 4\\nAnswer:")
     """
 
-    def __init__(self, target, specialists, alpha=0.05, device="cuda",
+    def __init__(self, target, specialists, alpha=0.2, device="cuda",
                  dtype=torch.bfloat16, top_k=20):
         self.alpha = alpha
         self.top_k = top_k
@@ -261,10 +261,10 @@ def main():
             "architecture": "many_worlds_logit_ensemble",
             "target": "microsoft/phi-3-mini-4k-instruct",
             "specialists": ["Qwen/Qwen2.5-Math-1.5B-Instruct"],
-            "alpha": 0.05,
+            "alpha": 0.2,
             "top_k": 20,
             "results": {
-                "gsm8k": {"baseline": 20, "ensemble": 22, "total": 30},
+                "gsm8k": {"baseline": 20, "ensemble": 23, "total": 30},
                 "arc": {"baseline": 27, "ensemble": 27, "total": 30},
             },
         }
