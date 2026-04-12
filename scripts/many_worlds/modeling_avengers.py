@@ -133,6 +133,7 @@ class AvengersModel(PreTrainedModel):
             num_queries=self.config.num_queries,
         ).to(device)
         self.qformer.set_embedding_table(self.embed_layer.weight)
+        self.qformer.set_target_model(self.target_model, self.target_tok, self.embed_layer)
         self.qformer.load_state_dict(
             torch.load(path / "qformer.pt", map_location=device, weights_only=True))
         self.qformer.eval()
@@ -202,13 +203,15 @@ class AvengersModel(PreTrainedModel):
         # Compute substrate fields from all sources
         fields = self.compute_substrate_fields(input_text)
 
-        # Q-Former: queries attend to all source fields
-        soft_tokens = self.qformer(fields)  # (1, num_queries, tgt_dim)
-
-        # Target embeddings
+        # Target input IDs (needed for confidence gating)
         if input_ids is None:
             input_ids = self.target_tok(input_text, return_tensors="pt",
                                        truncation=True, max_length=1024).to(device)["input_ids"]
+
+        # Q-Former: queries attend to all source fields
+        # Passes target_input_ids so the confidence gate can measure
+        # the target model's uncertainty on this specific input
+        soft_tokens = self.qformer(fields, target_input_ids=input_ids)
 
         with torch.no_grad():
             real_embeds = self.embed_layer(input_ids)

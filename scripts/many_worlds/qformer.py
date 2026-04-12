@@ -100,6 +100,17 @@ class SubstrateQFormer(nn.Module):
         nn.init.zeros_(self.confidence_head[2].weight)
         nn.init.constant_(self.confidence_head[2].bias, -1.0)  # sigmoid(-1) ≈ 0.27
 
+    def set_target_model(self, target_model, target_tokenizer, embed_layer):
+        """Set the target model for input-conditioned confidence gating.
+
+        The Q-Former measures the target model's uncertainty on each input
+        and gates its contribution accordingly. High uncertainty = gate open.
+        Low uncertainty = gate closed, output fades to neutral.
+        """
+        self._target_model = target_model
+        self._target_tok = target_tokenizer
+        self._embed_layer = embed_layer
+
     def set_embedding_table(self, embed_weight: torch.Tensor):
         """Set the target model's embedding table (frozen, not trained).
 
@@ -109,7 +120,7 @@ class SubstrateQFormer(nn.Module):
         self.embed_table = embed_weight.detach()
         self._embed_table_set = True
 
-    def forward(self, substrate_fields) -> torch.Tensor:
+    def forward(self, substrate_fields, target_input_ids=None) -> torch.Tensor:
         """
         Args:
             substrate_fields: either a single tensor (batch, src_seq, substrate_dim)
@@ -159,17 +170,32 @@ class SubstrateQFormer(nn.Module):
         # Weighted sum of real embeddings — result IS in embedding space
         soft_tokens = torch.matmul(attn_weights, vocab)  # (B, Q, D)
 
-        # Confidence gate — per-query scalar that controls how much
-        # the substrate contributes. Low confidence → soft tokens fade
-        # toward the vocab mean (neutral padding the model ignores).
-        # High confidence → full substrate signal passes through.
-        confidence = torch.sigmoid(self.confidence_head(queries))  # (B, Q, 1)
+        # INPUT-CONDITIONED confidence gate.
+        # The target model's own uncertainty determines how much the
+        # substrate contributes. Computed from the target's hidden states
+        # on this specific input — not a learned global scalar.
+        #
+        # High target uncertainty (doesn't know the answer) → gate opens
+        # Low target uncertainty (already knows) → gate stays shut
+        if target_input_ids is not None and hasattr(self, '_target_model') and self._target_model is not None:
+            with torch.no_grad():
+                tgt_out = self._target_model(target_input_ids)
+                # Entropy of last token's prediction = uncertainty
+                logits = tgt_out.logits[0, -1].float()
+                probs = torch.softmax(logits, dim=-1)
+                entropy = -(probs * torch.log(probs + 1e-10)).sum()
+                max_entropy = torch.log(torch.tensor(float(logits.shape[-1])))
+                # uncertainty in [0, 1]: 0 = certain, 1 = maximally uncertain
+                uncertainty = (entropy / max_entropy).clamp(0, 1)
 
-        # Neutral baseline: mean of the vocab embeddings (a "nothing" token)
-        vocab_mean = vocab.mean(dim=0, keepdim=True)  # (1, D)
-
-        # Blend: confidence * substrate_tokens + (1-confidence) * neutral
-        soft_tokens = confidence * soft_tokens + (1 - confidence) * vocab_mean
+            # Scale soft tokens by uncertainty — confident inputs get near-zero
+            # contribution, uncertain inputs get full substrate signal
+            soft_tokens = soft_tokens * uncertainty
+        else:
+            # Fallback: use learned per-query confidence (training mode)
+            confidence = torch.sigmoid(self.confidence_head(queries))
+            vocab_mean = vocab.mean(dim=0, keepdim=True)
+            soft_tokens = confidence * soft_tokens + (1 - confidence) * vocab_mean
 
         return soft_tokens
 
