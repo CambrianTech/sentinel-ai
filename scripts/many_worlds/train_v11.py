@@ -129,8 +129,8 @@ def main():
         num_heads=4,
         num_layers=2,
     ).to(device)
-    qformer.target_scale.fill_(tgt_embed_norm)
-    print(f"  Q-Former target_scale: {tgt_embed_norm:.2f}")
+    qformer.set_embedding_table(embed_layer.weight)
+    print(f"  Q-Former: vocab-grounded output ({embed_layer.weight.shape[0]} tokens)")
 
     qf_params = sum(p.numel() for p in qformer.parameters())
     ad_params = sum(p.numel() for p in src_adapter.parameters())

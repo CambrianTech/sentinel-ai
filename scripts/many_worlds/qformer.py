@@ -61,19 +61,37 @@ class SubstrateQFormer(nn.Module):
             for _ in range(num_layers)
         ])
 
-        # Final projection: substrate_dim → target_embed_dim
+        # Vocabulary-grounded output: instead of projecting to an arbitrary
+        # vector in embedding space, project to LOGITS over the target model's
+        # vocabulary, then softmax → weighted sum of REAL token embeddings.
+        # Every soft token is a "mixture word" that the model already knows
+        # how to process, because it's made of words the model was trained on.
+        #
+        # This is the adapter pattern from Continuum: the output must be in a
+        # format the CONSUMER understands. The consumer (Phi-2) understands
+        # token embeddings. We translate substrate concepts into Phi-2's
+        # native vocabulary.
         self.norm = nn.LayerNorm(substrate_dim)
-        self.out_proj = nn.Linear(substrate_dim, target_embed_dim)
-        # Output LayerNorm pins magnitude regardless of weight growth
-        self.out_norm = nn.LayerNorm(target_embed_dim)
+        self.vocab_proj = nn.Linear(substrate_dim, target_embed_dim)
+        # vocab_proj outputs are used to compute attention over the embedding table
+        # (not a direct vocab logit — we attend in embedding space)
 
-        nn.init.xavier_uniform_(self.out_proj.weight, gain=0.1)
-        nn.init.zeros_(self.out_proj.bias)
+        nn.init.xavier_uniform_(self.vocab_proj.weight, gain=0.1)
+        nn.init.zeros_(self.vocab_proj.bias)
 
-        # Target embedding magnitude — set via set_target_scale() after
-        # measuring the actual target model's embedding norms.
-        # Default: 1.5 (typical for Phi-2). Updated at training time.
-        self.register_buffer("target_scale", torch.tensor(1.5))
+        # The target model's embedding table — set via set_embedding_table()
+        # after loading the target model. NOT a parameter (frozen).
+        self.register_buffer("embed_table", torch.zeros(1, 1))  # placeholder
+        self._embed_table_set = False
+
+    def set_embedding_table(self, embed_weight: torch.Tensor):
+        """Set the target model's embedding table (frozen, not trained).
+
+        Call this after loading the target model:
+            qformer.set_embedding_table(target_model.embed_tokens.weight)
+        """
+        self.embed_table = embed_weight.detach()
+        self._embed_table_set = True
 
     def forward(self, substrate_field: torch.Tensor) -> torch.Tensor:
         """
@@ -95,19 +113,27 @@ class SubstrateQFormer(nn.Module):
         for layer in self.layers:
             queries = layer(queries, substrate_field)
 
-        # Project to target embedding space with magnitude control.
-        # LayerNorm on the output GUARANTEES the magnitude stays bounded
-        # regardless of how large the projection weights grow during training.
-        # The model learns DIRECTIONS through the projection, and the
-        # output norm pins the magnitude to match real embeddings.
+        # Vocabulary-grounded output: each query → attention weights over
+        # the target model's real token embeddings → weighted sum.
+        # The result is guaranteed to be in the target model's embedding
+        # space because it IS a combination of real embeddings.
         queries = self.norm(queries)
-        soft_tokens = self.out_proj(queries)  # (B, num_queries, target_embed_dim)
-        # LayerNorm produces norm ≈ sqrt(dim). Scale to match real embeddings.
-        soft_tokens = self.out_norm(soft_tokens)
-        # After LayerNorm, norm ≈ sqrt(target_embed_dim) ≈ 50 for dim=2560.
-        # Scale down to target_scale (≈1.5 for Phi-2 embeddings).
-        current_norm = (self.target_embed_dim ** 0.5)
-        soft_tokens = soft_tokens * (self.target_scale / current_norm)
+        query_proj = self.vocab_proj(queries)  # (B, num_queries, target_embed_dim)
+
+        # Compute attention weights over the vocabulary
+        # query_proj: (B, Q, D) @ embed_table.T: (D, V) → (B, Q, V)
+        vocab = self.embed_table.float()  # (V, D) — frozen target embeddings
+        attn_logits = torch.matmul(query_proj, vocab.t())  # (B, Q, V)
+
+        # Temperature-scaled softmax — sharp attention picks specific tokens,
+        # smooth attention blends many tokens. Learned temperature.
+        attn_logits = attn_logits / (self.target_embed_dim ** 0.5)
+        attn_weights = F.softmax(attn_logits, dim=-1)  # (B, Q, V)
+
+        # Weighted sum of real embeddings — result IS in embedding space
+        soft_tokens = torch.matmul(attn_weights, vocab)  # (B, Q, D)
+        # No magnitude control needed — output is a convex combination of
+        # real embeddings, so it has the same magnitude as real embeddings.
 
         return soft_tokens
 
