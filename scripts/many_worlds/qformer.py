@@ -84,6 +84,22 @@ class SubstrateQFormer(nn.Module):
         self.register_buffer("embed_table", torch.zeros(1, 1))  # placeholder
         self._embed_table_set = False
 
+        # Confidence gate — learns WHEN to contribute.
+        # Takes the Q-Former's processed queries and produces a per-query
+        # scalar confidence in [0, 1]. When the substrate has useful info,
+        # confidence is high. When the target already knows the answer,
+        # confidence is low and the soft tokens fade toward the mean
+        # embedding (effectively becoming padding that the model ignores).
+        self.confidence_head = nn.Sequential(
+            nn.Linear(substrate_dim, substrate_dim // 4),
+            nn.GELU(),
+            nn.Linear(substrate_dim // 4, 1),
+        )
+        # Initialize slightly negative so confidence starts LOW (~0.3)
+        # The gate must EARN the right to contribute by proving it helps
+        nn.init.zeros_(self.confidence_head[2].weight)
+        nn.init.constant_(self.confidence_head[2].bias, -1.0)  # sigmoid(-1) ≈ 0.27
+
     def set_embedding_table(self, embed_weight: torch.Tensor):
         """Set the target model's embedding table (frozen, not trained).
 
@@ -132,8 +148,18 @@ class SubstrateQFormer(nn.Module):
 
         # Weighted sum of real embeddings — result IS in embedding space
         soft_tokens = torch.matmul(attn_weights, vocab)  # (B, Q, D)
-        # No magnitude control needed — output is a convex combination of
-        # real embeddings, so it has the same magnitude as real embeddings.
+
+        # Confidence gate — per-query scalar that controls how much
+        # the substrate contributes. Low confidence → soft tokens fade
+        # toward the vocab mean (neutral padding the model ignores).
+        # High confidence → full substrate signal passes through.
+        confidence = torch.sigmoid(self.confidence_head(queries))  # (B, Q, 1)
+
+        # Neutral baseline: mean of the vocab embeddings (a "nothing" token)
+        vocab_mean = vocab.mean(dim=0, keepdim=True)  # (1, D)
+
+        # Blend: confidence * substrate_tokens + (1-confidence) * neutral
+        soft_tokens = confidence * soft_tokens + (1 - confidence) * vocab_mean
 
         return soft_tokens
 
